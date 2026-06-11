@@ -1,6 +1,6 @@
 # ConfidenceOS — Project Context Document
 
-> **Last Updated:** 2026-06-11 | **Sprint Day:** 1 | **Active Work:** Module 1 complete — awaiting review before Module 2
+> **Last Updated:** 2026-06-11 | **Sprint Day:** 2 | **Active Work:** Modules 1–3 complete — Module 4 next
 
 ## Project Summary
 
@@ -72,8 +72,12 @@ confidenceOS/
 │   ├── main.py                   # FastAPI app — WebSocket /ws/sensors, REST /api/*
 │   ├── database.py               # SQLAlchemy setup — SensorReading & AnomalyLog models
 │   ├── simulator.py              # SensorSimulator class — 6 sensors, 4 failure modes
+│   ├── confidence.py             # Confidence Scoring Engine — composite 0–100% per sensor
+│   ├── mass_balance.py           # Mass-Balance Engine — conservation-of-mass cross-check
 │   ├── scenario.json             # Texas City compressed demo scenario
 │   ├── test_simulator.py         # 10 unit tests for the simulator (all passing)
+│   ├── test_confidence.py        # 12 unit tests for confidence engine (all passing)
+│   ├── test_mass_balance.py      # 24 unit tests for mass-balance engine (all passing)
 │   └── venv/                     # Python virtual environment (not committed)
 │
 └── frontend/
@@ -93,8 +97,8 @@ confidenceOS/
 | Module | Owner | Status | Notes |
 |--------|-------|--------|-------|
 | 1. Sensor Simulator | Backend | **Done** | 6 sensors, 4 failure modes, WebSocket 1Hz, SQLite persistence, 10/10 tests passing |
-| 2. Confidence Scoring Engine | Backend | Not Started | Composite 0–100% trust score per sensor |
-| 3. Mass-Balance Cross-Check | Backend | Not Started | Conservation-of-mass real-time check |
+| 2. Confidence Scoring Engine | Backend | **Done** | Composite 0–100% trust score, 4 sub-scores, PRD weights, tier classification, reason strings. 12/12 tests passing. REST: GET /api/confidence, /api/confidence/{sensor_id}. WebSocket stream includes confidence data. |
+| 3. Mass-Balance Cross-Check | Backend | **Done** | Rolling 15-min trapezoidal integration, configurable tolerance, INFO→WARNING→CRITICAL escalation. 24/24 tests passing. REST: GET /api/mass-balance/flags, /api/mass-balance/state. WebSocket stream includes implied_level, measured_level, discrepancy. |
 | 4. Sensor Health Timeline | Full Stack | Not Started | Per-sensor history view |
 | 5. Startup Mode | Frontend | Not Started | Heightened scrutiny UI overlay |
 | 6. Shift Handover Brief | Backend + AI | Not Started | Claude API natural-language brief |
@@ -102,12 +106,13 @@ confidenceOS/
 
 ## Current Sprint
 
-- **Sprint Day:** 1
-- **Active Work:** Module 1 (Sensor Simulator) — **COMPLETE**, awaiting user review
-- **Next Up:** Module 2 (Confidence Scoring Engine) — pending review approval
+- **Sprint Day:** 2
+- **Active Work:** Modules 1–3 all **COMPLETE** and tested
+- **Next Up:** Module 4 (Sensor Health Timeline) or Module 7 (React Dashboard)
 
-## Module 1 Test Results
+## Test Results
 
+### Module 1 — Sensor Simulator (10/10)
 ```
 10 passed, 0 failed, 10 total
 - All 6 sensor types present
@@ -122,7 +127,40 @@ confidenceOS/
 - Failure timing respects start_time
 ```
 
-WebSocket tested end-to-end: 6 readings at 1 Hz, SQLite persistence verified, REST history API working.
+### Module 2 — Confidence Scoring Engine (12/12)
+```
+12 passed, 0 failed, 12 total
+- Tier classification matches PRD spec
+- Texas City calibration score = 0.478 (expected ~0.478)
+- Fresh calibration yields score = 1.0
+- Expired calibration yields score = 0.0
+- Default weights sum to 1.0 and match PRD [0.30, 0.20, 0.30, 0.20]
+- All 6 sensors scored
+- Healthy sensors all have HIGH confidence
+- Reason strings present and human-readable
+- Out-of-envelope reading has correct plausibility score
+- to_dict() format has all expected keys
+- Stuck sensor stability scoring works
+```
+
+### Module 3 — Mass-Balance Cross-Check (24/24)
+```
+24 passed, 0 failed, 24 total
+- Balanced flow produces no flags and near-zero discrepancy
+- Inflow excess raises flags with correct severity
+- Escalation: INFO → WARNING → CRITICAL at correct thresholds
+- Only highest severity flag reported
+- Reset clears all state and flags
+- Trapezoidal integration accurate (5.00 ft = expected 5.00 ft)
+- Outflow excess gives negative implied_delta
+- Implied level starts at measured level and tracks flow
+- Missing sensors returns neutral state
+- to_dict() and Flag.to_dict() formats correct
+- Severity multipliers match PRD (1x, 2x, 4x)
+- Default window = 900 seconds (15 min)
+```
+
+WebSocket tested end-to-end: 6 readings at 1 Hz, SQLite persistence verified, REST APIs for confidence and mass-balance working.
 
 ## Known Issues / Blockers
 
