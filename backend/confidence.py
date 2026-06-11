@@ -133,9 +133,41 @@ class ConfidenceEngine:
         self._last_change_time: dict[str, float] = {}
         self._last_change_value: dict[str, float] = {}
 
+        # Tier threshold overrides (Module 5 — Startup Mode)
+        # When set, _get_tier uses these thresholds instead of the defaults.
+        self._tier_thresholds: dict[str, int] | None = None
+
     def set_calibration_age(self, sensor_id: str, days: float) -> None:
         """Set the simulated calibration age for a sensor (days since last cal)."""
         self.calibration_ages[sensor_id] = days
+
+    def set_tier_thresholds(self, thresholds: dict[str, int]) -> None:
+        """
+        Override tier classification thresholds (for Startup Mode).
+
+        Args:
+            thresholds: dict with keys HIGH, MEDIUM, LOW, CRITICAL mapping to
+                        minimum percentage for that tier.
+                        e.g. {"HIGH": 80, "MEDIUM": 70, "LOW": 20, "CRITICAL": 0}
+        """
+        self._tier_thresholds = thresholds
+
+    def clear_tier_thresholds(self) -> None:
+        """Clear tier overrides — revert to default thresholds."""
+        self._tier_thresholds = None
+
+    def _get_tier(self, pct: float) -> str:
+        """Classify confidence percentage into a tier, respecting any overrides."""
+        if self._tier_thresholds:
+            if pct >= self._tier_thresholds.get("HIGH", 80):
+                return "HIGH"
+            elif pct >= self._tier_thresholds.get("MEDIUM", 50):
+                return "MEDIUM"
+            elif pct >= self._tier_thresholds.get("LOW", 20):
+                return "LOW"
+            else:
+                return "CRITICAL"
+        return _tier_from_pct(pct)
 
     def score_readings(self, readings: list[dict]) -> list[ConfidenceResult]:
         """
@@ -190,7 +222,7 @@ class ConfidenceEngine:
                 + w.physical_plausibility * phys_score
             )
             pct = round(max(0.0, min(100.0, composite * 100)), 1)
-            tier = _tier_from_pct(pct)
+            tier = self._get_tier(pct)
 
             results.append(ConfidenceResult(
                 sensor_id=sid,

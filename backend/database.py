@@ -62,3 +62,80 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+# ─── Helper functions (Module 4: Sensor Health Timeline) ─────────────────────
+
+def log_anomaly(
+    db,
+    sensor_id: str,
+    anomaly_type: str,
+    description: str,
+    severity: str,
+) -> AnomalyLog:
+    """
+    Persist an anomaly to the AnomalyLog table.
+
+    Args:
+        db: SQLAlchemy session
+        sensor_id: e.g. "LT-5100"
+        anomaly_type: e.g. "confidence_critical", "stuck_reading", "drift"
+        description: human-readable reason string
+        severity: "INFO", "WARNING", or "CRITICAL"
+
+    Returns:
+        The created AnomalyLog entry.
+    """
+    entry = AnomalyLog(
+        sensor_id=sensor_id,
+        anomaly_type=anomaly_type,
+        description=description,
+        severity=severity,
+    )
+    db.add(entry)
+    db.commit()
+    return entry
+
+
+def get_recent_anomalies(
+    db,
+    sensor_id: str | None = None,
+    limit: int = 20,
+    hours: float = 24.0,
+) -> list[dict]:
+    """
+    Query recent anomalies from the AnomalyLog table.
+
+    Args:
+        db: SQLAlchemy session
+        sensor_id: filter to a specific sensor, or None for all
+        limit: max number of results
+        hours: how far back to look
+
+    Returns:
+        List of anomaly dicts sorted by timestamp descending.
+    """
+    from datetime import timedelta
+    cutoff = datetime.utcnow() - timedelta(hours=hours)
+
+    query = db.query(AnomalyLog).filter(AnomalyLog.timestamp >= cutoff)
+    if sensor_id:
+        query = query.filter(AnomalyLog.sensor_id == sensor_id)
+
+    entries = (
+        query.order_by(AnomalyLog.timestamp.desc())
+        .limit(limit)
+        .all()
+    )
+
+    return [
+        {
+            "id": e.id,
+            "sensor_id": e.sensor_id,
+            "anomaly_type": e.anomaly_type,
+            "description": e.description,
+            "severity": e.severity,
+            "timestamp": e.timestamp.isoformat() if e.timestamp else None,
+        }
+        for e in entries
+    ]
