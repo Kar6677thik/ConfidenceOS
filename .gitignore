@@ -17,6 +17,8 @@ htmlcov/
 *.db
 *.sqlite
 *.sqlite3
+*-wal
+*-shm
 
 # Node / Frontend
 node_modules/
@@ -27,6 +29,8 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 .eslintcache
+.vite/
+*.log
 
 # Environment variables
 .env
