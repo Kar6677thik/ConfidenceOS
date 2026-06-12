@@ -3,7 +3,7 @@
   "failures": [
     {
       "sensor_id": "ZT-6100",
-      "mode": "command_state_decoupling",
+      "failure_type": "command_state_decoupling",
       "start_time": 0
     }
   ]

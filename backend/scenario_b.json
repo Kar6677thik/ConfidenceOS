@@ -3,13 +3,13 @@
   "failures": [
     {
       "sensor_id": "TT-4100",
-      "mode": "calibration_drift",
+      "failure_type": "calibration_drift",
       "drift_rate": 0.4,
       "start_time": 0
     },
     {
       "sensor_id": "PT-3100",
-      "mode": "calibration_drift",
+      "failure_type": "calibration_drift",
       "drift_rate": 0.25,
       "start_time": 60
     }
