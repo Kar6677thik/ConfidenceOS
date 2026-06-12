@@ -59,7 +59,7 @@ function EmptyState() {
 function CalibrationCard({ calibration }) {
   if (!calibration) return null;
 
-  const { age, score, status } = calibration;
+  const { age_days: age, score, status } = calibration;
   const badgeStyle = CALIBRATION_STATUS_STYLES[status] || CALIBRATION_STATUS_STYLES.OK;
 
   return (
@@ -126,7 +126,7 @@ function AnomalyLog({ anomalies }) {
               </span>
               {/* Content */}
               <div className="min-w-0 flex-1">
-                <p className="text-sm text-gray-300 leading-snug">{entry.message}</p>
+                <p className="text-sm text-gray-300 leading-snug">{entry.description || entry.message}</p>
                 {entry.timestamp && (
                   <p className="text-[10px] text-gray-600 mt-1">
                     {new Date(entry.timestamp).toLocaleString()}
@@ -262,7 +262,7 @@ export default function HealthTimeline({ sensorId, apiBase = '/api' }) {
         <>
           <CalibrationCard calibration={healthData.calibration} />
           <AnomalyLog anomalies={healthData.anomalies} />
-          <DriftSparkline driftData={healthData.driftTrend} />
+          <DriftSparkline driftData={healthData.drift_trend?.values?.map((v, i) => ({ value: v, time: i }))} />
         </>
       )}
     </div>

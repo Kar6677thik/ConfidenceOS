@@ -117,17 +117,17 @@ export default function HandoverBrief({ apiBase = '/api' }) {
   // ── Copy to clipboard ──────────────────────────────────────────────────
 
   const handleCopy = useCallback(async () => {
-    if (!brief?.text) return;
+    if (!brief?.brief) return;
 
     try {
-      await navigator.clipboard.writeText(brief.text);
+      await navigator.clipboard.writeText(brief.brief);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
       console.error('[HandoverBrief] Copy failed:', err);
       // Fallback for older browsers
       const textarea = document.createElement('textarea');
-      textarea.value = brief.text;
+      textarea.value = brief.brief;
       textarea.style.position = 'fixed';
       textarea.style.opacity = '0';
       document.body.appendChild(textarea);
@@ -245,16 +245,16 @@ export default function HandoverBrief({ apiBase = '/api' }) {
           {/* Metadata row */}
           <div className="flex items-center gap-3 mb-4 pb-3 border-b border-gray-700/40">
             <SourceBadge source={brief.source} />
-            {brief.timestamp && (
+            {brief.generated_at && (
               <span className="text-[10px] text-gray-600 font-mono">
-                {new Date(brief.timestamp).toLocaleString()}
+                {new Date(brief.generated_at).toLocaleString()}
               </span>
             )}
           </div>
 
           {/* Formatted brief text with monospaced font */}
           <div className="font-mono text-[13px] leading-relaxed">
-            {renderBriefContent(brief.text)}
+            {renderBriefContent(brief.brief)}
           </div>
         </div>
       )}
