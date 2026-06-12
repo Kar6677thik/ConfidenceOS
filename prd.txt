@@ -1,432 +1,1101 @@
+# ConfidenceOS — Product Requirements Document
+## Version 2.0 | ABB Accelerator 2026 | CONFIDENTIAL
 
-HACKATHON PROJECT — PRODUCT REQUIREMENTS DOCUMENT
+**Institute of Aeronautical Engineering, Hyderabad**
+**Top 6 of 1000 Teams — Prototype Phase**
 
-ConfidenceOS
-The HMI That Knows What It Does Not Know
+---
 
+> *"At 1:04 PM on March 23, 2005, the raffinate splitter tower was 158 feet full of liquid.*
+> *The HMI showed operators 7.9 feet. No alarm fired. 15 people died."*
+>
+> — U.S. Chemical Safety Board, BP Texas City Investigation Report, 2007
 
-Theme: Next-Gen Control System Interface
-Institute of Aeronautical Engineering, Hyderabad
-Version 1.0  |  May 2026
+---
 
-"At 1:04 PM on March 23, 2005, the raffinate splitter tower was 158 feet full of liquid. The HMI showed operators 7.9 feet. No alarm fired. 15 people died." — U.S. Chemical Safety Board, BP Texas City Investigation Report, 2007
+## Document Map
 
- 
-0. Executive Summary
+| Section | Title |
+|---------|-------|
+| 0 | Executive Summary — What Changed |
+| 1 | The Problem (Carried Forward + Extended) |
+| 2 | What We Already Built — V1 Recap |
+| 3 | The V2 Vision — From Tool to Platform |
+| 4 | New Feature Specifications |
+| 5 | New Screens — Full UX Specification |
+| 6 | Extended Architecture |
+| 7 | Extended Tech Stack |
+| 8 | ABB Integration Strategy |
+| 9 | Demo Strategy — Making Judges Use It |
+| 10 | Sprint Plan |
+| 11 | Risks and Mitigations |
+| 12 | References |
 
+---
 
-Every other team at this hackathon will build a smarter alarm filter. They will read "alarm fatigue" in the problem statement and optimize the list. We will not.
-ConfidenceOS attacks a fundamentally different — and far more dangerous — problem: industrial HMIs that display sensor readings with false certainty. The gap between what a sensor reports and what is physically true has caused at least three catastrophic industrial disasters in modern history, costing over 30 lives and $3 billion in damages. No existing HMI addresses this gap. We will.
-ConfidenceOS is an intelligent control system interface that attaches a real-time confidence score to every sensor reading, runs a continuous mass-balance cross-check engine against physical conservation laws, surfaces sensor health degradation visually before it becomes a crisis, and auto-generates a structured shift handover brief so that known unknowns never get silently passed between operators.
-This document is the complete specification for what we build over the next two weeks: architecture, modules, simulator design, tech stack, sprint plan, and demo strategy.
+## 0. Executive Summary — What Changed
 
-CORE THESIS
-This is not a UI redesign. This is a philosophical reframe of what an HMI is for.
-The HMI job is not just to show data. Its job is to show data AND how much to trust that data.
-That distinction has never been implemented in a consumer or industrial HMI at this level. We are first.
+Version 1.0 proved the concept. We got top 6 out of 1000 teams on the strength of one idea: **HMIs should be honest about what they don't know.** The confidence scoring engine, the mass-balance cross-check, the shift handover brief — these were right. The judges understood the insight immediately.
 
- 
-1. The Problem — Grounded in Real Accidents
+Version 2.0 is not more of the same. It is a transformation of ConfidenceOS from a **single-plant monitoring dashboard** into a **full industrial intelligence platform** that judges can walk up to, use without instruction, and immediately understand is production-ready.
 
+The five things V2 adds that V1 could not do:
 
-The industrial control systems community has spent 30 years trying to reduce alarm count. EEMUA Publication 191 (the gold standard for alarm management, referenced by regulators worldwide) was published in 1999. Twenty-seven years later, alarm floods still kill people. Why? Because the community is solving the wrong problem.
-The real problem is not alarm volume. The real problem is epistemic blindness — operators cannot tell which readings to trust.
+1. **Predict failures before they happen** — not just flag what is wrong now, but forecast what will fail and when, with a confidence interval.
+2. **Let anyone ask the system anything in plain English** — a natural language interface so judges who have never seen an HMI can query the plant like a search engine.
+3. **Show the whole fleet, not just one plant** — a multi-plant enterprise view where a single screen shows three facilities and one is going critical in real time.
+4. **Replay any historical incident forensically** — including the Texas City timeline, reconstructed to the minute, so judges can scrub through history and see exactly when ConfidenceOS would have saved lives.
+5. **Generate regulatory-grade compliance reports automatically** — one click produces a PDF audit trail that would satisfy an OSHA inspector, demonstrating that this system has real commercial and legal value.
 
-1.1  BP Texas City Refinery — March 23, 2005
+The core thesis does not change:
+
+> **The HMI's job is not just to show data. Its job is to show data AND how much to trust that data.**
+
+V2 extends that thesis from the sensor level to the enterprise level. Every reading earns its trust. Every plant earns its health score. Every operator earns their shift sign-off.
+
+---
+
+## 1. The Problem — Carried Forward and Extended
+
+### 1.1 The Three Disasters (Unchanged)
+
+All three root incidents from V1 remain the foundation. Nothing in V2 weakens or replaces this grounding — it deepens it.
+
+**BP Texas City Refinery — March 23, 2005**
 15 fatalities. 180 injuries. $1.5 billion in damages.
-This is the most thoroughly investigated HMI failure in industrial history. The U.S. Chemical Safety Board (CSB) spent two years reconstructing exactly what went wrong. Their findings directly motivate every feature in ConfidenceOS.
+Root HMI failure: sensor confidence blindness, mass-balance invisibility, silent shift handover.
 
-TIMELINE: WHAT THE HMI SHOWED vs. WHAT WAS PHYSICALLY TRUE
-02:38 hrs — The level sensor in the raffinate splitter begins showing a rising level. Unknown to operators, it is already reading incorrectly: calibrated for the wrong fluid specific gravity.
-Shift handover — Night shift does not report the faulty high-level alarm to the incoming day shift, verbally or in the written log. No work order is raised. The incoming operator has no knowledge that a critical sensor is unreliable.
-3+ hours of operation — Operators pump highly flammable liquid hydrocarbon into the tower continuously. Inflow and outflow indicators are on different HMI screens, making the mass imbalance non-obvious.
-1:04 PM — The tower contains 158 feet of liquid. The HMI level transmitter displays 7.9 feet. No alarm threshold is breached. The system appears normal.
-1:20 PM — Explosion. The overhead pipe fills with liquid, pressure spikes from 21 psi to 64 psi. 15 contractors in nearby trailers die. The evacuation alarm is never sounded.
+**Three Mile Island — March 28, 1979**
+Near-meltdown. $2.4 billion in cleanup.
+Root HMI failure: command-state decoupling — the valve indicator showed what was commanded, not what was physically true.
 
-The CSB report identifies three HMI-level failures that ConfidenceOS directly addresses:
-•	Sensor confidence blindness: The level transmitter LT-5100 was calibrated for a specific gravity of 0.8. The actual fluid had a different specific gravity, causing systematic misreading. There was no mechanism to flag that this sensor readings were physically implausible given adjacent flow data.
-•	Mass-balance invisibility: Inflow and outflow were displayed on separate screens. No system computed or displayed the implied mass balance. A simple conservation-of-mass check would have flagged the discrepancy hours before the explosion.
-•	Shift handover failure: Known sensor faults were not formally communicated at shift change. The incoming operator had no structured brief about the reliability state of the instruments they were trusting with their life.
+**Esso Longford Gas Plant — September 25, 1998**
+2 fatalities. $1.3 billion in damages.
+Root HMI failure: no physical plausibility envelope — the temperature reading was correct but catastrophically outside the safe operating range with no contextual warning.
 
-1.2  Three Mile Island Nuclear Plant — March 28, 1979
-No fatalities. $2.4 billion in cleanup costs. Near-meltdown.
-The NRC investigation found that operators received over 100 alarms in the first few minutes of the incident — but the most critical one, the relief valve indicator, showed COMMANDED CLOSED not ACTUALLY CLOSED. The HMI reported the operator command to the valve, not the valve's physical state. Operators trusted the display for over two hours while the reactor coolant drained.
-This is the same epistemic failure as Texas City: the system displayed what it was told, not what was true. The confidence in the reading was completely decoupled from physical reality.
+### 1.2 The Extended Problem — What V1 Didn't Solve
 
-1.3  Esso Longford Gas Plant — September 25, 1998
-2 fatalities. 8 injuries. Gas supply to Victoria, Australia cut for 2 weeks.
-A heat exchanger was starved of warm oil circulation, causing it to become extremely cold. When warm oil was reintroduced, brittle fracture occurred. The HMI showed the heat exchanger temperature, but operators had no mechanism to understand that the reading represented a catastrophically unusual physical state for that component — there was no contextual baseline, no cross-check against expected operating envelope, and no confidence degradation signal.
+V1 solved the single-operator, single-plant, real-time problem. V2 addresses the gaps that remain.
 
-1.4  The Pattern Across All Three
+**Gap 1 — Reactive, not predictive.**
+V1 flags a sensor when its confidence has already degraded. A sensor at 12% confidence is already a problem that has been developing for days. The ideal system identifies the trajectory of degradation before the sensor reaches dangerous territory. If calibration score decays at a known rate, the system should say: "LT-5100 will cross the LOW threshold in approximately 18 hours at current drift rate." That is the difference between reactive monitoring and predictive maintenance.
 
-Incident	Root HMI Failure	Impact
-BP Texas City, 2005	Sensor reading displayed without calibration confidence; no mass-balance cross-check; no handover of known faults	15 dead / $1.5B
-Three Mile Island, 1979	Valve state inferred from command signal, not physical measurement; false confidence in sensor state	Near-meltdown / $2.4B
-Esso Longford, 1998	No contextual confidence or deviation-from-envelope alerting; reading shown without physical plausibility check	2 dead / $1.3B
+**Gap 2 — Single plant, single operator.**
+Industrial operations are not single-plant operations. ABB serves clients with dozens of facilities across multiple geographies. An HMI that only shows one plant to one operator is a tool. An HMI that shows a fleet of plants to a control centre manager, prioritized by risk score, is a platform. V1 was a tool. V2 is a platform.
 
-THE COMMON THREAD
-In every case, the operator had access to the data needed to prevent the disaster.
-In every case, the HMI presented that data with equal, false confidence.
-ConfidenceOS is the system that would have changed the outcome.
+**Gap 3 — No institutional memory.**
+When an incident happens, the ability to reconstruct exactly what every sensor showed at every minute is critical — for regulatory compliance, for liability, for learning. V1 stores sensor history but provides no forensic replay interface. V2 adds a full incident reconstruction mode that allows any historical window to be replayed at any speed.
 
- 
-2. Solution Overview
-
-
-ConfidenceOS is a next-generation Human-Machine Interface (HMI) built on a single principle: every reading must carry an honest statement of how much it should be trusted.
-It is not an alarm filter. It does not suppress or prioritize alarms. It operates one layer deeper — at the level of data integrity — and surfaces uncertainty before alarms are even warranted. When the system does not know something, it says so explicitly and visually.
-
-2.1  The Five Pillars
-
-Pillar	What It Does	Incident It Prevents
-Confidence Scoring Engine	Attaches a 0–100% trust score to every live sensor reading based on calibration age, drift rate, cross-sensor consistency, and physical plausibility	Texas City (miscalibrated LT-5100)
-Mass-Balance Cross-Check	Continuously integrates inflow and outflow rates; flags when the implied volume change diverges from the level sensor reading beyond a physical tolerance	Texas City (3-hour invisible overflow)
-Sensor Health Timeline	Displays a per-sensor maintenance and anomaly history track; shows calibration date, last anomaly, drift trend, and predicted reliability degradation	All three incidents
-Startup Mode	A heightened-scrutiny operating mode for plant startup (the highest-risk period); lowers confidence thresholds, requires manual verification for stale readings, prominently surfaces mass-balance	Texas City (startup was the hazard period)
-Shift Handover Brief	AI-generated, plain-language shift-change document listing all degraded sensors, silenced alarms, known anomalies, and recommended verifications for the incoming operator	Texas City (night shift did not brief day shift)
-
- 
-3. System Architecture
-
-
-ConfidenceOS is structured as three independent but tightly integrated layers: a sensor simulation backend, a real-time processing and scoring engine, and a React-based operator dashboard. Each layer is replaceable with real industrial data sources without changing the architecture.
-
-3.1  Architecture Diagram (Text Representation)
-
-SYSTEM ARCHITECTURE OVERVIEW
-[ LAYER 1 — DATA LAYER ]
-  Sensor Simulator (Python) — generates realistic streams for 6 sensor types
-  Failure Injection Engine — introduces calibration drift, stuck readings, cross-sensor divergence
-  SQLite Database — stores sensor history, calibration records, anomaly log
-
-          |  WebSocket (FastAPI)  |
-
-[ LAYER 2 — INTELLIGENCE LAYER ]
-  Confidence Scoring Engine — per-sensor trust score (0-100%)
-  Mass-Balance Engine — conservation-of-mass cross-check, volume delta tracking
-  Anomaly Classifier — categorizes deviations: drift, stuck, implausible, divergent
-  LLM Integration (Claude API) — natural language handover brief generation
-
-          |  REST + WebSocket API  |
-
-[ LAYER 3 — PRESENTATION LAYER ]
-  React Dashboard — live sensor readings with confidence indicators
-  Mass-Balance Panel — real-time inflow/outflow/implied-level visualization
-  Sensor Health Timeline — per-sensor maintenance and anomaly history
-  Startup Mode UI — heightened scrutiny overlay
-  Shift Handover Generator — LLM-powered shift brief interface
-
- 
-4. Module Specifications
-
-
-4.1  Module 1: Sensor Simulator
-Owner:  Backend engineer   |  Language:  Python 3.11   |  Estimated effort:  3 days
-
-The simulator is the foundation of the entire demo. It must generate realistic industrial sensor data including normal operation, gradual degradation, and injected failures — all configurable and scriptable for the live demo.
-
-Sensor Types to Simulate
-•	Level transmitter (LT): float position → fluid level in vessel. Primary sensor from Texas City.
-•	Flow meter — inflow (FI): volumetric flow rate entering a vessel.
-•	Flow meter — outflow (FO): volumetric flow rate leaving a vessel.
-•	Pressure transmitter (PT): vessel internal pressure.
-•	Temperature sensor (TT): fluid temperature.
-•	Valve position indicator (ZT): physical valve position vs. commanded state (Three Mile Island failure mode).
-
-Failure Modes to Inject (Configurable)
-•	Calibration drift: reading shifts linearly over time due to wrong calibration constant. Configurable rate and direction.
-•	Stuck reading: sensor freezes at last valid reading. Duration configurable.
-•	Cross-sensor divergence: level sensor and flow-derived level disagree beyond physical tolerance.
-•	Specific gravity mismatch: exact Texas City failure mode — sensor calibrated for fluid A, measuring fluid B.
-•	Command-state decoupling: valve commanded CLOSED but physically stuck OPEN (TMI failure mode).
-
-Technical Implementation
-•	Python class `SensorSimulator` with configurable failure injection via JSON config file.
-•	All sensor streams published via FastAPI WebSocket at 1 Hz update rate.
-•	Sensor history (last 24 hrs) persisted to SQLite for health timeline queries.
-•	Demo script: pre-programmed `scenario.json` that plays back the Texas City failure timeline in compressed time for the live presentation.
-
-4.2  Module 2: Confidence Scoring Engine
-Owner:  Backend engineer   |  Language:  Python 3.11   |  Estimated effort:  4 days
-
-The confidence scoring engine is the intellectual core of ConfidenceOS. It produces a 0–100% trust score for each sensor reading in real time. The score is not a simple threshold check — it is a composite of multiple independent evidence streams.
-
-Confidence Score Formula
-SCORING FORMULA
-confidence(sensor) = w1 * calibration_score
-                   + w2 * stability_score
-                   + w3 * cross_sensor_score
-                   + w4 * physical_plausibility_score
-
-Where weights [w1, w2, w3, w4] sum to 1.0, configurable per sensor type.
-Default weights: [0.30, 0.20, 0.30, 0.20]
-
-Sub-Score Definitions
-•	calibration_score: starts at 1.0, decays linearly to 0.0 over configurable calibration interval (default: 90 days). At 47 days uncalibrated (Texas City threshold), score ≈ 0.48.
-•	stability_score: 1.0 if reading variance is within historical norm; decays if reading is unchanging for suspicious duration or shows unusual step changes.
-•	cross_sensor_score: 1.0 if sensor reading is consistent with adjacent sensors under known physical relationships. Drops toward 0 as divergence grows.
-•	physical_plausibility_score: 1.0 if reading is within physical operating envelope for this sensor at this plant state. 0 if reading is impossible given known physical constraints.
-
-Output Tiers
-Tier	Meaning and Operator Action
-HIGH (80–100%)	Green indicator. Reading is reliable. Normal operation.
-MEDIUM (50–79%)	Amber indicator. Reading has degraded confidence. Operator advised to monitor.
-LOW (20–49%)	Orange indicator. Reading should not be trusted without cross-verification.
-CRITICAL (0–19%)	Red indicator. Reading is likely wrong. Manual verification required before action.
-
-Reason Strings
-Every score comes with a machine-generated human-readable reason string, e.g.: "Calibration: 47 days elapsed (interval: 60 days). Cross-check: level reading inconsistent with integrated flow delta by 142 units. Confidence: 12%."
-3
-4.3  Module 3: Mass-Balance Cross-Check Engine
-Owner:  Backend engineer   |  Language:  Python 3.11   |  Estimated effort:  3 days
-
-This is the module that would have directly prevented the Texas City explosion. It applies the physical law of conservation of mass — what goes in minus what goes out must equal the change in stored quantity — and flags violations in real time.
-
-Core Logic
-MASS-BALANCE ALGORITHM
-implied_level_delta = integral(inflow_rate - outflow_rate, dt)
-measured_level_delta = current_level - level_at_window_start
-discrepancy = |implied_level_delta - measured_level_delta|
-
-if discrepancy > TOLERANCE_THRESHOLD:
-    raise PhysicalInconsistencyFlag(severity, sensor_ids, discrepancy)
-
-Key Parameters
-•	Integration window: rolling 15-minute window by default. Configurable.
-•	Tolerance threshold: accounts for measurement noise. Configurable per vessel type.
-•	Escalation: flags escalate from INFO → WARNING → CRITICAL as discrepancy grows or persists.
-•	Dashboard display: real-time chart showing three lines: implied level (from flow integration), measured level (from LT sensor), and the growing discrepancy gap. The gap is the story.
-
-4.4  Module 4: Sensor Health Timeline
-Owner:  Frontend + backend   |  Estimated effort:  2 days
-
-A persistent, per-sensor history view that answers the question about sensor behavior. It is the contextual layer that makes confidence scores meaningful.
-
-Data Displayed Per Sensor
-•	Last calibration date and time elapsed since calibration.
-•	Calibration history: when was it calibrated, by whom, and what was the found condition.
-•	Anomaly log: last 10 anomalies (stuck readings, cross-sensor divergences, plausibility violations) with timestamps.
-•	Drift trend: rolling average of reading deviation from expected value over last 7 days.
-•	Maintenance status: open work orders flagged against this sensor (simulated).
-
-4.5  Module 5: Startup Mode
-Owner:  Frontend   |  Estimated effort:  1.5 days
+**Gap 4 — Compliance is manual and expensive.**
+OSHA, IEC 61511, and ISA-18.2 require documented evidence of alarm management practices, sensor calibration records, and shift handover logs. Currently, operators compile these manually at enormous cost. V2 auto-generates audit-ready compliance reports from the data ConfidenceOS already holds, creating immediate commercial value for any plant that adopts the system.
 
-Plant startups are the highest-risk operational period. The Texas City explosion occurred during startup. The Esso Longford disaster occurred during a restart after planned maintenance. Startup Mode activates heightened scrutiny automatically when the plant transitions to startup state.
+**Gap 5 — The system is not queryable.**
+An operator standing in front of a dashboard full of numbers must know where to look. A better system answers direct questions. "Why is the pressure rising?" "Which sensor has degraded the most this week?" "Is it safe to increase load on vessel 3?" These questions should be answerable in natural language. V2 adds an AI query interface that lets anyone talk to the plant.
 
-Startup Mode Behaviors
-•	Confidence threshold for LOW tier drops from 50% to 70% — more readings get flagged.
-•	Any sensor reading unchanged for more than 8 minutes triggers a Stale reading flag requiring manual acknowledgement.
-•	Mass-balance check tolerance tightened by 50% — smaller discrepancies trigger flags earlier.
-•	Prominent banner across the UI: "STARTUP MODE ACTIVE — Heightened scrutiny enabled. Verify flagged sensors before increasing load."
-•	Inflow/outflow balance widget promoted to primary position on dashboard.
+---
 
-4.6  Module 6: Shift Handover Brief Generator
-Owner:  Backend + AI integration   |  Language:  Python + Claude API   |  Estimated effort:  2 days
+## 2. What We Already Built — V1 Recap
 
-The CSB investigation found that the night shift operator at Texas City did not communicate the faulty high-level alarm to the incoming day shift. This module makes silent handover impossible by auto-generating a comprehensive, LLM-polished shift brief from live system state.
+This section is included for context and to establish the baseline from which V2 extends. Do not rebuild any of the following — extend them.
 
-Auto-populated Brief Contents
-•	Degraded sensors: all sensors below HIGH confidence, with reason strings and last known good reading.
-•	Silenced alarms: any alarms suppressed during the shift, with reason and duration.
-•	Known anomalies: all anomaly flags raised during the shift, resolved or ongoing.
-•	Mass-balance status: summary of any physical inconsistency flags raised during the shift.
-•	Recommended actions: LLM-generated list of verifications the incoming operator should complete before taking control.
+### 2.1 V1 Feature Set (Implemented)
 
-LLM Integration
-The structured sensor state JSON is sent to the Claude API with a system prompt instructing it to generate a plain-language shift brief suitable for an operator who has just woken up and is taking control of a potentially hazardous system. The brief is operator-readable — no jargon, no lists of numbers — just clear English.
+| Module | Status | Description |
+|--------|--------|-------------|
+| Confidence Scoring Engine | ✅ Built | Per-sensor 0–100% trust score. Four sub-scores: calibration age, stability, cross-sensor consistency, physical plausibility. Weights: [0.30, 0.20, 0.30, 0.20]. |
+| Mass-Balance Cross-Check Engine | ✅ Built | Integrates inflow − outflow continuously. Flags Physical Inconsistency when implied level diverges from sensor reading. Escalates INFO → WARNING → CRITICAL. |
+| Sensor Health Timeline | ✅ Built | Per-sensor calibration history, anomaly log, drift trend, maintenance status. |
+| Startup Mode | ✅ Built | Heightened scrutiny during startup. Tighter thresholds, stale-reading detection, mass-balance pinned. |
+| Shift Handover Brief Generator | ✅ Built | Claude API generates plain-English operator brief from live sensor state JSON. |
+| Sensor Simulator | ✅ Built | 6 sensor types, 5 failure modes, configurable via JSON, 1 Hz WebSocket stream. |
+| React Dashboard | ✅ Built | Live sensor grid with confidence bars and reason strings. Mass-balance chart. Top bar plant health score. |
 
- 
-5. React Dashboard — UX Specification
+### 2.2 V1 Architecture (Baseline)
 
+```
+[ Layer 1 — Data ]
+  Sensor Simulator (Python 3.11, asyncio)
+  Failure Injection Engine
+  SQLite + SQLAlchemy
 
-The dashboard is where the judges will spend 90% of their time during the demo. It must be immediately readable by someone who has never seen an HMI before, while being technically credible to someone who has. Modern, clean, and purposeful — inspired by the problem statement reference to Google Maps and Microsoft Teams: clarity over completeness.
+[ Layer 2 — Intelligence ]
+  Confidence Scoring Engine (NumPy)
+  Mass-Balance Engine
+  Anomaly Classifier
+  Claude API (Shift Handover Brief)
 
-5.1  Layout Structure
-•	Top bar: Plant name, current mode (NORMAL / STARTUP), system time, overall plant health score (average confidence across all sensors), and Startup Mode toggle.
-•	Left panel (40%): Live sensor grid — 6 sensors, each showing: current reading, unit, confidence bar (green/amber/orange/red), confidence percentage, and reason string on hover/click.
-•	Center panel (35%): Mass-balance chart — three live lines: implied level (flow-integrated), measured level (LT sensor), and discrepancy. This is the star of the demo.
-•	Right panel (25%): Sensor health timeline for selected sensor, plus Shift Handover Brief generator button.
-•	Bottom bar: Active flags list — physical inconsistency flags, low-confidence alerts, stale readings — sorted by severity.
+[ Layer 3 — Presentation ]
+  React 18 + Vite
+  Recharts, Zustand, Tailwind CSS
+  FastAPI + WebSocket
+  Docker Compose
+```
 
-5.2  The Confidence Indicator Widget
-This widget appears for every sensor and is the visual core of ConfidenceOS. It communicates four things simultaneously:
-1.	The raw reading value and unit.
-2.	A filled bar from 0–100% with color progression (green → amber → orange → red).
-3.	The percentage number.
-4.	A one-line reason string explaining the primary confidence driver.
-This is the design that no other team will have. Every other dashboard shows a number. We show a number and an honest opinion about that number.
+---
 
-5.3  Technology Stack — Frontend
-Library	Purpose
-React 18	Component framework
-Recharts	Mass-balance live chart, sensor trend sparklines
-Tailwind CSS	Utility styling — fast iteration in hackathon context
-Zustand	Lightweight state management for live sensor data
-WebSocket (native)	Real-time data connection to FastAPI backend
+## 3. The V2 Vision — From Tool to Platform
 
- 
-6. Full Tech Stack
+V2 introduces six new capability areas on top of the V1 foundation. Each one is independently impressive. Together they make ConfidenceOS the most complete industrial intelligence prototype any judge will have seen.
 
+### 3.1 The Six New Pillars
 
-Layer	Technology	Why This Choice
-Backend API	FastAPI (Python)	Native async + WebSocket support; team already proficient; auto-generates API docs for judges
-Sensor Simulator	Python 3.11 (asyncio)	Clean async event loops; easy numpy integration for signal math; fully scriptable failure injection
-Confidence Engine	Python 3.11	Numpy for numerical scoring; direct integration with simulator; no latency across language boundary
-Database	SQLite + SQLAlchemy	Zero-config for hackathon; stores sensor history and calibration records; easily queryable for health timeline
-LLM / AI	Claude API (claude-sonnet-4-20250514)	Best instruction-following for structured → natural language generation; team already has API access
-Frontend	React 18 + Vite	Fast dev server; team proficient; component architecture matches modular dashboard layout
-Charting	Recharts	React-native; real-time streaming chart support; clean default styles
-Styling	Tailwind CSS	Utility classes = fastest iteration speed in a hackathon; no custom CSS maintenance overhead
-State	Zustand	Minimal boilerplate for WebSocket → UI state pipe; no Redux ceremony
-Deployment	Docker Compose	One-command `docker-compose up` for judges to run the full stack; professional impression
-Version Control	Git + GitHub	Branching strategy: main, dev, feature/* — no direct commits to main
+| Pillar | One-Line Description | WOW Factor |
+|--------|----------------------|------------|
+| **Predictive Failure Engine** | Forecasts when each sensor will cross each confidence tier, hours in advance | "The system predicted this failure 6 hours before it happened" |
+| **Natural Language Plant Query** | Ask the plant anything in plain English and get a grounded, cited answer | Judges without HMI background can interact immediately |
+| **Fleet Overview Dashboard** | Enterprise view of 3 simulated plants, ranked by real-time risk score | Shows ABB's actual use case: multi-site operations |
+| **Incident Forensics & Replay** | Scrub through any historical time window, see every sensor state reconstructed | Texas City replay is the most powerful demo moment possible |
+| **Autonomous Compliance Report Generator** | One-click PDF audit trail meeting IEC 61511 / ISA-18.2 / OSHA format | Immediate commercial value — this pays for itself |
+| **Role-Based Intelligence Views** | Four distinct UIs: Operator, Engineer, Manager, Auditor — same data, different lens | Demonstrates enterprise-grade thinking about who needs what |
 
- 
-7. Sprint Plan — 14 Days
+### 3.2 How V2 Builds on V1
 
+V2 does not replace anything in V1. Every V1 screen and module remains. V2 adds new screens, new backend modules, and a new navigation layer that unifies everything into a coherent product.
 
-Two weeks is long enough to build something genuinely impressive if we do not waste time. This plan is aggressive but achievable. Days 1–7 are foundation; Days 8–14 are integration, polish, and demo preparation.
+```
+V1 Core (unchanged)          V2 Extensions (new)
+─────────────────────        ──────────────────────────────────
+Operator Dashboard      ─→   + Fleet Overview
+Confidence Widget       ─→   + Predictive Failure Timeline  
+Mass-Balance Chart      ─→   + Incident Forensics Replay
+Sensor Health Timeline  ─→   + Adaptive Threshold Learning
+Shift Handover Brief    ─→   + Digitally Signed Audit Trail
+Startup Mode            ─→   + Simulation Sandbox
+                             + Natural Language Query Panel
+                             + Role-Based View Switcher
+                             + Compliance Report Generator
+                             + Causal Graph Explorer
+```
 
-Sprint 1: Days 1–7 — Build the Core
-Day	Tasks
-Day 1	
+---
 
-Day 2	
+## 4. New Feature Specifications
 
-Day 3	
+---
 
-Day 4	
+### 4.1 Module 7 — Predictive Failure Engine
 
-Day 5	
+**Owner:** Backend engineer
+**Language:** Python 3.11 + scikit-learn
+**Estimated effort:** 4 days
+**Dependencies:** V1 confidence scoring engine, SQLite sensor history
 
-Day 6	
+#### What It Does
 
-Day 7	
+The confidence scoring engine in V1 tells you where a sensor is **right now**. The Predictive Failure Engine tells you where it will be — and when it will cross each critical threshold.
 
+For every sensor, the engine maintains a rolling time-series of confidence scores (stored in SQLite by V1). It fits a degradation model to this series and extrapolates forward to produce:
 
-Sprint 2: Days 8–14 — Polish and Win
-Day	Tasks
-Day 8	
+- **Time-to-LOW forecast:** estimated hours until confidence drops below 50%
+- **Time-to-CRITICAL forecast:** estimated hours until confidence drops below 20%
+- **Confidence interval:** expressed as a range (e.g., "6–9 hours") based on model fit quality
+- **Primary degradation driver:** which sub-score is declining fastest and why
+- **Recommended action:** plain-English maintenance instruction with urgency level
 
-Day 9	
+#### Degradation Model
 
-Day 10	
+The engine uses a three-stage model selection process per sensor:
 
-Day 11	
+```
+1. Fit linear decay model (calibration age, stable drift)
+   → Use if R² > 0.85 and residuals are small
 
-Day 12	
+2. Fit exponential decay model (accelerating degradation)
+   → Use if readings show accelerating decline pattern
 
-Day 13	
+3. Fit step-change detection model (sudden drops)
+   → Use if recent history shows abrupt changes
 
-Day 14	
+Output: predicted_confidence(t) = model(current_state, t)
+        where t is hours from now
+```
 
+The model is re-fit every 15 minutes against the most recent 24 hours of confidence history stored in SQLite.
 
- 
-8. Team Roles & Ownership
+#### UI Output — Predictive Failure Card
 
+Each sensor in the operator dashboard gains a small expandable prediction card:
 
-Role	Modules	Key Deliverables
-Backend Lead	Sensor Simulator, Confidence Engine, Mass-Balance Engine	Realistic sensor streams; accurate confidence scoring; mass-balance flag generation
-AI / Integration Lead	Claude API, Shift Handover Brief, Failure Injection	Handover brief quality; prompt engineering; scenario scripts for demo
-Frontend Lead	React Dashboard, Confidence Widget, Mass-Balance Chart	Production-quality UI; real-time data binding; Startup Mode overlay
-Full Stack / DevOps	Sensor Health Timeline, Docker Compose, SQLite	One-command deployment; data persistence; health timeline queries
+```
+┌─────────────────────────────────────────────────┐
+│ LT-5100 — Level Transmitter                     │
+│ Current Confidence: 64% MEDIUM                  │
+│                                                 │
+│ ⚠ Predicted: CRITICAL in ~6 hours               │
+│   Range: 5.5–7.2 hours (model fit: good)        │
+│   Driver: calibration score decaying at 1.2%/hr │
+│                                                 │
+│ Action: Schedule calibration within 4 hours.    │
+│         Do not use for startup decisions after  │
+│         16:00 without manual verification.      │
+└─────────────────────────────────────────────────┘
+```
 
- 
-9. The Demo Script — This Is How We Win
+#### Predictive Timeline View (New Screen)
 
+A dedicated full-screen view shows all sensors as horizontal timeline bars, with colour-coded bands showing when each sensor is predicted to enter MEDIUM, LOW, and CRITICAL zones. This view answers the question every shift manager needs answered at the start of their shift: **"Which sensors will I have to worry about in the next 12 hours?"**
 
-The demo is everything. A technically flawless project with a weak demo loses. We have the better insight AND the better demo. Here is the exact script, beat by beat.
+```
+Sensor        Now    2h     4h     6h     8h     10h    12h
+─────────────────────────────────────────────────────────────
+PT-01        [████████████████████████████████████████] HIGH
+TT-03        [████████████████████████░░░░░░░░░░░░░░░] →MED
+FI-101       [██████████████████████████████████████] HIGH
+LT-5100      [████████████░░░░░░░░░░▒▒▒▒▒▒▒▒▒▒▒▒] →LOW→CRIT
+FO-102       [████████████████████████████████████] HIGH
 
-Beat 1: The Setup (90 seconds)
-NARRATION
-"On March 23, 2005, at 1:04 in the afternoon, a raffinate splitter tower at the BP Texas City refinery contained 158 feet of highly flammable liquid hydrocarbon."
+Legend: ████ HIGH  ░░░░ MEDIUM  ▒▒▒▒ LOW  ░░░░ CRITICAL
+```
 
-[Pull up traditional HMI mockup on left half of screen]
+#### Integration with Shift Handover Brief
 
-"The HMI that operators were looking at showed 7.9 feet. No alarm fired. The system looked completely normal. At 1:20 PM, the tower exploded. 15 people died."
+The predictive engine feeds directly into the shift handover brief generator. The LLM prompt is extended to include predicted degradation timelines, so the brief can say: "LT-5100 is currently at 64% confidence and is predicted to reach CRITICAL by approximately 16:00 today. The calibration interval expires in 6 hours. This should be the incoming shift's first action."
 
-"The problem was not too many alarms. The problem was that the system was confidently, completely wrong — and nobody could tell."
+---
 
-Beat 2: The Contrast (60 seconds)
-NARRATION
-[Switch to ConfidenceOS dashboard — same sensor, same reading of 7.9 ft]
+### 4.2 Module 8 — Natural Language Plant Query Interface
 
-"This is what that operator would have seen with ConfidenceOS. Same sensor. Same reading. But look here."
+**Owner:** AI / Integration lead
+**Language:** Python + Claude API + React
+**Estimated effort:** 3 days
+**Dependencies:** All V1 data sources, SQLite history
 
-[Point to confidence indicator: 12%, red, reason string visible]
+#### What It Does
 
-"Confidence: 12%. Reason: sensor calibrated 47 days ago, reading inconsistent with flow data, reading unchanged for 3 hours. The system is telling you: do not trust this number."
+A conversational interface embedded in the right panel of the operator dashboard. Any user — operator, engineer, manager, or judge unfamiliar with HMIs — can type or speak a question and receive a grounded, cited answer in plain English.
 
-Beat 3: The Mass-Balance (60 seconds)
-NARRATION
-[Point to mass-balance chart]
+The system does not hallucinate. Every answer is grounded in live sensor data and historical records from SQLite. The LLM is instructed to cite the specific sensor, timestamp, and value that supports each claim.
 
-"And this is the mass-balance panel. The green line is what the flow meters imply the level should be — based on physics, conservation of mass, what went in minus what came out. The red line is what the level sensor claims. That gap has been growing for three hours. A simple physical law, continuously checked. The system flags it as a physical inconsistency."
+#### Query Types Supported
 
-"No alarm needed. No threshold to set. Physics itself is the alarm."
+**Diagnostic queries:**
+- "Why is LT-5100 flagged?"
+- "What caused the mass-balance warning at 14:30?"
+- "Is it safe to increase load on vessel 3?"
 
-Beat 4: The Handover (45 seconds)
-NARRATION
-[Click Generate Shift Handover Brief]
+**Predictive queries:**
+- "Which sensor will need calibration soonest?"
+- "How long do I have before we hit a CRITICAL confidence on any sensor?"
+- "What is the current risk profile of the plant?"
 
-"At shift change, instead of the night operator forgetting to mention the faulty sensor — which is exactly what happened at Texas City — ConfidenceOS generates this brief automatically. Sensor LT-5100 is at 12% confidence. Mass balance has been divergent for 3 hours. Recommended action before taking control: manually verify level with sight glass."
+**Historical queries:**
+- "What happened to PT-201 yesterday between 10:00 and 12:00?"
+- "How many mass-balance flags were raised in the last 48 hours?"
+- "When was FI-101 last calibrated and what was the condition found?"
 
-"The incoming operator cannot miss this. It is the first thing they see."
+**Comparison queries:**
+- "Compare the current sensor health to 24 hours ago."
+- "Which plant in the fleet has the lowest average confidence right now?"
 
-Beat 5: The Close (30 seconds)
-CLOSING LINE
-"Every other solution you will see today filters alarms. We did not add a single new alarm."
+#### Technical Implementation
 
-"We built the system that makes HMIs honest about what they do not know."
+```python
+# Query pipeline
+def query_plant(user_query: str, plant_id: str) -> str:
+    # Step 1: Retrieve live sensor state
+    live_state = get_live_sensor_state(plant_id)
+    
+    # Step 2: Retrieve relevant history from SQLite
+    history = retrieve_relevant_history(user_query, plant_id, window_hours=48)
+    
+    # Step 3: Retrieve active flags
+    flags = get_active_flags(plant_id)
+    
+    # Step 4: Build grounded context for LLM
+    context = build_context(live_state, history, flags)
+    
+    # Step 5: Claude API call with strict grounding instructions
+    response = claude_api.query(
+        system=PLANT_QUERY_SYSTEM_PROMPT,
+        context=context,
+        question=user_query
+    )
+    
+    return response.text
+```
 
-"The ASM Consortium estimates that poor HMI design contributes to 70% of industrial incidents. ConfidenceOS is the first step toward the other 30%."
+**System prompt (abbreviated):**
+> You are ConfidenceOS, an industrial plant intelligence assistant. Answer the operator's question using only the sensor data provided. Cite specific sensor IDs, confidence scores, timestamps, and values in your answer. Never extrapolate beyond the data provided. If you cannot answer the question from the available data, say so explicitly and state what additional information would be needed.
 
- 
-10. Theme Alignment
+#### UI Design
 
+The query panel sits in the right section of the operator dashboard (replacing the sensor health timeline when active — the user can toggle between them). It shows:
 
-The hackathon theme explicitly calls for: AI-assisted configuration, model-based engineering, intelligent prioritization, and modern UX patterns. ConfidenceOS hits every criterion.
+- A text input field with placeholder: "Ask anything about this plant..."
+- A conversation history showing the last 5 exchanges
+- Each answer shows the data sources it drew from as small citation chips below the response
+- A "Sources" expandable showing the raw sensor values that grounded the answer
 
-Theme Requirement	ConfidenceOS Response
-Theme Requirement	How ConfidenceOS Addresses It
-AI-assisted configuration	Claude API generates shift handover briefs and can generate recommended confidence thresholds from historical sensor data
-Intelligent prioritization	Confidence scoring surfaces the most critical data trust issues, not just the loudest alarms — deeper and more intelligent than alarm sorting
-Model-based / metadata-driven engineering	Confidence scoring formula is metadata-driven: calibration records, sensor specs, physical envelope parameters drive the scores automatically
-Role-based, context-aware UI	Startup Mode is a context-driven UI transformation; future extension: Engineer view shows raw confidence sub-scores, Operator view shows only the synthesized indicator
-Modern UX patterns (Maps, Teams, streaming)	Confidence bars and reason strings mirror how Google Maps shows GPS accuracy; sensor health timeline mirrors how Teams shows connection quality
-Low-code / no-code tools for non-experts	Failure injection and confidence thresholds configurable via JSON — no code change required to adapt to a different plant
-Reduced alarm fatigue	By surfacing data trust issues proactively, ConfidenceOS prevents the cascade that causes alarm floods — it addresses fatigue at the root, not the symptom
+This is the feature that lets a judge who has never seen an HMI walk up and immediately understand what the system knows. It is also the feature that demonstrates the most advanced AI integration in the room.
 
- 
-11. Risks & Mitigations
+---
 
+### 4.3 Module 9 — Fleet Overview Dashboard
 
-Risk	Mitigation
-Risk	Mitigation
-Confidence scoring formula feels arbitrary to judges	Ground every weight and threshold in the Texas City CSB report data. Cite page numbers. The formula is not invented — it is derived from the accident.
-Mass-balance engine is mathematically wrong in demo	Unit-test the engine with known inputs and outputs before integrating with simulator. Validate against the Texas City timeline numbers.
-Claude API latency makes handover brief feel slow	Show a loading state. Pre-generate the brief during demo rehearsal and show cached version if needed. The content matters more than the speed.
-React dashboard looks unpolished	Use Tailwind component defaults. Allocate Day 10 entirely to visual polish. Judge impressions are heavily visual.
-Demo scenario does not tell the story clearly	Rehearse the exact script on Days 12 and 13. Time every beat. The demo is a performance — it needs rehearsal as much as the code needs debugging.
-Simulator data looks obviously fake	Add realistic Gaussian noise to all sensor readings. Include normal operating variation before injecting failures. The demo should start looking boring, then get scary.
+**Owner:** Frontend + backend
+**Language:** React + FastAPI
+**Estimated effort:** 3 days
+**Dependencies:** V1 confidence engine (run 3 instances with different simulator configs)
 
- 
-12. References & Citations
+#### What It Does
 
+A top-level enterprise view showing three simulated plants simultaneously — refinery, gas plant, and water treatment facility. Each plant has its own sensor set and failure scenario. The fleet view shows each plant as a card, ranked by a composite **Plant Risk Score** derived from:
 
-All incident data used in this PRD and in the demo narrative is sourced from official investigation reports by government safety agencies.
+```
+Plant Risk Score = 
+  (1 - avg_confidence_all_sensors) × 0.40
+  + active_critical_flags × 0.25
+  + mass_balance_discrepancy_normalized × 0.20
+  + hours_since_last_calibration_any_sensor × 0.15
+```
 
-5.	
-6.	
-7.	
-8.	
-9.	
-10.	
+The fleet view is the answer to the question every ABB customer actually cares about: **"Across all my facilities right now, where do I most need to pay attention?"**
 
-FINAL NOTE TO THE TEAM
-We are not building a better alarm list.
-We are building the system that makes industrial HMIs honest.
-Every feature in ConfidenceOS exists because a real person died when a sensor lied and nobody knew.
-That is why we will win.
+#### Three Simulated Plants
 
+| Plant | Scenario | Default State |
+|-------|----------|---------------|
+| **Raffinate Splitter Unit** (Texas City) | Level sensor degrading, mass-balance accumulating | 3 sensors MEDIUM, 1 CRITICAL |
+| **North Sea Gas Compression** | Cold-restart scenario, temperature sensors outside envelope | 2 sensors LOW, startup mode active |
+| **Municipal Water Treatment** | Normal operation with one valve in command-state decoupling | All nominal except ZT-01 at LOW |
+
+During the demo, the Texas City plant can be put into "incident replay" mode, which accelerates the scenario in real time so judges watch one plant go from MEDIUM to CRITICAL while the other two remain stable. This is the most visually dramatic moment in the V2 demo.
+
+#### Fleet View UI
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│  ConfidenceOS Fleet View                          Fleet Health: 72%      │
+├─────────────────────┬──────────────────────┬──────────────────────────── │
+│ 🔴 RISK: HIGH       │ 🟡 RISK: MEDIUM      │ 🟢 RISK: LOW               │
+│ Raffinate Splitter  │ N. Sea Gas Compress. │ Municipal Water Treatment  │
+│ Plant Health: 48%   │ Plant Health: 71%    │ Plant Health: 89%          │
+│                     │                      │                             │
+│ 🔴 LT-5100: 12%    │ ⚠ TT-Comp: 55%      │ ✓ All sensors HIGH         │
+│ ⚠ Mass-balance:    │ ⚠ Startup Mode ON    │ ⚠ ZT-01: 41% LOW          │
+│   gap 142 units     │                      │                             │
+│ ⚠ 4 active flags   │ 2 active flags       │ 1 active flag              │
+│                     │                      │                             │
+│ [Open Dashboard →]  │ [Open Dashboard →]   │ [Open Dashboard →]         │
+└─────────────────────┴──────────────────────┴────────────────────────────┘
+```
+
+Clicking any plant card opens that plant's full V1 operator dashboard. The fleet view is a navigation hub, not a replacement for the detailed view.
+
+---
+
+### 4.4 Module 10 — Incident Forensics & Replay Engine
+
+**Owner:** Backend + frontend
+**Language:** Python + React + SQLite
+**Estimated effort:** 4 days
+**Dependencies:** SQLite sensor history (V1), confidence scoring engine
+
+#### What It Does
+
+The single most powerful demo feature in V2. The Incident Forensics Engine allows any historical time window to be replayed at any speed, showing exactly what every sensor read, what the confidence score was, and what flags were active at every moment in time.
+
+For the demo, the Texas City incident timeline is pre-loaded as a historical dataset. Judges can scrub through the morning of March 23, 2005 — compressed to a few minutes — and watch:
+
+- The sensor reading staying flat at 7.9 feet while the mass-balance line diverges
+- The confidence score dropping from 64% to 48% to 12% as the calibration model progresses
+- The exact moment ConfidenceOS would have flagged the Physical Inconsistency
+- The exact moment the traditional HMI would have showed: nothing
+
+This is not a video. It is a live, interactive replay where the judge controls the playback speed and can pause at any moment to inspect any sensor.
+
+#### Technical Implementation
+
+```
+Data Model:
+  sensor_reading_log (timestamp, sensor_id, value, confidence_score, flags_active)
+  
+  → For demo: pre-populate with reconstructed Texas City timeline data
+  → For live system: every reading from the V1 simulator is automatically logged
+
+Replay Engine:
+  1. User selects time range (or selects "Texas City Incident" preset)
+  2. Backend queries sensor_reading_log for that range
+  3. Frontend receives the full time-series as a paginated stream
+  4. Playback controller renders each second of data at user-selected speed
+     (1x, 5x, 10x, 30x, 60x — real time to compressed time)
+  5. All V1 dashboard components (confidence bars, mass-balance chart,
+     flag panel) render from the historical data instead of live data
+  6. Timeline scrubber allows jumping to any point
+```
+
+#### Forensics View Additions
+
+Beyond simple replay, the forensics view adds:
+
+**Counterfactual overlay:** A toggle that shows "What ConfidenceOS would have shown" versus "What the original HMI showed." Side-by-side comparison, same sensor, same timestamp. This is the killer visual.
+
+**Incident marker annotations:** Key moments in the Texas City timeline are annotated with CSB report citations: "02:38 — sensor begins misreading," "Shift handover — night shift does not mention fault," "13:04 — tower at 158 feet," "13:20 — explosion."
+
+**Confidence trajectory chart:** A dedicated chart showing every sensor's confidence score over the replayed time window, with tier boundaries drawn as horizontal lines. The judge can watch LT-5100's score fall in real time.
+
+**Export to PDF:** The forensics view can export a PDF showing the full incident reconstruction with sensor data, confidence scores, and flag timeline — formatted as a post-incident analysis report.
+
+---
+
+### 4.5 Module 11 — Compliance Report Generator
+
+**Owner:** AI / Integration lead + Backend
+**Language:** Python + Claude API + ReportLab/WeasyPrint
+**Estimated effort:** 3 days
+**Dependencies:** SQLite sensor history, shift handover brief generator, flag log
+
+#### What It Does
+
+One click produces a regulatory-grade PDF report that an OSHA inspector, an IEC 61511 auditor, or an ISA-18.2 compliance officer could read and act on. This feature has direct commercial value: the manual cost of generating this documentation at real industrial facilities is estimated at $15,000–$80,000 per audit cycle.
+
+ConfidenceOS generates it automatically in under 30 seconds.
+
+#### Report Contents
+
+**Section 1 — Alarm Management Summary (ISA-18.2 aligned)**
+- Total alarm count over selected period
+- Alarm rate per hour (standing alarms, chattering alarms, flood periods)
+- Alarm priority distribution
+- Top 10 most frequent alarms with acknowledgement rates
+
+**Section 2 — Sensor Reliability Audit (IEC 61511 aligned)**
+- Per-sensor confidence score history for the period
+- Calibration status and overdue calibrations
+- Time spent in each confidence tier (HIGH / MEDIUM / LOW / CRITICAL)
+- Mass-balance flag count and total duration of physical inconsistencies
+
+**Section 3 — Shift Handover Log**
+- Complete log of all AI-generated handover briefs for the period
+- Each brief timestamped and linked to the operator session it covered
+- Digital signature field (simulated — shows how real deployment would work)
+
+**Section 4 — Incident Log**
+- All CRITICAL confidence events with duration and resolution
+- All Physical Inconsistency flags with sensor IDs and discrepancy magnitudes
+- Actions taken (from operator acknowledgement records)
+
+**Section 5 — Recommendations**
+- LLM-generated section identifying the top 3 maintenance priorities based on the period's data
+- Predicted calibration schedule for the next 30 days based on the Predictive Failure Engine
+
+#### Why This Matters for ABB
+
+ABB's customers are subject to regulatory oversight in every jurisdiction they operate. The cost of compliance documentation is a real, large, recurring operational expense. A system that generates this documentation automatically — grounded in live sensor data rather than manual records — is a feature that justifies commercial licensing immediately. This is not a hackathon gimmick. It is a product.
+
+---
+
+### 4.6 Module 12 — Role-Based Intelligence Views
+
+**Owner:** Frontend
+**Language:** React + Zustand
+**Estimated effort:** 3 days
+**Dependencies:** All V1 and V2 data sources
+
+#### What It Does
+
+Four distinct views of the same underlying data, switchable via a role selector in the top navigation bar. The same plant state renders completely differently depending on whether the viewer is an Operator, Engineer, Plant Manager, or Auditor.
+
+This is not cosmetic. Each role has a genuinely different information need, and presenting the wrong information to the wrong role creates cognitive overhead. ConfidenceOS is the first HMI designed explicitly around role-differentiated information architecture.
+
+#### The Four Roles
+
+**Operator View** (V1 dashboard — enhanced)
+- Primary: sensor readings with confidence bars and reason strings
+- Primary: mass-balance chart
+- Visible: active flags sorted by severity
+- Hidden: raw sub-score breakdown (too much detail)
+- Hidden: fleet view (not their concern)
+- Added V2: predictive failure card per sensor
+- Added V2: natural language query panel
+
+**Engineer View** (new)
+- Primary: raw confidence sub-score breakdown per sensor (calibration, stability, cross-sensor, plausibility — all four bars visible separately)
+- Primary: sensor health timeline with full drift data
+- Primary: predictive timeline showing all sensors' projected trajectories
+- Primary: causal graph (see Module 13)
+- Added V2: formula editor — engineer can adjust confidence formula weights per sensor type and see live impact
+- Visible: mass-balance parameters and integration window settings
+
+**Plant Manager View** (new)
+- Primary: fleet overview — all three plants with Plant Risk Scores
+- Primary: shift-over-shift trend charts — is the plant getting healthier or sicker over time?
+- Primary: maintenance action queue — list of calibrations needed, ordered by urgency
+- Primary: compliance report generator button
+- Hidden: individual sensor readings (not at their level of decision)
+- Key metric: **Mean Time Between Confidence Failures (MTBCF)** — a new KPI invented by ConfidenceOS for plant health benchmarking
+
+**Auditor View** (new)
+- Primary: read-only. No controls visible.
+- Primary: shift handover brief log with timestamps
+- Primary: incident log with confidence trajectories
+- Primary: compliance report generator
+- Primary: sensor calibration certificate history
+- Design: deliberately conservative — dark borders, dense typography, no color coding (auditors distrust dashboards that "look designed to impress")
+
+---
+
+### 4.7 Module 13 — Causal Graph Explorer
+
+**Owner:** Backend + frontend
+**Language:** Python (NetworkX) + React (D3.js/vis.js)
+**Estimated effort:** 3 days
+**Dependencies:** Anomaly classifier (V1), cross-sensor consistency scores
+
+#### What It Does
+
+When multiple sensors degrade simultaneously or in rapid succession, the cause is rarely independent. A leaking valve causes a pressure drop which causes a flow imbalance which causes a temperature anomaly. These are causally linked. But traditional HMIs show each sensor independently, making the causal chain invisible.
+
+The Causal Graph Explorer builds a directed graph of sensor relationships and, when anomalies occur, highlights the probable causal chain — showing operators not just *what* is wrong but *why*, in a visual map they can follow.
+
+#### Graph Construction
+
+```python
+# Sensor relationship graph (pre-defined per plant topology)
+sensor_graph = {
+    "ZT-01": ["FI-101", "FO-102"],      # Valve → flows
+    "FI-101": ["LT-5100", "PT-201"],    # Inflow → level, pressure
+    "FO-102": ["LT-5100"],              # Outflow → level
+    "LT-5100": ["PT-201"],              # Level → pressure
+    "PT-201": ["TT-03"],               # Pressure → temperature
+}
+
+# When anomalies detected:
+def find_root_cause(anomaly_events: list[AnomalyEvent]) -> CausalChain:
+    # Build subgraph of affected sensors
+    # Apply temporal ordering (which degraded first?)
+    # Identify root node (earliest-degrading sensor with no degraded predecessors)
+    # Return highlighted causal path
+```
+
+#### UI
+
+A force-directed graph where:
+- Healthy sensors are grey nodes
+- Degraded sensors are coloured by confidence tier (amber, orange, red)
+- Causal edges are highlighted in red showing the probable propagation path
+- Root cause node pulses with a red border
+- Hovering any node shows that sensor's current confidence score and reason string
+
+This is the feature that makes an engineer say "oh, that's actually brilliant" — because it solves a problem every industrial engineer lives with: the map between physical cause and sensor effect.
+
+---
+
+### 4.8 Module 14 — Adaptive Threshold Learning
+
+**Owner:** Backend
+**Language:** Python + scikit-learn
+**Estimated effort:** 2 days
+**Dependencies:** SQLite sensor history, confidence scoring engine
+
+#### What It Does
+
+The physical plausibility score in V1 uses static thresholds — fixed upper and lower bounds for what each sensor reading should be. Real plants are not static. Operating conditions shift seasonally, with load changes, and with process modifications. Static thresholds generate false positives during legitimate operating shifts and miss anomalies during abnormal conditions that happen to be within range.
+
+Adaptive Threshold Learning replaces static thresholds with dynamically learned operating envelopes. Every 24 hours, the engine re-fits a Gaussian envelope model to the most recent 72 hours of sensor data (excluding known anomaly periods) and updates the plausibility bounds accordingly.
+
+```
+plausibility_score = gaussian_envelope.score(current_reading)
+
+# Reading within 1σ of learned mean → 1.0
+# Reading within 2σ → 0.7
+# Reading within 3σ → 0.3
+# Reading beyond 3σ → 0.0 (physically implausible)
+```
+
+The learned envelope is displayed on the sensor health timeline as a shaded band, so engineers can see both the historical readings and the learned normal range in the same view.
+
+---
+
+### 4.9 Module 15 — Simulation Sandbox
+
+**Owner:** Frontend + backend
+**Language:** React + FastAPI
+**Estimated effort:** 2 days
+**Dependencies:** Sensor simulator (V1), confidence engine (V1)
+
+#### What It Does
+
+A "what-if" mode that lets engineers test failure scenarios without affecting the live view. The engineer selects a sensor, injects a failure mode (from a dropdown), sets the duration and severity, and watches how the confidence engine, mass-balance engine, and predictive failure engine respond — without any impact on the operator's live dashboard.
+
+This is an engineering training and validation tool, and it is the feature that makes ConfidenceOS useful for onboarding new operators: they can experience a realistic sensor failure and watch all of ConfidenceOS's responses in a safe, sandboxed environment.
+
+#### Sandbox UI
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Simulation Sandbox                          [SANDBOX MODE] │
+├─────────────────────────────────────────────────────────────┤
+│  Inject failure on:  [LT-5100 ▾]                           │
+│  Failure mode:       [Calibration Drift ▾]                  │
+│  Severity:           [Moderate ▾]  (0.8%/hr drift rate)    │
+│  Duration:           [6 hours]                               │
+│                                                             │
+│  [▶ Run Simulation]   [⏸ Pause]   [↩ Reset]                │
+│                                                             │
+│  Results:                                                   │
+│  → T+2h: LT-5100 enters MEDIUM confidence (72%)            │
+│  → T+4h: Mass-balance flag raised (gap: 28 units)          │
+│  → T+5.5h: LT-5100 enters LOW confidence (38%)             │
+│  → T+6h: CRITICAL confidence reached (19%)                  │
+│  → T+6h: Shift handover brief auto-generated               │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 5. New Screens — Full UX Specification
+
+V2 adds seven new screens to the V1 operator dashboard. Each screen is reachable from the top navigation bar, which is added as a V2 enhancement to the existing layout.
+
+### 5.1 Navigation Architecture
+
+```
+Top Navigation Bar:
+[ConfidenceOS]  [Fleet ▾]  [Operator]  [Engineer]  [Manager]  [Auditor]  [Forensics]  [Sandbox]
+                                                                           [Role: Operator ▾]
+```
+
+The role selector in the top right changes which tabs are visible and how each shared tab renders.
+
+---
+
+### Screen 1 — Fleet Overview (New)
+
+**Route:** `/fleet`
+**Available to:** Manager, Engineer (read-only for Auditor)
+
+Layout: Three equal-width plant cards in a row. Above them, a header bar showing fleet-level aggregates: Fleet Health score, total active flags across all plants, highest-risk plant name in red.
+
+Each plant card shows:
+- Plant name and type
+- Plant Health score (large, colour-coded)
+- Status badge: NORMAL / STARTUP / WARNING / CRITICAL
+- Top 3 active flags, abbreviated
+- Sparkline chart of Plant Health over last 4 hours
+- Risk ranking badge (1st / 2nd / 3rd most at-risk)
+- Click-through to that plant's Operator dashboard
+
+Below the plant cards: a 24-hour Fleet Health trend chart showing all three plants as overlaid lines. This shows whether each plant is getting healthier or sicker over time.
+
+---
+
+### Screen 2 — Predictive Maintenance Timeline (New)
+
+**Route:** `/predict`
+**Available to:** Operator (simplified), Engineer (full), Manager (summary)
+
+Full-width horizontal Gantt-style chart. Each sensor is a row. The horizontal axis is time (next 12 hours). Each row is coloured by predicted confidence tier at each time point.
+
+Below the Gantt chart:
+- **Action queue:** ordered list of recommended maintenance actions, by urgency. Each action shows: sensor ID, action required, urgency level, time window before CRITICAL is reached.
+- **Calibration scheduler:** calendar view showing when each sensor's calibration is predicted to need scheduling, over the next 30 days.
+
+---
+
+### Screen 3 — Incident Forensics & Replay (New)
+
+**Route:** `/forensics`
+**Available to:** All roles
+
+Three sections:
+
+**Top: Time Range Selector**
+- Date/time pickers for start and end of replay window
+- Preset buttons: "Last 8 hours," "Last 24 hours," "Texas City Incident (Demo)"
+- Playback speed selector: 1x, 5x, 10x, 30x, 60x
+
+**Middle: Replay Dashboard**
+- Full V1 operator dashboard (sensor grid, mass-balance chart, flag panel) but rendering historical data instead of live data
+- Timeline scrubber at the bottom — drag to any point in the selected window
+- Current replay timestamp shown prominently
+- "REPLAY MODE" banner replacing the "STARTUP MODE" banner area
+
+**Right panel: Counterfactual Toggle**
+- Toggle between "What ConfidenceOS showed" and "What traditional HMI showed"
+- Traditional HMI view: just the raw sensor values, no confidence bars, no mass-balance, no flags
+- Side-by-side mode: both views simultaneously (requires wider layout — use on large screen)
+- Incident annotations: floating labels at key timeline moments with CSB report citations
+
+**Bottom: Confidence Trajectory Chart**
+- Line chart showing all sensors' confidence scores over the full replayed window
+- Each sensor as a separate coloured line
+- Confidence tier boundaries drawn as horizontal lines
+- Interactive — click any point on any line to jump the main replay to that timestamp
+
+---
+
+### Screen 4 — Compliance Report Generator (New)
+
+**Route:** `/compliance`
+**Available to:** Manager, Auditor
+
+Two-panel layout:
+
+**Left: Report Configuration**
+- Date range picker (default: last 30 days)
+- Plant selector (or "All plants")
+- Report type selector: Full Audit / Alarm Management Only / Sensor Reliability Only / Shift Handover Log Only
+- Regulatory framework selector: IEC 61511 / ISA-18.2 / OSHA PSM / Custom
+- Company name and facility fields for report header
+- [Generate Report] button with progress indicator
+
+**Right: Report Preview**
+- Live preview of the report as it generates, section by section
+- Download as PDF button
+- Download as CSV (raw data only) button
+- Share link (generates a read-only URL valid for 7 days — simulated)
+
+The report preview renders in the browser as a formatted document — not just a list of data, but a properly structured report with headings, tables, charts, and narrative commentary generated by the Claude API.
+
+---
+
+### Screen 5 — Causal Graph Explorer (New)
+
+**Route:** `/graph`
+**Available to:** Engineer
+
+Full-screen force-directed graph.
+
+**Controls panel (left sidebar):**
+- Time range selector (show causal events from last N hours)
+- Show/hide: healthy sensors, MEDIUM sensors, LOW/CRITICAL only
+- Layout options: force-directed, hierarchical, radial
+- Export graph as PNG
+
+**Main graph area:**
+- Nodes: sensors. Size proportional to importance in plant topology. Colour by confidence tier.
+- Edges: causal relationships. Width proportional to correlation strength. Colour red when both sensors are anomalous.
+- Root cause node: pulsing red border when anomaly chain is active.
+- Hover: shows sensor ID, current value, confidence score, reason string
+- Click: opens that sensor's full health timeline in a side panel
+
+**Bottom panel:**
+- Narrative explanation generated by Claude: "The current anomaly chain suggests ZT-01 (valve position indicator) entered LOW confidence at 14:22, which propagated to FI-101 (inflow meter) by 14:31 via the known inflow dependency. The mass-balance discrepancy appears to originate from this valve event."
+
+---
+
+### Screen 6 — Engineer Deep-Dive View (New)
+
+**Route:** `/engineer`
+**Available to:** Engineer (not Operator — role-restricted)
+
+Replaces the standard operator dashboard with an information-dense, data-first layout designed for someone who wants raw numbers, not abstractions.
+
+**Main panel: Sub-score breakdown grid**
+For every sensor, show all four confidence sub-scores as separate bars in a 2×2 grid within the sensor card:
+```
+┌─ LT-5100 ─────────────────────────────┐
+│ Value: 7.9 ft        Confidence: 12%  │
+│                                        │
+│ Calibration:  ░░░░░░░░░░░░░░░░  48%  │
+│ Stability:    ░░░░░░░░░░  35%         │
+│ Cross-sensor: ░░  8%                  │
+│ Plausibility: ░░░░░░░░░░░░░░  45%    │
+└────────────────────────────────────────┘
+```
+
+**Formula editor panel:**
+Live sliders for confidence formula weights [w1, w2, w3, w4] with the constraint that they sum to 1.0. Changing a weight immediately recalculates all sensor confidence scores and updates the entire dashboard. This is an extremely powerful demonstration of the system's transparency — the engineer can see exactly how the formula is driving each score.
+
+**Adaptive envelope display:**
+The sensor health timeline shows not just historical readings but the learned Gaussian envelope as a shaded band, so the engineer can see both the historical data and the normal operating range simultaneously.
+
+---
+
+### Screen 7 — Simulation Sandbox (New)
+
+**Route:** `/sandbox`
+**Available to:** Engineer, Operator (training mode)
+
+Full description in Module 15 above. UI emphasis: clearly marked as sandbox with a yellow "SANDBOX MODE" banner. No live data is affected. Results are educational, not operational.
+
+---
+
+## 6. Extended Architecture
+
+### 6.1 V2 System Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         LAYER 1 — DATA LAYER                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  Sensor Simulator (V1 — unchanged)                                          │
+│    Plant A: Raffinate Splitter | Plant B: Gas Compressor | Plant C: Water   │
+│    6 sensor types | 5 failure modes | 1 Hz WebSocket | JSON config          │
+│                                                                              │
+│  Sensor Reading Logger (V2 — new)                                           │
+│    Every reading from every sensor logged to SQLite with full state          │
+│    Schema: (timestamp, plant_id, sensor_id, value, confidence, flags_json)  │
+│                                                                              │
+│  SQLite (V1 extended)                                                        │
+│    Tables: sensor_readings, calibration_records, anomaly_log,               │
+│            shift_handover_briefs, flag_events, compliance_events            │
+└──────────────────────────┬──────────────────────────────────────────────────┘
+                           │ WebSocket + REST (FastAPI)
+┌──────────────────────────▼──────────────────────────────────────────────────┐
+│                      LAYER 2 — INTELLIGENCE LAYER                           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  V1 Modules (unchanged):                                                    │
+│    Confidence Scoring Engine | Mass-Balance Engine | Anomaly Classifier     │
+│                                                                              │
+│  V2 Modules (new):                                                          │
+│    Predictive Failure Engine     — scikit-learn degradation models          │
+│    Adaptive Threshold Learner    — Gaussian envelope, daily re-fit          │
+│    Causal Graph Engine           — NetworkX, relationship graph             │
+│    Plant Risk Scorer             — fleet-level composite score              │
+│    Forensics Query Engine        — time-range playback from SQLite          │
+│    Compliance Report Generator   — ReportLab PDF + Claude API narrative     │
+│    Natural Language Query Engine — Claude API + grounded context builder    │
+└──────────────────────────┬──────────────────────────────────────────────────┘
+                           │ REST + WebSocket API (FastAPI)
+┌──────────────────────────▼──────────────────────────────────────────────────┐
+│                     LAYER 3 — PRESENTATION LAYER                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  V1 Screens (enhanced):                                                     │
+│    Operator Dashboard | Mass-Balance Chart | Sensor Health Timeline         │
+│    Startup Mode | Shift Handover Brief                                      │
+│                                                                              │
+│  V2 Screens (new):                                                          │
+│    Fleet Overview | Predictive Timeline | Incident Forensics                │
+│    Compliance Report | Causal Graph | Engineer Deep-Dive | Sandbox          │
+│                                                                              │
+│  Role-Based View Layer:                                                     │
+│    Operator | Engineer | Manager | Auditor                                  │
+│    Same data — different information architecture per role                  │
+│                                                                              │
+│  Navigation: Top nav bar with role selector                                 │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 6.2 Data Flow Additions
+
+**New in V2: Persistent Read-Through Logging**
+Every sensor reading that passes through the V1 confidence engine is now simultaneously written to `sensor_readings` in SQLite. This is what enables forensics replay and compliance reporting. V1 stored calibration records and anomaly logs. V2 stores every single reading. Estimated storage: ~50KB/hour per plant for 6 sensors at 1 Hz.
+
+**New in V2: Multi-Plant Routing**
+The FastAPI backend now accepts a `plant_id` parameter on every endpoint. Three simulator instances run in parallel (ports 8001, 8002, 8003). The frontend routes to the correct instance based on which plant is being viewed. The fleet overview aggregates data from all three instances.
+
+---
+
+## 7. Extended Tech Stack
+
+| Layer | Technology | Version | Why |
+|-------|-----------|---------|-----|
+| Backend API | FastAPI | 0.115.x | Unchanged from V1 |
+| Sensor Simulator | Python asyncio | 3.11 | Unchanged from V1 |
+| Confidence Engine | Python + NumPy | 3.11 | Unchanged from V1 |
+| Mass-Balance Engine | Python | 3.11 | Unchanged from V1 |
+| **Predictive Engine** | **scikit-learn** | **1.4.x** | LinearRegression, ExponentialSmoothing for degradation forecasting |
+| **Causal Graph** | **NetworkX** | **3.x** | Directed graph construction and traversal |
+| **Compliance PDF** | **ReportLab** | **4.x** | Professional PDF generation, table and chart rendering |
+| **Adaptive Learning** | **scikit-learn** | **1.4.x** | GaussianMixture for envelope fitting |
+| Database | SQLite + SQLAlchemy | — | Unchanged + extended schema |
+| LLM / AI | Claude API (claude-sonnet-4) | — | Unchanged + extended for NL query and compliance narrative |
+| Frontend | React 18 + Vite | 18.x | Unchanged from V1 |
+| **Graph Visualisation** | **D3.js** | **7.x** | Causal graph force-directed layout |
+| Charting | Recharts | — | Unchanged from V1 |
+| Styling | Tailwind CSS | — | Unchanged from V1 |
+| State | Zustand | — | Unchanged from V1 |
+| Deployment | Docker Compose | — | Unchanged, now orchestrates 3 simulator instances |
+| Version Control | Git + GitHub | — | Unchanged from V1 |
+
+---
+
+## 8. ABB Integration Strategy
+
+This section is written for the judges, who are ABB employees. It demonstrates that we have thought about how ConfidenceOS would actually deploy in ABB's product ecosystem — not just as a hackathon prototype, but as a real product.
+
+### 8.1 ABB 800xA Integration Path
+
+ABB's flagship DCS platform is System 800xA. ConfidenceOS's intelligence layer (confidence engine, mass-balance engine, predictive engine) is completely decoupled from its data source. The only interface is the sensor data contract: a JSON stream of sensor readings with metadata.
+
+System 800xA exposes sensor data via OPC-UA. ConfidenceOS requires one adapter: an OPC-UA client that reads from 800xA and publishes to the FastAPI WebSocket in the existing schema. This adapter is approximately 150 lines of Python using the `opcua-asyncio` library and represents a 2-day engineering effort.
+
+After that adapter is written, ConfidenceOS runs against real plant data with zero changes to the intelligence layer.
+
+### 8.2 ABB Ability Platform Integration
+
+ABB Ability is ABB's cloud platform for industrial IoT. ConfidenceOS could deploy as an ABB Ability application, with:
+
+- Sensor data ingested from ABB Ability's data lake rather than a local simulator
+- Compliance reports stored in ABB Ability's document management system
+- Fleet view scaled to real customer fleets (not just 3 simulated plants)
+- Predictive failure forecasts fed back into ABB's maintenance management workflow
+
+### 8.3 Deployment Modes
+
+| Mode | Description | Suitable For |
+|------|-------------|-------------|
+| **On-premise** | Docker Compose on plant-floor server | Air-gapped facilities, high-security environments |
+| **Edge + Cloud hybrid** | Intelligence layer on-premise, fleet view and compliance in cloud | Most industrial customers |
+| **Full cloud** | All layers on ABB Ability, data via OPC-UA gateway | New greenfield facilities |
+
+---
+
+## 9. Demo Strategy — Making Judges Use It
+
+The judges in the top-6 round will interact with the prototype themselves. This changes the demo strategy completely. V1 was a presentation. V2 is an experience.
+
+### 9.1 The Five Demo Moments
+
+These are the five moments in the demo that will make judges remember ConfidenceOS above every other team. Every demo should hit all five.
+
+**Moment 1 — The Texas City Replay (30 seconds, maximum impact)**
+Open the Forensics screen. Select "Texas City Incident (Demo)" preset. Hit play at 30x speed. Say nothing for 20 seconds while judges watch LT-5100's confidence bar fall from 90% to 12% and the mass-balance chart diverge. Then say: "This is March 23, 2005. We just watched the hour before the explosion in 20 seconds. ConfidenceOS flagged the problem at T+45 minutes. The explosion happened at T+80."
+
+**Moment 2 — The Fleet Goes Critical (live)**
+Open Fleet Overview. All three plants are running. Trigger the Texas City scenario on Plant A (one click in the demo control panel). Watch the Plant Risk Score on Plant A climb from LOW to HIGH in real time while Plants B and C remain stable. Say: "This is what a control room manager sees at 2 AM. One plant going critical while two are fine. They know where to look."
+
+**Moment 3 — Ask the Plant a Question (interactive)**
+Hand the keyboard to a judge. Say: "Type any question about what is happening on this plant right now." Let them type. Show the answer, with citations. This is the moment that feels like magic to anyone who has spent time in a real control room where the answer to "why is this reading weird" requires calling three people.
+
+**Moment 4 — The Compliance Report**
+Open the Compliance Report screen. Set the date range to "Last 24 hours." Hit generate. 30 seconds later, open the PDF. Hand it to the most senior judge and say: "This is what an OSHA inspector would receive. It is generated from the same data that runs the dashboard. No manual effort."
+
+**Moment 5 — The Role Switch**
+While in Operator view, switch the role selector to Auditor. Watch the dashboard transform — confidence bars disappear, the layout becomes documentation-focused, the only visible action is "Export Compliance Report." Then switch to Engineer and show the sub-score breakdown and formula editor. Say: "Same data. Three completely different products. Because the operator needs to act, the engineer needs to understand, and the auditor needs to document."
+
+### 9.2 Letting Judges Use It Themselves
+
+Prepare a one-page quick-start card for judges:
+
+```
+ConfidenceOS — Try it yourself
+
+1. Open Fleet Overview — see which plant is most at risk right now
+2. Click on the high-risk plant
+3. Look at any red sensor — hover for the reason string
+4. Ask a question: type anything in the query panel on the right
+5. Open Forensics → select "Texas City Incident" → press Play
+6. Switch roles using the selector in the top right
+```
+
+The system must be usable without instruction. If a judge cannot figure out the next action within 5 seconds, the UI has failed.
+
+### 9.3 What to Say When Asked "Is This Production Ready?"
+
+"The intelligence layer — the confidence engine, the mass-balance engine, the predictive failure engine — runs on real physics and real mathematics. It is not a simulation of a smart system. It is a smart system running on simulated data. Connect it to a real OPC-UA feed from an ABB 800xA system and the only thing that changes is the data source. That adapter is a 2-day engineering task. The system is ready."
+
+---
+
+## 10. Sprint Plan — V2 Implementation
+
+**Baseline:** V1 is fully implemented. V2 features are built on top of V1 without touching V1 code except where specified.
+
+### Sprint 1 — Days 1–4: Data Foundation and Persistence
+
+| Day | Tasks |
+|-----|-------|
+| **Day 1** | Extend SQLite schema for persistent sensor reading log. Implement read-through logging middleware in FastAPI — every reading is now written to DB. Verify no performance impact on V1 real-time stream. |
+| **Day 2** | Spin up three simulator instances with different plant configurations (rafinery, gas, water). Implement multi-plant routing in FastAPI. Verify all three run simultaneously without conflict. |
+| **Day 3** | Pre-populate SQLite with Texas City incident timeline data (reconstructed from CSB report). This is the dataset that powers the forensics demo. Verify the data is accurate against the report timeline. |
+| **Day 4** | Implement Adaptive Threshold Learning module. Daily re-fit runs against SQLite history. Verify learned envelopes are physically reasonable. |
+
+### Sprint 2 — Days 5–8: Intelligence Extensions
+
+| Day | Tasks |
+|-----|-------|
+| **Day 5** | Implement Predictive Failure Engine. Linear and exponential degradation models. Time-to-threshold forecasting. Wire into existing confidence engine output. |
+| **Day 6** | Implement Causal Graph Engine using NetworkX. Define sensor relationship topology for each plant. Wire to anomaly classifier output. |
+| **Day 7** | Implement Natural Language Query Engine. Build context assembler (live state + history). Engineer Claude API prompt. Test with 20 sample queries across all query types. |
+| **Day 8** | Implement Compliance Report Generator. ReportLab PDF structure. Claude API narrative sections. Wire all data sources into report sections. |
+
+### Sprint 3 — Days 9–12: New Screens
+
+| Day | Tasks |
+|-----|-------|
+| **Day 9** | Fleet Overview screen + top navigation bar. Role selector. Plant Risk Score calculation. Fleet health trend chart. |
+| **Day 10** | Incident Forensics & Replay screen. Timeline scrubber. Historical data rendering in V1 dashboard components. Counterfactual toggle. Texas City preset with annotations. |
+| **Day 11** | Predictive Timeline screen (Gantt-style). Action queue. Compliance Report screen (PDF preview, download). |
+| **Day 12** | Causal Graph screen (D3.js force-directed). Engineer Deep-Dive view (sub-score breakdown, formula editor). Simulation Sandbox screen. |
+
+### Sprint 4 — Days 13–14: Polish, Role Views, Demo Prep
+
+| Day | Tasks |
+|-----|-------|
+| **Day 13** | Role-based view switching. Auditor view. Manager view. All four roles verified. Demo control panel (one-click scenario triggers for demo). Full end-to-end test of all 5 demo moments. |
+| **Day 14** | Visual polish across all screens. Performance testing — all three plant simulators running simultaneously. Final Docker Compose configuration. Demo rehearsal. Quick-start card printed. |
+
+---
+
+## 11. Risks and Mitigations
+
+| Risk | Likelihood | Impact | Mitigation |
+|------|-----------|--------|------------|
+| Predictive model fits poorly on short history | Medium | Medium | Fall back to linear interpolation when R² < 0.7. Show "insufficient data" label rather than wrong prediction. |
+| NL query produces incorrect plant data | Medium | High | Strict grounding prompt. Every answer must cite sensor ID and value. Test with 20 queries before demo. Fallback: show "I cannot answer this from available data." |
+| Three simulator instances cause performance degradation | Low | High | Run on separate ports. Lightweight instances — each uses < 50MB RAM. Test on demo machine specifically. |
+| D3.js causal graph layout is unstable or ugly | Medium | Low | Use vis.js as fallback — simpler API, more stable layout. Causal graph is not a demo-critical screen. |
+| Compliance PDF generates slowly | Low | Medium | Generate asynchronously, show progress. Pre-generate one report before demo as a cached fallback. |
+| Forensics replay is jerky or slow | Medium | High | Pre-compute the Texas City scenario into a JSON snapshot. Replay from JSON, not live SQLite queries. |
+| Role switching breaks existing V1 features | Medium | High | Role switching is purely a frontend concern — same API, different component rendering. Implement in Zustand as a global role state. Test each role against each screen. |
+| Judges cannot use it without help | High | Critical | Prepare quick-start card. Remove all jargon from UI. Test with one team member who did not build it — if they need help, the UI is wrong. |
+
+---
+
+## 12. References and Citations
+
+All incident data is sourced from official government investigation reports. All statistics are sourced from peer-reviewed or industry-standard publications.
+
+1. U.S. Chemical Safety and Hazard Investigation Board (CSB). *Investigation Report: Refinery Explosion and Fire — BP Texas City, Texas, March 23, 2005.* Report No. 2005-04-I-TX. Released March 20, 2007.
+
+2. U.S. Nuclear Regulatory Commission (NRC). *Report of the President's Commission on the Accident at Three Mile Island (The Kemeny Commission Report).* 1979.
+
+3. WorkSafe Victoria / The Hon. Daryl Dawson QC. *The Longford Royal Commission Report — Esso Australia Resources Pty Ltd, Longford Gas Plant Explosion, September 25, 1998.* 1999.
+
+4. EEMUA Publication 191. *Alarm Systems: A Guide to Design, Management and Procurement.* 3rd Edition. Engineering Equipment and Materials Users' Association, 2013.
+
+5. International Society of Automation. *ISA-18.2: Management of Alarm Systems for the Process Industries.* 2016.
+
+6. International Electrotechnical Commission. *IEC 61511: Functional Safety — Safety Instrumented Systems for the Process Industry Sector.* 2016.
+
+7. ASM Consortium. *Abnormal Situation Management: Human Factors Research and Industry Practice.* Referenced statistic: poor HMI design contributes to approximately 70% of industrial incidents.
+
+8. Holzmüller, B. et al. *Analyzing Operator States and the Impact of AI-Enhanced Decision Support in Control Rooms.* arXiv:2402.13219, 2024.
+
+---
+
+## Appendix A — KPI Definitions
+
+ConfidenceOS introduces new KPIs for plant health benchmarking that do not exist in traditional HMI products.
+
+**Plant Health Score (PHS)**
+Average confidence score across all sensors at a point in time. Range 0–100%. Composite metric visible in fleet view and operator dashboard header.
+
+**Mean Time Between Confidence Failures (MTBCF)**
+Average time in hours between events where any sensor crosses into LOW or CRITICAL confidence tier. Higher is better. Analogous to MTBF in reliability engineering but applied to sensor data integrity rather than hardware failure.
+
+**Mass-Balance Integrity Score (MBIS)**
+Percentage of time in a given period where all vessels' implied levels (from flow integration) agreed with sensor readings within tolerance. 100% = perfect physical consistency throughout the period.
+
+**Shift Handover Completeness Index (SHCI)**
+Percentage of shift changes where a ConfidenceOS handover brief was generated and acknowledged by the incoming operator before they took control. Target: 100%.
+
+**Predictive Lead Time (PLT)**
+Average number of hours between when the predictive engine first flagged a sensor as trajectory-to-CRITICAL and when that sensor actually reached CRITICAL. Higher PLT means more warning time. Target: > 4 hours for all sensors.
+
+---
+
+## Appendix B — Competitive Positioning for ABB Judges
+
+The judges are ABB employees. They know the industrial software market. This appendix frames ConfidenceOS against what they know.
+
+**ABB System 800xA:** The industry benchmark for DCS HMI. Powerful, configurable, deeply integrated with ABB hardware. Does not have per-reading confidence scoring, real-time mass-balance cross-check, predictive failure forecasting, or AI-generated shift handover briefs. ConfidenceOS is not a replacement — it is an intelligence layer that sits on top.
+
+**AVEVA PI System:** Leading process data historian and visualization platform. Excellent historical data and trending. Does not compute sensor trust scores. Does not cross-check physics. Does not generate handover briefs. Compliance reporting is manual and expensive.
+
+**Honeywell Experion:** DCS with advanced alarm management. The most sophisticated alarm prioritization in the market. Still addresses the symptom (alarm volume) rather than the cause (data trust). Does not flag sensor readings as unreliable — it flags alarms as low-priority.
+
+**ConfidenceOS unique position:** The only system that operates at the layer of data integrity rather than the alarm layer. Complementary to all existing DCS platforms. Can be deployed as an overlay on any OPC-UA data source. Does not require replacing existing infrastructure.
+
+---
+
+*ConfidenceOS — Version 2.0*
+*Institute of Aeronautical Engineering, Hyderabad*
+*ABB Accelerator 2026 — Top 6 Prototype Phase*
+
+*We are not building a better alarm list.*
+*We are building the system that makes industrial control honest.*
+*Every feature exists because a real person died when a sensor lied and nobody knew.*
+*That is why we will win.*

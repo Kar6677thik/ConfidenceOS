@@ -1,35 +1,25 @@
 """
-main.py — FastAPI application for ConfidenceOS backend.
+main.py — FastAPI application for ConfidenceOS V2.
 
-Module 1 endpoints:
+V1 endpoints (maintained for backward compat):
   - WebSocket /ws/sensors — streams sensor readings + confidence + mass-balance at 1 Hz
-  - GET /api/sensors/history/{sensor_id} — returns last N readings from SQLite
-  - GET /api/sensors/latest — returns most recent reading for each sensor
-  - POST /api/scenario/load — load a failure scenario
-  - POST /api/scenario/reset — reset simulator to clean state
-  - GET /api/health — basic health check
+  - GET /api/sensors/history/{sensor_id}, /api/sensors/latest
+  - GET /api/confidence/{sensor_id}, /api/confidence
+  - GET /api/mass-balance/flags, /api/mass-balance/state
+  - GET /api/sensors/{sensor_id}/health
+  - GET /api/anomalies, /api/anomalies/{sensor_id}
+  - GET/POST /api/mode, /api/mode/startup
+  - POST /api/handover/generate, GET /api/handover/latest
+  - POST /api/scenario/load, /api/scenario/reset
 
-Module 2 endpoints:
-  - GET /api/confidence/{sensor_id} — current confidence score for a sensor
-  - GET /api/confidence — current confidence scores for all sensors
-
-Module 3 endpoints:
-  - GET /api/mass-balance/flags — active mass-balance flags
-  - GET /api/mass-balance/state — current mass-balance state
-
-Module 4 endpoints (Sensor Health Timeline):
-  - GET /api/sensors/{sensor_id}/health — calibration, anomalies, drift, maintenance
-  - GET /api/anomalies — recent anomalies across all sensors
-  - GET /api/anomalies/{sensor_id} — anomalies for a specific sensor
-
-Module 5 endpoints (Startup Mode):
-  - GET /api/mode — current operating mode
-  - POST /api/mode/startup — toggle startup mode on/off
-  - POST /api/mode/startup/acknowledge/{sensor_id} — acknowledge a stale reading
-
-Module 6 endpoints (Shift Handover Brief):
-  - POST /api/handover/generate — generate a new shift handover brief
-  - GET /api/handover/latest — return the most recently generated brief
+V2 endpoints (new):
+  - GET /api/fleet — fleet overview with risk scores for all plants
+  - GET /api/predictions/{plant_id} — predictive failure forecasts
+  - POST /api/query — natural language plant query
+  - GET /api/graph/{plant_id} — causal graph state
+  - GET /api/forensics/{plant_id} — historical data for replay
+  - GET /api/forensics/presets — available preset incidents
+  - POST /api/compliance/generate — compliance report data
 """
 
 import asyncio
@@ -49,162 +39,141 @@ from database import (
     init_db, get_db,
     SensorReading as SensorReadingModel,
     AnomalyLog as AnomalyLogModel,
+    ConfidenceLog as ConfidenceLogModel,
     log_anomaly, get_recent_anomalies,
+    log_confidence, log_shift_handover,
+    get_confidence_history,
 )
-from simulator import SensorSimulator
-from confidence import ConfidenceEngine
-from mass_balance import MassBalanceEngine, DEFAULT_TOLERANCE
-from startup import StartupManager
-from handover import HandoverBriefGenerator
+from plants import PlantManager
+from mass_balance import DEFAULT_TOLERANCE
+from prediction import predict_all_sensors
+from causal_graph import get_graph_state
+import nlquery
 
 
 # ─── Global instances ───────────────────────────────────────────────────────
 
-simulator = SensorSimulator()
-confidence_engine = ConfidenceEngine()
-mass_balance_engine = MassBalanceEngine()
-startup_manager = StartupManager()               # Module 5
-handover_generator = HandoverBriefGenerator()     # Module 6
+plant_manager = PlantManager()
 
-# Load default scenario if it exists
-DEFAULT_SCENARIO = Path(__file__).parent / "scenario.json"
-if DEFAULT_SCENARIO.exists():
-    simulator.load_scenario(DEFAULT_SCENARIO)
-
-# Set simulated calibration ages for demo
-# LT-5100 is 47 days uncalibrated (Texas City scenario)
-confidence_engine.set_calibration_age("LT-5100", 47.0)
-confidence_engine.set_calibration_age("FI-2010", 12.0)
-confidence_engine.set_calibration_age("FO-2020", 15.0)
-confidence_engine.set_calibration_age("PT-3100", 5.0)
-confidence_engine.set_calibration_age("TT-4100", 30.0)
-confidence_engine.set_calibration_age("ZT-6100", 8.0)
-
-# Store latest confidence results for REST access
-_latest_confidence: dict[str, dict] = {}
-
-# Store the latest mass-balance state for REST / handover access
-_latest_mb_state: dict = {}
-
-# Anomaly deduplication: (sensor_id:anomaly_type) → last-logged timestamp
-# Prevents logging the same anomaly every second
+# Anomaly deduplication: (plant_id:sensor_id:anomaly_type) → last-logged timestamp
 _anomaly_cooldown: dict[str, float] = {}
 ANOMALY_COOLDOWN_SECONDS = 60.0
 
-# Base mass-balance tolerance (used to compute effective tolerance in startup mode)
 BASE_MB_TOLERANCE = DEFAULT_TOLERANCE
 
+# Confidence logging throttle — log every N ticks to avoid DB bloat
+_confidence_log_counter: dict[str, int] = {}
+CONFIDENCE_LOG_INTERVAL = 5  # Log every 5 seconds
 
-# ─── Pydantic models for request bodies ─────────────────────────────────────
+
+# ─── Pydantic models ────────────────────────────────────────────────────────
 
 class StartupModeRequest(BaseModel):
     active: bool
+
+class QueryRequest(BaseModel):
+    question: str
+    plant_id: str = "plant-a"
+
+class ComplianceRequest(BaseModel):
+    plant_id: str = "plant-a"
+    hours: float = 24.0
+    report_type: str = "full"  # full, alarm, sensor, handover
+
+class SandboxRequest(BaseModel):
+    plant_id: str = "plant-a"
+    sensor_id: str
+    failure_mode: str
+    severity: str = "moderate"
+    duration_hours: float = 6.0
 
 
 # ─── App lifecycle ───────────────────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize DB on startup."""
+    """Initialize DB and start background plant ticking on startup."""
     init_db()
+    # Start background tasks for all plants
+    tasks = []
+    for pid, plant in plant_manager.get_all().items():
+        task = asyncio.create_task(_plant_tick_loop(pid, plant))
+        tasks.append(task)
     yield
+    # Cancel background tasks
+    for task in tasks:
+        task.cancel()
 
 
 app = FastAPI(
     title="ConfidenceOS API",
-    description="Backend for ConfidenceOS — the HMI that knows what it does not know.",
-    version="0.3.0",
+    description="Backend for ConfidenceOS V2 — the HMI that knows what it does not know.",
+    version="2.0.0",
     lifespan=lifespan,
 )
 
 # CORS — allow frontend dev server
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # tighten in production
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
-# ─── WebSocket: live sensor stream at 1 Hz ──────────────────────────────────
+# ─── Background plant tick loop ─────────────────────────────────────────────
 
-# Track active WebSocket connections
-active_connections: list[WebSocket] = []
-
-
-@app.websocket("/ws/sensors")
-async def sensor_stream(websocket: WebSocket):
-    """
-    Stream all sensor readings at 1 Hz over WebSocket.
-    Each message includes:
-      - readings: raw sensor data
-      - confidence: per-sensor confidence scores
-      - mass_balance: implied level, measured level, discrepancy, flags
-      - mode: current operating mode (NORMAL / STARTUP)
-      - stale_flags: stale reading flags (startup mode only)
-      - anomalies: newly detected anomalies this tick
-    """
-    global _latest_mb_state
-
-    await websocket.accept()
-    active_connections.append(websocket)
-
-    # Get a DB session for persisting readings
+async def _plant_tick_loop(plant_id: str, plant):
+    """Background loop that ticks each plant at 1 Hz and caches state."""
     db = next(get_db())
+    tick_count = 0
 
     try:
         while True:
             now = time.time()
 
-            # ── Apply startup mode overrides ────────────────────────────
-            if startup_manager.is_active:
-                confidence_engine.set_tier_thresholds(
-                    startup_manager.tier_thresholds
+            # Apply startup mode overrides
+            if plant.startup_manager.is_active:
+                plant.confidence_engine.set_tier_thresholds(
+                    plant.startup_manager.tier_thresholds
                 )
-                mass_balance_engine.tolerance = (
-                    BASE_MB_TOLERANCE * startup_manager.mass_balance_tolerance_multiplier
+                plant.mass_balance_engine.tolerance = (
+                    BASE_MB_TOLERANCE * plant.startup_manager.mass_balance_tolerance_multiplier
                 )
             else:
-                confidence_engine.clear_tier_thresholds()
-                mass_balance_engine.tolerance = BASE_MB_TOLERANCE
+                plant.confidence_engine.clear_tier_thresholds()
+                plant.mass_balance_engine.tolerance = BASE_MB_TOLERANCE
 
-            # ── Generate readings ───────────────────────────────────────
-            readings = simulator.tick()
+            # Generate readings
+            readings = plant.simulator.tick()
+            plant.latest_readings = readings
 
-            # ── Compute confidence scores ───────────────────────────────
-            confidence_results = confidence_engine.score_readings(readings)
+            # Compute confidence scores
+            confidence_results = plant.confidence_engine.score_readings(readings)
             confidence_data = [r.to_dict() for r in confidence_results]
 
-            # Update latest confidence cache
+            # Update cached confidence
             for cr in confidence_results:
-                _latest_confidence[cr.sensor_id] = cr.to_dict()
+                plant.latest_confidence[cr.sensor_id] = cr.to_dict()
 
-            # ── Update mass-balance engine ──────────────────────────────
-            mb_state = mass_balance_engine.update(readings)
-            _latest_mb_state = mb_state.to_dict()
+            # Update mass-balance
+            mb_state = plant.mass_balance_engine.update(readings)
+            plant.latest_mb_state = mb_state.to_dict()
 
-            # ── Check stale readings (startup mode only) ────────────────
-            stale_flags = startup_manager.check_stale_readings(readings, now)
-            stale_data = [f.to_dict() for f in stale_flags]
+            # Check stale readings
+            stale_flags = plant.startup_manager.check_stale_readings(readings, now)
 
-            # ── Anomaly detection & logging (Module 4) ──────────────────
+            # Anomaly detection & logging
             new_anomalies = []
-
             for cr in confidence_results:
                 if cr.tier in ("LOW", "CRITICAL"):
                     anomaly_type = f"confidence_{cr.tier.lower()}"
-                    cooldown_key = f"{cr.sensor_id}:{anomaly_type}"
+                    cooldown_key = f"{plant_id}:{cr.sensor_id}:{anomaly_type}"
                     last_logged = _anomaly_cooldown.get(cooldown_key, 0)
-
                     if now - last_logged > ANOMALY_COOLDOWN_SECONDS:
-                        description = "; ".join(cr.reasons) if cr.reasons else (
-                            f"Confidence {cr.tier}: {cr.confidence_pct}%"
-                        )
-                        log_anomaly(
-                            db, cr.sensor_id, anomaly_type,
-                            description, cr.tier,
-                        )
+                        description = "; ".join(cr.reasons) if cr.reasons else f"Confidence {cr.tier}: {cr.confidence_pct}%"
+                        log_anomaly(db, cr.sensor_id, anomaly_type, description, cr.tier, plant_id=plant_id)
                         _anomaly_cooldown[cooldown_key] = now
                         new_anomalies.append({
                             "sensor_id": cr.sensor_id,
@@ -214,52 +183,25 @@ async def sensor_stream(websocket: WebSocket):
                             "timestamp": now,
                         })
 
-            # Log mass-balance flags as anomalies too
             for flag in mb_state.flags:
-                cooldown_key = f"mass_balance:{flag.severity}"
+                cooldown_key = f"{plant_id}:mass_balance:{flag.severity}"
                 last_logged = _anomaly_cooldown.get(cooldown_key, 0)
-
                 if now - last_logged > ANOMALY_COOLDOWN_SECONDS:
-                    log_anomaly(
-                        db, "SYSTEM", f"mass_balance_{flag.severity.lower()}",
-                        flag.message, flag.severity,
-                    )
+                    log_anomaly(db, "SYSTEM", f"mass_balance_{flag.severity.lower()}", flag.message, flag.severity, plant_id=plant_id)
                     _anomaly_cooldown[cooldown_key] = now
-                    new_anomalies.append({
-                        "sensor_id": "SYSTEM",
-                        "anomaly_type": f"mass_balance_{flag.severity.lower()}",
-                        "description": flag.message,
-                        "severity": flag.severity,
-                        "timestamp": now,
-                    })
 
-            # Log stale reading flags as anomalies
             for sf in stale_flags:
-                cooldown_key = f"{sf.sensor_id}:stale_reading"
+                cooldown_key = f"{plant_id}:{sf.sensor_id}:stale_reading"
                 last_logged = _anomaly_cooldown.get(cooldown_key, 0)
-
                 if now - last_logged > ANOMALY_COOLDOWN_SECONDS:
-                    desc = (
-                        f"Stale reading: value {sf.last_value} unchanged for "
-                        f"{sf.duration_seconds:.0f}s (startup mode threshold: "
-                        f"{startup_manager.STALE_THRESHOLD_SECONDS:.0f}s)"
-                    )
-                    log_anomaly(
-                        db, sf.sensor_id, "stale_reading",
-                        desc, "WARNING",
-                    )
+                    desc = f"Stale reading: value {sf.last_value} unchanged for {sf.duration_seconds:.0f}s"
+                    log_anomaly(db, sf.sensor_id, "stale_reading", desc, "WARNING", plant_id=plant_id)
                     _anomaly_cooldown[cooldown_key] = now
-                    new_anomalies.append({
-                        "sensor_id": sf.sensor_id,
-                        "anomaly_type": "stale_reading",
-                        "description": desc,
-                        "severity": "WARNING",
-                        "timestamp": now,
-                    })
 
-            # ── Persist sensor readings to SQLite ───────────────────────
+            # Persist sensor readings
             for r in readings:
                 db_reading = SensorReadingModel(
+                    plant_id=plant_id,
                     sensor_id=r["sensor_id"],
                     sensor_type=r["sensor_type"],
                     value=r["value"],
@@ -268,30 +210,75 @@ async def sensor_stream(websocket: WebSocket):
                     failure_mode=r["failure_mode"],
                 )
                 db.add(db_reading)
-            db.commit()
 
-            # ── Send to client ──────────────────────────────────────────
+            # V2: Log confidence scores (throttled)
+            tick_count += 1
+            if tick_count % CONFIDENCE_LOG_INTERVAL == 0:
+                for cr in confidence_results:
+                    log_confidence(
+                        db, plant_id, cr.sensor_id,
+                        cr.confidence_pct, cr.tier,
+                        sub_scores={
+                            "calibration": cr.sub_scores.calibration_score,
+                            "stability": cr.sub_scores.stability_score,
+                            "cross_sensor": cr.sub_scores.cross_sensor_score,
+                            "physical_plausibility": cr.sub_scores.physical_plausibility_score,
+                        }
+                    )
+
+            db.commit()
+            await asyncio.sleep(1.0)
+    except asyncio.CancelledError:
+        db.close()
+    except Exception as e:
+        print(f"[PlantTick] Error in {plant_id}: {e}")
+        db.close()
+
+
+# ─── WebSocket: live sensor stream at 1 Hz ──────────────────────────────────
+
+active_connections: list[WebSocket] = []
+
+
+@app.websocket("/ws/sensors")
+async def sensor_stream(
+    websocket: WebSocket,
+    plant_id: str = Query(default="plant-a"),
+):
+    """
+    Stream sensor readings at 1 Hz over WebSocket for a specific plant.
+    Reads from the cached state updated by the background tick loop.
+    """
+    await websocket.accept()
+    active_connections.append(websocket)
+    plant = plant_manager.get(plant_id)
+
+    try:
+        while True:
+            now = time.time()
+            readings = plant.latest_readings
+            confidence_data = list(plant.latest_confidence.values())
+            stale_flags = plant.startup_manager.check_stale_readings(readings, now) if readings else []
+
             await websocket.send_json({
                 "type": "sensor_update",
+                "plant_id": plant_id,
                 "timestamp": now,
                 "readings": readings,
                 "confidence": confidence_data,
-                "mass_balance": _latest_mb_state,
-                "mode": startup_manager.to_dict(),
-                "stale_flags": stale_data,
-                "new_anomalies": new_anomalies,
+                "mass_balance": plant.latest_mb_state,
+                "mode": plant.startup_manager.to_dict(),
+                "stale_flags": [f.to_dict() for f in stale_flags],
+                "new_anomalies": [],
             })
 
-            # Wait ~1 second (1 Hz)
             await asyncio.sleep(1.0)
-
     except WebSocketDisconnect:
-        active_connections.remove(websocket)
-        db.close()
+        if websocket in active_connections:
+            active_connections.remove(websocket)
     except Exception:
         if websocket in active_connections:
             active_connections.remove(websocket)
-        db.close()
 
 
 # ─── REST: sensor history ────────────────────────────────────────────────────
@@ -299,8 +286,9 @@ async def sensor_stream(websocket: WebSocket):
 @app.get("/api/sensors/history/{sensor_id}")
 def get_sensor_history(
     sensor_id: str,
-    hours: float = Query(default=1.0, description="How many hours of history to return"),
-    limit: int = Query(default=3600, description="Max number of readings to return"),
+    plant_id: str = Query(default="plant-a"),
+    hours: float = Query(default=1.0),
+    limit: int = Query(default=3600),
     db: Session = Depends(get_db),
 ):
     """Return historical readings for a sensor from SQLite."""
@@ -308,6 +296,7 @@ def get_sensor_history(
     readings = (
         db.query(SensorReadingModel)
         .filter(
+            SensorReadingModel.plant_id == plant_id,
             SensorReadingModel.sensor_id == sensor_id,
             SensorReadingModel.timestamp >= cutoff,
         )
@@ -315,109 +304,73 @@ def get_sensor_history(
         .limit(limit)
         .all()
     )
-
     return {
         "sensor_id": sensor_id,
+        "plant_id": plant_id,
         "count": len(readings),
         "readings": [
-            {
-                "value": r.value,
-                "unit": r.unit,
-                "timestamp": r.timestamp.isoformat(),
-                "failure_mode": r.failure_mode,
-            }
-            for r in reversed(readings)  # chronological order
+            {"value": r.value, "unit": r.unit, "timestamp": r.timestamp.isoformat(), "failure_mode": r.failure_mode}
+            for r in reversed(readings)
         ],
     }
 
 
 @app.get("/api/sensors/latest")
-def get_latest_readings(db: Session = Depends(get_db)):
-    """Return the most recent reading for each sensor."""
-    from sqlalchemy import func
-
-    # Subquery to get max timestamp per sensor
-    subq = (
-        db.query(
-            SensorReadingModel.sensor_id,
-            func.max(SensorReadingModel.timestamp).label("max_ts"),
-        )
-        .group_by(SensorReadingModel.sensor_id)
-        .subquery()
-    )
-
-    readings = (
-        db.query(SensorReadingModel)
-        .join(
-            subq,
-            (SensorReadingModel.sensor_id == subq.c.sensor_id)
-            & (SensorReadingModel.timestamp == subq.c.max_ts),
-        )
-        .all()
-    )
-
-    return {
-        "readings": [
-            {
-                "sensor_id": r.sensor_id,
-                "sensor_type": r.sensor_type,
-                "value": r.value,
-                "unit": r.unit,
-                "timestamp": r.timestamp.isoformat(),
-                "failure_mode": r.failure_mode,
-            }
-            for r in readings
-        ]
-    }
+def get_latest_readings(plant_id: str = Query(default="plant-a")):
+    """Return the most recent reading for each sensor (from cache)."""
+    plant = plant_manager.get(plant_id)
+    if not plant.latest_readings:
+        return {"readings": [], "message": "No data yet."}
+    return {"readings": plant.latest_readings}
 
 
 # ─── REST: confidence scores (Module 2) ─────────────────────────────────────
 
 @app.get("/api/confidence/{sensor_id}")
-def get_confidence(sensor_id: str):
+def get_confidence(sensor_id: str, plant_id: str = Query(default="plant-a")):
     """Return the current confidence score for a specific sensor."""
-    result = _latest_confidence.get(sensor_id)
+    plant = plant_manager.get(plant_id)
+    result = plant.latest_confidence.get(sensor_id)
     if result is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No confidence data for sensor '{sensor_id}'. Is the WebSocket stream active?",
-        )
+        raise HTTPException(status_code=404, detail=f"No confidence data for sensor '{sensor_id}'.")
     return result
 
 
 @app.get("/api/confidence")
-def get_all_confidence():
+def get_all_confidence(plant_id: str = Query(default="plant-a")):
     """Return current confidence scores for all sensors."""
-    if not _latest_confidence:
-        return {"confidence": [], "message": "No data yet. Connect a WebSocket client to start streaming."}
-    return {"confidence": list(_latest_confidence.values())}
+    plant = plant_manager.get(plant_id)
+    if not plant.latest_confidence:
+        return {"confidence": [], "message": "No data yet."}
+    return {"confidence": list(plant.latest_confidence.values())}
 
 
 # ─── REST: mass-balance flags (Module 3) ─────────────────────────────────────
 
 @app.get("/api/mass-balance/flags")
-def get_mass_balance_flags():
+def get_mass_balance_flags(plant_id: str = Query(default="plant-a")):
     """Return active mass-balance inconsistency flags."""
+    plant = plant_manager.get(plant_id)
     return {
-        "flags": [f.to_dict() for f in mass_balance_engine.active_flags],
-        "count": len(mass_balance_engine.active_flags),
+        "flags": [f.to_dict() for f in plant.mass_balance_engine.active_flags],
+        "count": len(plant.mass_balance_engine.active_flags),
     }
 
 
 @app.get("/api/mass-balance/state")
-def get_mass_balance_state():
+def get_mass_balance_state(plant_id: str = Query(default="plant-a")):
     """Return the current mass-balance state snapshot."""
-    if mass_balance_engine._implied_level is None:
-        return {"state": None, "message": "No data yet. Connect a WebSocket client to start streaming."}
-
+    plant = plant_manager.get(plant_id)
+    if plant.mass_balance_engine._implied_level is None:
+        return {"state": None, "message": "No data yet."}
     return {
         "state": {
-            "implied_level": round(mass_balance_engine._implied_level, 2),
-            "measured_level": mass_balance_engine._history[-1][3] if mass_balance_engine._history else None,
-            "cumulative_flow_delta": round(mass_balance_engine._cumulative_flow_delta, 2),
-            "window_seconds": mass_balance_engine.window_seconds,
-            "tolerance": mass_balance_engine.tolerance,
-            "history_entries": len(mass_balance_engine._history),
+            "implied_level": round(plant.mass_balance_engine._implied_level, 2),
+            "measured_level": plant.mass_balance_engine._history[-1][3] if plant.mass_balance_engine._history else None,
+            "cumulative_flow_delta": round(plant.mass_balance_engine._cumulative_flow_delta, 2),
+            "window_seconds": plant.mass_balance_engine.window_seconds,
+            "tolerance": plant.mass_balance_engine.tolerance,
+            "history_entries": len(plant.mass_balance_engine._history),
         }
     }
 
@@ -425,17 +378,13 @@ def get_mass_balance_state():
 # ─── REST: Sensor Health Timeline (Module 4) ────────────────────────────────
 
 @app.get("/api/sensors/{sensor_id}/health")
-def get_sensor_health(
-    sensor_id: str,
-    db: Session = Depends(get_db),
-):
-    """
-    Return comprehensive health data for a sensor.
-    Includes calibration status, anomaly history, drift trend, and maintenance.
-    """
-    # Calibration data
-    cal_age = confidence_engine.calibration_ages.get(sensor_id, 0.0)
-    cal_interval = confidence_engine.calibration_interval_days
+def get_sensor_health(sensor_id: str, plant_id: str = Query(default="plant-a"), db: Session = Depends(get_db)):
+    """Return comprehensive health data for a sensor."""
+    plant = plant_manager.get(plant_id)
+    ce = plant.confidence_engine
+
+    cal_age = ce.calibration_ages.get(sensor_id, 0.0)
+    cal_interval = ce.calibration_interval_days
     cal_score = max(0.0, 1.0 - (cal_age / cal_interval)) if cal_age > 0 else 1.0
 
     if cal_age <= 0:
@@ -447,14 +396,13 @@ def get_sensor_health(
     else:
         cal_status = "current"
 
-    # Anomaly history
-    anomalies = get_recent_anomalies(db, sensor_id=sensor_id, limit=20, hours=24.0)
+    anomalies = get_recent_anomalies(db, sensor_id=sensor_id, limit=20, hours=24.0, plant_id=plant_id)
 
-    # Drift trend from recent readings
     cutoff = datetime.utcnow() - timedelta(hours=1)
     recent_readings = (
         db.query(SensorReadingModel)
         .filter(
+            SensorReadingModel.plant_id == plant_id,
             SensorReadingModel.sensor_id == sensor_id,
             SensorReadingModel.timestamp >= cutoff,
         )
@@ -465,206 +413,553 @@ def get_sensor_health(
 
     drift_values = [r.value for r in recent_readings]
     drift_timestamps = [r.timestamp.isoformat() for r in recent_readings]
+    avg_deviation = sum(abs(v - sum(drift_values)/len(drift_values)) for v in drift_values) / len(drift_values) if len(drift_values) > 1 else 0.0
 
-    if len(drift_values) > 1:
-        mean_val = sum(drift_values) / len(drift_values)
-        avg_deviation = sum(abs(v - mean_val) for v in drift_values) / len(drift_values)
-    else:
-        avg_deviation = 0.0
-
-    # Simulated maintenance status
     work_orders = []
     if cal_status == "expired":
-        work_orders.append({
-            "type": "calibration",
-            "priority": "critical",
-            "description": f"Calibration expired — {cal_age:.0f} days since last calibration (interval: {cal_interval:.0f} days).",
-        })
+        work_orders.append({"type": "calibration", "priority": "critical", "description": f"Calibration expired — {cal_age:.0f} days."})
     elif cal_status == "due_soon":
-        work_orders.append({
-            "type": "calibration",
-            "priority": "high",
-            "description": f"Calibration due soon — {cal_age:.0f} days elapsed of {cal_interval:.0f}-day interval.",
-        })
-
-    if anomalies:
-        critical_count = sum(1 for a in anomalies if a["severity"] == "CRITICAL")
-        if critical_count > 0:
-            work_orders.append({
-                "type": "investigation",
-                "priority": "high",
-                "description": f"{critical_count} CRITICAL anomalies in last 24 hours — investigation required.",
-            })
-
-    maintenance_status = "attention_needed" if work_orders else "normal"
+        work_orders.append({"type": "calibration", "priority": "high", "description": f"Calibration due soon — {cal_age:.0f} days elapsed."})
 
     return {
         "sensor_id": sensor_id,
-        "calibration": {
-            "age_days": cal_age,
-            "interval_days": cal_interval,
-            "score": round(cal_score, 3),
-            "status": cal_status,
-        },
+        "plant_id": plant_id,
+        "calibration": {"age_days": cal_age, "interval_days": cal_interval, "score": round(cal_score, 3), "status": cal_status},
         "anomalies": anomalies,
-        "drift_trend": {
-            "values": [round(v, 2) for v in drift_values],
-            "timestamps": drift_timestamps,
-            "average_deviation": round(avg_deviation, 3),
-            "sample_count": len(drift_values),
-        },
-        "maintenance": {
-            "status": maintenance_status,
-            "work_orders": work_orders,
-        },
+        "drift_trend": {"values": [round(v, 2) for v in drift_values], "timestamps": drift_timestamps, "average_deviation": round(avg_deviation, 3), "sample_count": len(drift_values)},
+        "maintenance": {"status": "attention_needed" if work_orders else "normal", "work_orders": work_orders},
     }
 
 
 @app.get("/api/anomalies")
 def get_all_anomalies(
-    hours: float = Query(default=1.0, description="How many hours of history"),
-    limit: int = Query(default=50, description="Max number of anomalies"),
+    plant_id: str = Query(default="plant-a"),
+    hours: float = Query(default=1.0),
+    limit: int = Query(default=50),
     db: Session = Depends(get_db),
 ):
     """Return recent anomalies across all sensors."""
-    anomalies = get_recent_anomalies(db, sensor_id=None, limit=limit, hours=hours)
+    anomalies = get_recent_anomalies(db, sensor_id=None, limit=limit, hours=hours, plant_id=plant_id)
     return {"anomalies": anomalies, "count": len(anomalies)}
 
 
 @app.get("/api/anomalies/{sensor_id}")
 def get_sensor_anomalies(
     sensor_id: str,
-    hours: float = Query(default=24.0, description="How many hours of history"),
-    limit: int = Query(default=20, description="Max number of anomalies"),
+    plant_id: str = Query(default="plant-a"),
+    hours: float = Query(default=24.0),
+    limit: int = Query(default=20),
     db: Session = Depends(get_db),
 ):
     """Return recent anomalies for a specific sensor."""
-    anomalies = get_recent_anomalies(db, sensor_id=sensor_id, limit=limit, hours=hours)
+    anomalies = get_recent_anomalies(db, sensor_id=sensor_id, limit=limit, hours=hours, plant_id=plant_id)
     return {"sensor_id": sensor_id, "anomalies": anomalies, "count": len(anomalies)}
 
 
 # ─── REST: Startup Mode (Module 5) ──────────────────────────────────────────
 
 @app.get("/api/mode")
-def get_mode():
-    """Return the current operating mode (NORMAL or STARTUP)."""
-    return startup_manager.to_dict()
+def get_mode(plant_id: str = Query(default="plant-a")):
+    """Return the current operating mode."""
+    plant = plant_manager.get(plant_id)
+    return plant.startup_manager.to_dict()
 
 
 @app.post("/api/mode/startup")
-def toggle_startup_mode(request: StartupModeRequest):
-    """
-    Toggle startup mode on or off.
-    When active: confidence thresholds tighten, mass-balance tolerance halves,
-    stale readings flagged after 8 minutes.
-    """
-    startup_manager.toggle(request.active)
-    return {
-        "status": "activated" if request.active else "deactivated",
-        **startup_manager.to_dict(),
-    }
+def toggle_startup_mode(request: StartupModeRequest, plant_id: str = Query(default="plant-a")):
+    """Toggle startup mode on or off."""
+    plant = plant_manager.get(plant_id)
+    plant.startup_manager.toggle(request.active)
+    return {"status": "activated" if request.active else "deactivated", **plant.startup_manager.to_dict()}
 
 
 @app.post("/api/mode/startup/acknowledge/{sensor_id}")
-def acknowledge_stale_reading(sensor_id: str):
-    """Acknowledge a stale reading flag (operator manual verification)."""
-    success = startup_manager.acknowledge_stale(sensor_id)
+def acknowledge_stale_reading(sensor_id: str, plant_id: str = Query(default="plant-a")):
+    """Acknowledge a stale reading flag."""
+    plant = plant_manager.get(plant_id)
+    success = plant.startup_manager.acknowledge_stale(sensor_id)
     if not success:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No active stale reading flag for sensor '{sensor_id}'.",
-        )
-    return {
-        "status": "acknowledged",
-        "sensor_id": sensor_id,
-    }
+        raise HTTPException(status_code=404, detail=f"No active stale reading flag for '{sensor_id}'.")
+    return {"status": "acknowledged", "sensor_id": sensor_id}
 
 
 # ─── REST: Shift Handover Brief (Module 6) ──────────────────────────────────
 
 @app.post("/api/handover/generate")
-async def generate_handover_brief(db: Session = Depends(get_db)):
-    """
-    Generate a shift handover brief from current system state.
-    Uses Claude API if ANTHROPIC_API_KEY is set, otherwise falls back
-    to a structured template.
-    """
-    # Collect current system state
-    confidence_data = list(_latest_confidence.values())
-
+async def generate_handover_brief(plant_id: str = Query(default="plant-a"), db: Session = Depends(get_db)):
+    """Generate a shift handover brief from current system state."""
+    plant = plant_manager.get(plant_id)
+    confidence_data = list(plant.latest_confidence.values())
     if not confidence_data:
-        raise HTTPException(
-            status_code=400,
-            detail="No sensor data available. Start the WebSocket stream first.",
-        )
+        raise HTTPException(status_code=400, detail="No sensor data available.")
 
-    anomalies = get_recent_anomalies(db, sensor_id=None, limit=20, hours=8.0)
+    anomalies = get_recent_anomalies(db, sensor_id=None, limit=20, hours=8.0, plant_id=plant_id)
 
-    system_state = handover_generator.collect_system_state(
+    # V2: Include prediction data in the brief
+    predictions = None
+    try:
+        histories = {}
+        for sid in plant.latest_confidence:
+            histories[sid] = get_confidence_history(db, plant_id, sid, hours=24.0)
+        if any(len(h) >= 10 for h in histories.values()):
+            predictions = predict_all_sensors(histories)
+    except Exception:
+        pass
+
+    system_state = plant.handover_generator.collect_system_state(
         confidence_data=confidence_data,
-        mass_balance_state=_latest_mb_state,
+        mass_balance_state=plant.latest_mb_state,
         anomalies=anomalies,
-        mode_state=startup_manager.to_dict(),
+        mode_state=plant.startup_manager.to_dict(),
     )
 
-    brief = await handover_generator.generate_brief(system_state)
+    # Add predictions to state for V2 enhanced briefs
+    if predictions:
+        system_state["predictions"] = {
+            sid: {
+                "time_to_low_hours": p.get("time_to_low_hours"),
+                "time_to_critical_hours": p.get("time_to_critical_hours"),
+                "recommended_action": p.get("recommended_action"),
+            }
+            for sid, p in predictions.items()
+            if p.get("time_to_low_hours") is not None
+        }
+
+    brief = await plant.handover_generator.generate_brief(system_state)
+
+    # V2: Log the brief
+    try:
+        log_shift_handover(db, plant_id, brief.get("brief_text", ""), brief.get("source", "fallback"))
+    except Exception:
+        pass
+
     return brief
 
 
 @app.get("/api/handover/latest")
-def get_latest_handover():
+def get_latest_handover(plant_id: str = Query(default="plant-a")):
     """Return the most recently generated handover brief."""
-    brief = handover_generator.latest_brief
+    plant = plant_manager.get(plant_id)
+    brief = plant.handover_generator.latest_brief
     if brief is None:
-        return {
-            "brief": None,
-            "message": "No handover brief has been generated yet. "
-                       "Use POST /api/handover/generate to create one.",
-        }
+        return {"brief": None, "message": "No handover brief has been generated yet."}
     return brief
 
 
 # ─── REST: scenario control ─────────────────────────────────────────────────
 
 @app.post("/api/scenario/load")
-def load_scenario(scenario_path: Optional[str] = None):
-    """
-    Load a failure injection scenario.
-    If no path provided, loads the default scenario.json.
-    """
+def load_scenario(scenario_path: Optional[str] = None, plant_id: str = Query(default="plant-a")):
+    """Load a failure injection scenario."""
+    plant = plant_manager.get(plant_id)
+    DEFAULT_SCENARIO = Path(__file__).parent / "scenario.json"
     path = Path(scenario_path) if scenario_path else DEFAULT_SCENARIO
     if not path.exists():
         raise HTTPException(status_code=404, detail=f"Scenario file not found: {path}")
-
-    simulator.load_scenario(path)
-    simulator.reset()
-    mass_balance_engine.reset()
+    plant.simulator.load_scenario(path)
+    plant.simulator.reset()
+    plant.mass_balance_engine.reset()
     return {"status": "loaded", "scenario": str(path)}
 
 
 @app.post("/api/scenario/reset")
-def reset_scenario():
-    """Reset the simulator clock and state. Failures will replay from the beginning."""
-    simulator.reset()
-    mass_balance_engine.reset()
-    _anomaly_cooldown.clear()
-    return {"status": "reset", "message": "Simulator and mass-balance reset. Failures will replay from t=0."}
+def reset_scenario(plant_id: str = Query(default="plant-a")):
+    """Reset the simulator clock and state."""
+    plant = plant_manager.get(plant_id)
+    plant.simulator.reset()
+    plant.mass_balance_engine.reset()
+    return {"status": "reset"}
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# V2 ENDPOINTS
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ─── Fleet Overview (Module 9) ───────────────────────────────────────────────
+
+@app.get("/api/fleet")
+def get_fleet_overview():
+    """Return fleet-level summary with risk scores for all plants."""
+    return {
+        "fleet": plant_manager.get_fleet_summary(),
+        "plant_count": len(plant_manager.plants),
+        "timestamp": time.time(),
+    }
+
+
+# ─── Predictive Failure Engine (Module 7) ────────────────────────────────────
+
+@app.get("/api/predictions/{plant_id}")
+def get_predictions(plant_id: str, db: Session = Depends(get_db)):
+    """Return predictive failure forecasts for all sensors in a plant."""
+    plant = plant_manager.get(plant_id)
+    histories = {}
+    for sid in plant.latest_confidence:
+        histories[sid] = get_confidence_history(db, plant_id, sid, hours=24.0)
+
+    predictions = predict_all_sensors(histories)
+    return {
+        "plant_id": plant_id,
+        "predictions": predictions,
+        "timestamp": time.time(),
+    }
+
+
+@app.get("/api/predictions/{plant_id}/{sensor_id}")
+def get_sensor_prediction(plant_id: str, sensor_id: str, db: Session = Depends(get_db)):
+    """Return predictive failure forecast for a single sensor."""
+    history = get_confidence_history(db, plant_id, sensor_id, hours=24.0)
+    from prediction import predict_sensor
+    prediction = predict_sensor(history)
+    prediction["sensor_id"] = sensor_id
+    if history:
+        prediction["current_confidence"] = history[-1].get("confidence_pct", 0)
+        prediction["current_tier"] = history[-1].get("tier", "HIGH")
+    return prediction
+
+
+# ─── Natural Language Query (Module 8) ───────────────────────────────────────
+
+@app.post("/api/query")
+async def query_plant(request: QueryRequest, db: Session = Depends(get_db)):
+    """Answer a natural language question about a plant."""
+    plant = plant_manager.get(request.plant_id)
+
+    # Build live state
+    live_state = {
+        "readings": plant.latest_readings,
+        "confidence": list(plant.latest_confidence.values()),
+        "mass_balance": plant.latest_mb_state,
+        "mode": plant.startup_manager.to_dict(),
+    }
+
+    anomalies = get_recent_anomalies(db, limit=20, hours=24.0, plant_id=request.plant_id)
+
+    # Get predictions for context
+    predictions = None
+    try:
+        histories = {}
+        for sid in plant.latest_confidence:
+            histories[sid] = get_confidence_history(db, request.plant_id, sid, hours=24.0)
+        if any(len(h) >= 10 for h in histories.values()):
+            predictions = predict_all_sensors(histories)
+    except Exception:
+        pass
+
+    result = await nlquery.query_plant(
+        question=request.question,
+        live_state=live_state,
+        anomalies=anomalies,
+        predictions=predictions,
+    )
+    return result
+
+
+# ─── Causal Graph (Module 13) ────────────────────────────────────────────────
+
+@app.get("/api/graph/{plant_id}")
+def get_causal_graph(plant_id: str):
+    """Return the causal graph state with anomaly propagation chains."""
+    plant = plant_manager.get(plant_id)
+    return get_graph_state(plant_id, plant.latest_confidence)
+
+
+# ─── Incident Forensics & Replay (Module 10) ─────────────────────────────────
+
+@app.get("/api/forensics/presets")
+def get_forensics_presets():
+    """Return available preset incidents for replay."""
+    return {
+        "presets": [
+            {
+                "id": "texas-city",
+                "name": "Texas City Incident (Demo)",
+                "description": "BP Texas City refinery explosion — March 23, 2005. "
+                               "LT-5100 reads 7.9ft while actual level rises to 158ft.",
+                "duration_minutes": 80,
+                "plant_id": "plant-a",
+            },
+            {
+                "id": "last-8h",
+                "name": "Last 8 Hours",
+                "description": "Replay the last 8 hours of live data.",
+                "duration_minutes": 480,
+                "plant_id": None,
+            },
+            {
+                "id": "last-24h",
+                "name": "Last 24 Hours",
+                "description": "Replay the last 24 hours of live data.",
+                "duration_minutes": 1440,
+                "plant_id": None,
+            },
+        ]
+    }
+
+
+@app.get("/api/forensics/{plant_id}")
+def get_forensics_data(
+    plant_id: str,
+    hours: float = Query(default=1.0),
+    db: Session = Depends(get_db),
+):
+    """Return historical sensor readings and confidence for forensics replay."""
+    cutoff = datetime.utcnow() - timedelta(hours=hours)
+
+    # Sensor readings
+    readings = (
+        db.query(SensorReadingModel)
+        .filter(SensorReadingModel.plant_id == plant_id, SensorReadingModel.timestamp >= cutoff)
+        .order_by(SensorReadingModel.timestamp.asc())
+        .limit(50000)
+        .all()
+    )
+
+    # Confidence logs
+    conf_logs = (
+        db.query(ConfidenceLogModel)
+        .filter(ConfidenceLogModel.plant_id == plant_id, ConfidenceLogModel.timestamp >= cutoff)
+        .order_by(ConfidenceLogModel.timestamp.asc())
+        .limit(50000)
+        .all()
+    )
+
+    # Anomalies
+    anomalies = get_recent_anomalies(db, limit=100, hours=hours, plant_id=plant_id)
+
+    # Group readings by timestamp (rounded to nearest second)
+    timeline = {}
+    for r in readings:
+        ts_key = r.timestamp.isoformat()[:19]  # Trim to seconds
+        if ts_key not in timeline:
+            timeline[ts_key] = {"timestamp": ts_key, "readings": {}, "confidence": {}}
+        timeline[ts_key]["readings"][r.sensor_id] = {
+            "value": r.value,
+            "unit": r.unit,
+            "sensor_type": r.sensor_type,
+        }
+
+    for c in conf_logs:
+        ts_key = c.timestamp.isoformat()[:19]
+        if ts_key in timeline:
+            timeline[ts_key]["confidence"][c.sensor_id] = {
+                "confidence_pct": c.confidence_pct,
+                "tier": c.tier,
+                "calibration_score": c.calibration_score,
+                "stability_score": c.stability_score,
+                "cross_sensor_score": c.cross_sensor_score,
+                "plausibility_score": c.plausibility_score,
+            }
+
+    sorted_timeline = sorted(timeline.values(), key=lambda t: t["timestamp"])
+
+    return {
+        "plant_id": plant_id,
+        "hours": hours,
+        "data_points": len(sorted_timeline),
+        "timeline": sorted_timeline,
+        "anomalies": anomalies,
+    }
+
+
+# ─── Compliance Report (Module 11) ───────────────────────────────────────────
+
+@app.post("/api/compliance/generate")
+async def generate_compliance_report(request: ComplianceRequest, db: Session = Depends(get_db)):
+    """Generate compliance report data for a plant."""
+    plant = plant_manager.get(request.plant_id)
+    cutoff = datetime.utcnow() - timedelta(hours=request.hours)
+
+    # Section 1: Alarm/flag summary
+    anomalies = get_recent_anomalies(db, limit=500, hours=request.hours, plant_id=request.plant_id)
+    alarm_count = len(anomalies)
+    alarm_by_severity = {}
+    alarm_by_sensor = {}
+    for a in anomalies:
+        sev = a.get("severity", "INFO")
+        alarm_by_severity[sev] = alarm_by_severity.get(sev, 0) + 1
+        sid = a.get("sensor_id", "UNKNOWN")
+        alarm_by_sensor[sid] = alarm_by_sensor.get(sid, 0) + 1
+
+    top_10_alarms = sorted(alarm_by_sensor.items(), key=lambda x: x[1], reverse=True)[:10]
+
+    # Section 2: Sensor reliability
+    sensor_reliability = {}
+    for sid in plant.latest_confidence:
+        conf_history = get_confidence_history(db, request.plant_id, sid, hours=request.hours)
+        if conf_history:
+            tier_counts = {"HIGH": 0, "MEDIUM": 0, "LOW": 0, "CRITICAL": 0}
+            for entry in conf_history:
+                t = entry.get("tier", "HIGH")
+                if t in tier_counts:
+                    tier_counts[t] += 1
+            total = sum(tier_counts.values())
+            tier_pcts = {k: round(v / total * 100, 1) if total > 0 else 0 for k, v in tier_counts.items()}
+            sensor_reliability[sid] = {
+                "data_points": total,
+                "tier_distribution": tier_pcts,
+                "current_confidence": conf_history[-1].get("confidence_pct", 100) if conf_history else 100,
+                "calibration_age": plant.config["calibration_ages"].get(sid, 0),
+            }
+
+    # Section 3: Shift handover log
+    from database import ShiftHandoverLog
+    handover_logs = (
+        db.query(ShiftHandoverLog)
+        .filter(ShiftHandoverLog.plant_id == request.plant_id, ShiftHandoverLog.generated_at >= cutoff)
+        .order_by(ShiftHandoverLog.generated_at.desc())
+        .limit(20)
+        .all()
+    )
+    handovers = [
+        {"generated_at": h.generated_at.isoformat(), "source": h.source, "brief_text": h.brief_text[:500]}
+        for h in handover_logs
+    ]
+
+    # Section 4: Mass-balance summary
+    mb_anomalies = [a for a in anomalies if "mass_balance" in a.get("anomaly_type", "")]
+
+    # Section 5: Recommendations (LLM-generated if available)
+    recommendations = _generate_compliance_recommendations(
+        alarm_by_severity, sensor_reliability, mb_anomalies, plant
+    )
+
+    return {
+        "plant_id": request.plant_id,
+        "plant_name": plant.name,
+        "report_type": request.report_type,
+        "period_hours": request.hours,
+        "generated_at": datetime.utcnow().isoformat(),
+        "sections": {
+            "alarm_summary": {
+                "total_alarms": alarm_count,
+                "by_severity": alarm_by_severity,
+                "alarm_rate_per_hour": round(alarm_count / max(request.hours, 0.1), 2),
+                "top_10_sensors": [{"sensor_id": s, "count": c} for s, c in top_10_alarms],
+            },
+            "sensor_reliability": sensor_reliability,
+            "shift_handover_log": {"count": len(handovers), "entries": handovers},
+            "mass_balance_summary": {
+                "total_flags": len(mb_anomalies),
+                "flags": mb_anomalies[:20],
+            },
+            "recommendations": recommendations,
+        },
+    }
+
+
+def _generate_compliance_recommendations(alarm_by_severity, sensor_reliability, mb_anomalies, plant):
+    """Generate maintenance recommendations based on report data."""
+    recs = []
+
+    # Find sensors needing calibration
+    for sid, rel in sensor_reliability.items():
+        age = rel.get("calibration_age", 0)
+        if age > 60:
+            recs.append({
+                "priority": "critical",
+                "action": f"Calibrate {sid} immediately — {age:.0f} days since last calibration.",
+            })
+        elif age > 40:
+            recs.append({
+                "priority": "high",
+                "action": f"Schedule calibration for {sid} within 1 week — {age:.0f} days elapsed.",
+            })
+
+    # Flag mass-balance issues
+    if len(mb_anomalies) > 5:
+        recs.append({
+            "priority": "high",
+            "action": f"Investigate persistent mass-balance discrepancies ({len(mb_anomalies)} flags in period). Check flow sensor calibration.",
+        })
+
+    # Critical alarm count
+    critical_count = alarm_by_severity.get("CRITICAL", 0)
+    if critical_count > 3:
+        recs.append({
+            "priority": "critical",
+            "action": f"{critical_count} CRITICAL events in reporting period. Root cause analysis required.",
+        })
+
+    if not recs:
+        recs.append({"priority": "info", "action": "No critical issues identified. Continue routine maintenance schedule."})
+
+    return recs
+
+
+# ─── Simulation Sandbox (Module 15) ──────────────────────────────────────────
+
+@app.post("/api/sandbox/run")
+def run_sandbox(request: SandboxRequest):
+    """Run a simulated failure scenario without affecting live data."""
+    from simulator import SensorSimulator
+    from confidence import ConfidenceEngine
+    from mass_balance import MassBalanceEngine
+
+    # Create isolated instances
+    sim = SensorSimulator()
+    ce = ConfidenceEngine()
+    mbe = MassBalanceEngine()
+
+    # Copy calibration ages from the target plant
+    plant = plant_manager.get(request.plant_id)
+    for sid, age in plant.config["calibration_ages"].items():
+        ce.set_calibration_age(sid, age)
+
+    # Simulate the failure progression
+    results = []
+    duration_ticks = int(request.duration_hours * 3600 / 60)  # Sample every 60 seconds
+    for i in range(min(duration_ticks, 360)):  # Cap at 360 samples
+        readings = sim.tick()
+        confidence_results = ce.score_readings(readings)
+        mb_state = mbe.update(readings)
+
+        for cr in confidence_results:
+            if cr.sensor_id == request.sensor_id:
+                results.append({
+                    "time_hours": round(i * 60 / 3600, 2),
+                    "confidence_pct": cr.confidence_pct,
+                    "tier": cr.tier,
+                    "reasons": cr.reasons[:2],
+                })
+
+        # Simulate degradation
+        current_age = ce.calibration_ages.get(request.sensor_id, 0)
+        if request.failure_mode == "calibration_drift":
+            rate = {"mild": 0.5, "moderate": 1.0, "severe": 2.0}.get(request.severity, 1.0)
+            ce.set_calibration_age(request.sensor_id, current_age + rate * (60 / 86400))
+
+    return {
+        "sensor_id": request.sensor_id,
+        "failure_mode": request.failure_mode,
+        "severity": request.severity,
+        "duration_hours": request.duration_hours,
+        "results": results,
+    }
+
+
+# ─── Health check ────────────────────────────────────────────────────────────
 
 @app.get("/api/health")
 def health_check():
     """Basic health check."""
+    plant_a = plant_manager.get("plant-a")
     return {
         "status": "ok",
-        "uptime_seconds": round(simulator.elapsed(), 1),
-        "tick_count": simulator.tick_count,
+        "version": "2.0.0",
+        "uptime_seconds": round(plant_a.simulator.elapsed(), 1),
+        "tick_count": plant_a.simulator.tick_count,
         "active_connections": len(active_connections),
-        "mode": startup_manager.mode_name,
+        "plants": len(plant_manager.plants),
         "modules": {
             "sensor_simulator": "active",
             "confidence_engine": "active",
             "mass_balance_engine": "active",
             "startup_manager": "active",
             "handover_generator": "active",
+            "prediction_engine": "active",
+            "nlquery_engine": "active",
+            "causal_graph": "active",
+            "fleet_manager": "active",
         },
     }

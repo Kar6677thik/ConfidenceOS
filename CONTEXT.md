@@ -179,7 +179,7 @@ venv\Scripts\activate
 source venv/bin/activate
 
 pip install -r requirements.txt
-uvicorn main:app --reload --port 8000
+uvicorn main:app --reload --port 8001
 ```
 
 ### Frontend (React)
@@ -200,8 +200,8 @@ See `.env.example` in the repo root:
 ```
 ANTHROPIC_API_KEY=your_anthropic_api_key_here
 DATABASE_URL=sqlite:///./confidenceos.db
-BACKEND_PORT=8000
-FRONTEND_PORT=5173
+BACKEND_PORT=8001
+FRONTEND_PORT=5174
 ```
 
 ## Git Branching Strategy
