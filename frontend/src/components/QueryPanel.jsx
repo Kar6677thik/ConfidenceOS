@@ -12,12 +12,12 @@ export default function QueryPanel() {
     }
   }, [queryHistory]);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const handleSubmit = async (event) => {
+    event.preventDefault();
     if (!input.trim() || queryLoading) return;
-    const q = input.trim();
+    const question = input.trim();
     setInput('');
-    await askQuestion(q);
+    await askQuestion(question);
   };
 
   const suggestions = [
@@ -28,94 +28,81 @@ export default function QueryPanel() {
   ];
 
   return (
-    <div className="flex flex-col h-full bg-gray-900/50 rounded-2xl border border-gray-800/50 overflow-hidden">
-      {/* Header */}
-      <div className="px-4 py-3 border-b border-gray-800/50">
-        <h3 className="text-sm font-bold text-gray-200 flex items-center gap-2">
-          <span className="text-cyan-400">⬡</span> Ask ConfidenceOS
-        </h3>
-        <p className="text-[10px] text-gray-500 mt-0.5">Ask anything about this plant in plain English</p>
+    <section className="industrial-panel h-full min-h-[360px] flex flex-col overflow-hidden">
+      <div className="industrial-panel-header">
+        <div>
+          <h2 className="industrial-panel-title">Plant Query</h2>
+          <p className="caption-mono text-[var(--data-mono)]">SYSTEM LOG / GROUNDED ANSWERS</p>
+        </div>
       </div>
 
-      {/* Conversation history */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3 space-y-3 scrollbar-thin">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-thin p-5 space-y-5">
         {queryHistory.length === 0 && (
-          <div className="space-y-2">
-            <p className="text-xs text-gray-500 italic">Try asking:</p>
-            {suggestions.map((s, i) => (
+          <div className="space-y-3">
+            <p className="label-caps text-[var(--text-muted)]">Try Asking</p>
+            {suggestions.map((suggestion) => (
               <button
-                key={i}
-                onClick={() => { setInput(s); }}
-                className="block w-full text-left text-xs px-3 py-2 rounded-lg bg-gray-800/40 text-gray-400 hover:text-gray-200 hover:bg-gray-800/70 transition-colors"
+                key={suggestion}
+                onClick={() => setInput(suggestion)}
+                className="w-full text-left industrial-panel-subtle p-3 caption-mono text-[var(--data-mono)] hover:text-[var(--text)] hover:border-[var(--outline)]"
               >
-                "{s}"
+                {suggestion}
               </button>
             ))}
           </div>
         )}
 
-        {queryHistory.map((entry, i) => (
-          <div key={i} className="space-y-2">
-            {/* User question */}
-            <div className="flex justify-end">
-              <div className="max-w-[85%] bg-cyan-500/15 text-cyan-100 px-3 py-2 rounded-xl rounded-tr-sm text-xs">
-                {entry.question}
-              </div>
+        {queryHistory.map((entry, index) => (
+          <div key={`${entry.timestamp}-${index}`} className="space-y-3">
+            <div className="ml-8 bg-[var(--surface-high)] border border-[var(--border-subtle)] p-4 text-right">
+              <p className="label-caps text-[var(--text-muted)] mb-2">Operator</p>
+              <p className="text-[var(--text)]">{entry.question}</p>
             </div>
-            {/* AI answer */}
-            <div className="flex justify-start">
-              <div className="max-w-[90%] bg-gray-800/60 text-gray-200 px-3 py-2 rounded-xl rounded-tl-sm text-xs leading-relaxed">
-                {entry.answer}
-                {entry.sources && entry.sources.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-2">
-                    {entry.sources.map((s, j) => (
-                      <span key={j} className="text-[9px] px-1.5 py-0.5 bg-gray-700/50 rounded text-gray-400 font-mono">
-                        {s.sensor_id}
-                      </span>
-                    ))}
-                  </div>
-                )}
-                <div className="text-[9px] text-gray-600 mt-1">
-                  {entry.source_type === 'claude' ? '🤖 Claude' : '📊 Structured'} · {new Date(entry.timestamp).toLocaleTimeString()}
+            <div className="border border-[var(--border-strong)] bg-[var(--surface-panel)] p-4">
+              <p className="label-caps text-[var(--text-muted)] mb-2">System Analysis</p>
+              <p className="leading-relaxed text-[var(--text)]">{entry.answer}</p>
+              {entry.sources?.length > 0 && (
+                <div className="flex flex-wrap gap-2 mt-3">
+                  {entry.sources.map((source, sourceIndex) => (
+                    <span key={`${source.sensor_id}-${sourceIndex}`} className="industrial-badge text-[var(--data-mono)]">
+                      {source.sensor_id || source.id || 'source'}
+                    </span>
+                  ))}
                 </div>
+              )}
+              <div className="caption-mono text-[var(--data-mono)] mt-3">
+                {entry.source_type === 'claude' ? 'CLAUDE' : 'STRUCTURED'} / {new Date(entry.timestamp).toLocaleTimeString()}
               </div>
             </div>
           </div>
         ))}
 
         {queryLoading && (
-          <div className="flex justify-start">
-            <div className="bg-gray-800/60 px-3 py-2 rounded-xl rounded-tl-sm text-xs text-gray-400">
-              <span className="inline-flex gap-1">
-                <span className="animate-bounce" style={{ animationDelay: '0ms' }}>●</span>
-                <span className="animate-bounce" style={{ animationDelay: '150ms' }}>●</span>
-                <span className="animate-bounce" style={{ animationDelay: '300ms' }}>●</span>
-              </span>
-            </div>
+          <div className="border border-[var(--border-strong)] p-4 caption-mono text-[var(--safe)]">
+            ANALYZING...
           </div>
         )}
       </div>
 
-      {/* Input */}
-      <form onSubmit={handleSubmit} className="px-3 py-2 border-t border-gray-800/50">
+      <form onSubmit={handleSubmit} className="border-t border-[var(--border-strong)] p-4">
         <div className="flex gap-2">
           <input
             type="text"
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(event) => setInput(event.target.value)}
             placeholder="Ask anything about this plant..."
-            className="flex-1 bg-gray-800/50 border border-gray-700/50 rounded-lg px-3 py-2 text-xs text-gray-200 placeholder:text-gray-600 focus:outline-none focus:ring-1 focus:ring-cyan-500/40"
+            className="industrial-input flex-1"
             disabled={queryLoading}
           />
           <button
             type="submit"
             disabled={queryLoading || !input.trim()}
-            className="px-3 py-2 bg-cyan-500/20 text-cyan-400 rounded-lg text-xs font-semibold hover:bg-cyan-500/30 disabled:opacity-30 transition-colors"
+            className="industrial-control text-[var(--safe)] disabled:opacity-40"
           >
-            Ask
+            Send
           </button>
         </div>
       </form>
-    </div>
+    </section>
   );
 }
