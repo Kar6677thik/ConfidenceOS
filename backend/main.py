@@ -51,6 +51,7 @@ from mass_balance import DEFAULT_TOLERANCE
 from prediction import predict_all_sensors
 from causal_graph import get_graph_state
 from adaptive_thresholds import compute_adaptive_envelopes
+from advisory import detect_plant_context, build_incidents
 import nlquery
 
 
@@ -193,6 +194,13 @@ async def _plant_tick_loop(plant_id: str, plant):
                 if now - last_logged > ANOMALY_COOLDOWN_SECONDS:
                     log_anomaly(db, "SYSTEM", f"mass_balance_{flag.severity.lower()}", flag.message, flag.severity, plant_id=plant_id)
                     _anomaly_cooldown[cooldown_key] = now
+                    new_anomalies.append({
+                        "sensor_id": "SYSTEM",
+                        "anomaly_type": f"mass_balance_{flag.severity.lower()}",
+                        "description": flag.message,
+                        "severity": flag.severity,
+                        "timestamp": now,
+                    })
 
             for sf in stale_flags:
                 cooldown_key = f"{plant_id}:{sf.sensor_id}:stale_reading"
@@ -201,6 +209,32 @@ async def _plant_tick_loop(plant_id: str, plant):
                     desc = f"Stale reading: value {sf.last_value} unchanged for {sf.duration_seconds:.0f}s"
                     log_anomaly(db, sf.sensor_id, "stale_reading", desc, "WARNING", plant_id=plant_id)
                     _anomaly_cooldown[cooldown_key] = now
+                    new_anomalies.append({
+                        "sensor_id": sf.sensor_id,
+                        "anomaly_type": "stale_reading",
+                        "description": desc,
+                        "severity": "WARNING",
+                        "timestamp": now,
+                    })
+
+            stale_payload = [sf.to_dict() for sf in stale_flags]
+            mode_payload = plant.startup_manager.to_dict()
+            plant.latest_context = detect_plant_context(
+                readings=readings,
+                confidence=confidence_data,
+                mass_balance=plant.latest_mb_state,
+                mode=mode_payload,
+                stale_flags=stale_payload,
+            )
+            plant.latest_incidents = build_incidents(
+                plant_id=plant_id,
+                readings=readings,
+                confidence=confidence_data,
+                mass_balance=plant.latest_mb_state,
+                stale_flags=stale_payload,
+                plant_context=plant.latest_context,
+            )
+            plant.latest_new_anomalies = new_anomalies
 
             # Persist sensor readings
             for r in readings:
@@ -285,7 +319,9 @@ async def sensor_stream(
                 "mass_balance": plant.latest_mb_state,
                 "mode": plant.startup_manager.to_dict(),
                 "stale_flags": [f.to_dict() for f in stale_flags],
-                "new_anomalies": [],
+                "new_anomalies": plant.latest_new_anomalies,
+                "plant_context": plant.latest_context,
+                "incidents": plant.latest_incidents,
             })
 
             await asyncio.sleep(1.0)
@@ -527,6 +563,8 @@ async def generate_handover_brief(plant_id: str = Query(default="plant-a"), db: 
         mass_balance_state=plant.latest_mb_state,
         anomalies=anomalies,
         mode_state=plant.startup_manager.to_dict(),
+        plant_context=plant.latest_context,
+        incidents=plant.latest_incidents,
     )
 
     # Add predictions to state for V2 enhanced briefs
@@ -1247,6 +1285,7 @@ def health_check():
             "nlquery_engine": "active",
             "causal_graph": "active",
             "adaptive_thresholds": "active",
+            "advisory_engine": "active",
             "compliance_pdf": "active",
             "forensics_replay": "active",
             "sandbox": "active",

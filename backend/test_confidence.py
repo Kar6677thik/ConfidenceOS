@@ -198,7 +198,42 @@ def test_to_dict_format():
     assert "stability" in d["sub_scores"]
     assert "cross_sensor" in d["sub_scores"]
     assert "physical_plausibility" in d["sub_scores"]
+    assert "evidence" in d
+    assert "namur_state" in d
+    assert "recommended_action" in d
+    assert "dominant_factor" in d
     print("  PASS: to_dict() format has all expected keys")
+
+
+def test_evidence_for_calibration_degradation():
+    """Calibration degradation should produce structured evidence and action."""
+    engine = ConfidenceEngine(calibration_interval_days=90.0)
+    engine.set_calibration_age("LT-5100", 47.0)
+
+    readings = make_default_readings()
+    results = engine.score_readings(readings)
+    lt_result = next(r for r in results if r.sensor_id == "LT-5100").to_dict()
+
+    calibration = next(e for e in lt_result["evidence"] if e["category"] == "calibration")
+    assert calibration["status"] in ("DEGRADED", "BAD")
+    assert "calibration" in calibration["action"].lower()
+    assert lt_result["dominant_factor"] == "calibration"
+    assert "calibration" in lt_result["recommended_action"].lower()
+    print("  PASS: Calibration degradation creates structured evidence and action")
+
+
+def test_evidence_for_physical_plausibility():
+    """Out-of-envelope values should produce physical plausibility evidence."""
+    engine = ConfidenceEngine()
+    readings = make_default_readings(level=180.0)
+    results = engine.score_readings(readings)
+    lt_result = next(r for r in results if r.sensor_id == "LT-5100").to_dict()
+
+    plausibility = next(e for e in lt_result["evidence"] if e["category"] == "physical_plausibility")
+    assert plausibility["status"] != "OK"
+    assert "outside normal envelope" in plausibility["message"]
+    assert "physically possible" in lt_result["recommended_action"]
+    print("  PASS: Physical plausibility evidence explains out-of-envelope values")
 
 
 def test_stability_score_stuck_detection():
@@ -245,6 +280,8 @@ if __name__ == "__main__":
         test_reason_strings_present,
         test_physical_plausibility_out_of_envelope,
         test_to_dict_format,
+        test_evidence_for_calibration_degradation,
+        test_evidence_for_physical_plausibility,
         test_stability_score_stuck_detection,
     ]
 

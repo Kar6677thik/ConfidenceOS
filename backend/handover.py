@@ -72,6 +72,8 @@ class HandoverBriefGenerator:
         mass_balance_state: dict,
         anomalies: list[dict],
         mode_state: dict,
+        plant_context: Optional[dict] = None,
+        incidents: Optional[list[dict]] = None,
     ) -> dict:
         """
         Assemble structured system state snapshot for brief generation.
@@ -113,6 +115,8 @@ class HandoverBriefGenerator:
             },
             "anomalies": anomalies[-20:],  # Last 20 anomalies
             "stale_flags": mode_state.get("stale_flags", []),
+            "plant_context": plant_context or {},
+            "incidents": incidents or [],
         }
 
     async def generate_brief(self, system_state: dict) -> dict:
@@ -184,6 +188,22 @@ class HandoverBriefGenerator:
             )
             for reason in s.get("reasons", []):
                 lines.append(f"    → {reason}")
+
+        context = state.get("plant_context") or {}
+        incidents = state.get("incidents") or []
+        if context or incidents:
+            lines.append("")
+            lines.append("ACTIVE ADVISORY CONTEXT:")
+            if context:
+                lines.append(f"  State: {context.get('state', 'UNKNOWN')} ({context.get('severity', 'INFO')})")
+                lines.append(f"  Operator focus: {context.get('operator_focus', 'Review current advisory state.')}")
+            for incident in incidents[:5]:
+                lines.append(
+                    f"  INCIDENT [{incident.get('severity', 'INFO')}] "
+                    f"{incident.get('title', 'Advisory incident')}: "
+                    f"{incident.get('summary', '')}"
+                )
+                lines.append(f"    First action: {incident.get('first_action', 'Review evidence stack.')}")
 
         lines.append("")
         lines.append("MASS-BALANCE STATUS:")
@@ -314,8 +334,28 @@ class HandoverBriefGenerator:
             )
 
         # ── Section 5: Recommended actions
-        actions = ["## 5. RECOMMENDED ACTIONS"]
+        incidents = state.get("incidents") or []
+        if incidents:
+            incident_lines = ["## 5. ACTIVE INCIDENTS / REQUIRED ACTIONS"]
+            for incident in incidents:
+                sensors = ", ".join(incident.get("affected_sensors", [])) or "SYSTEM"
+                incident_lines.append(
+                    f"\n**{incident.get('title', 'Advisory incident')}** "
+                    f"[{incident.get('severity', 'INFO')}]"
+                )
+                incident_lines.append(f"- Affected: {sensors}")
+                incident_lines.append(f"- Summary: {incident.get('summary', '')}")
+                incident_lines.append(f"- First action: {incident.get('first_action', 'Review evidence stack.')}")
+            sections.append("\n".join(incident_lines))
+
+        actions = ["## 6. RECOMMENDED ACTIONS" if incidents else "## 5. RECOMMENDED ACTIONS"]
         has_actions = False
+
+        for incident in incidents:
+            has_actions = True
+            actions.append(
+                f"- {incident.get('title', 'Incident')}: {incident.get('first_action', 'Review evidence stack.')}"
+            )
 
         if state["degraded_sensors"]:
             for s in state["degraded_sensors"]:
@@ -378,6 +418,8 @@ class HandoverBriefGenerator:
             "degraded_count": len(state["degraded_sensors"]),
             "anomaly_count": len(state["anomalies"]),
             "mass_balance_flags": len(state["mass_balance"]["flags"]),
+            "plant_context": state.get("plant_context") or {},
+            "incidents": state.get("incidents") or [],
         }
 
     @property

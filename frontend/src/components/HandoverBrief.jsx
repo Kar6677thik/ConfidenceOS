@@ -1,4 +1,5 @@
 import { useState, useCallback } from 'react';
+import useStore from '../store';
 
 function renderBriefContent(text) {
   if (!text) return null;
@@ -27,6 +28,7 @@ function SourceBadge({ source }) {
 }
 
 export default function HandoverBrief({ apiBase = '/api' }) {
+  const { plantId } = useStore();
   const [brief, setBrief] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -38,7 +40,7 @@ export default function HandoverBrief({ apiBase = '/api' }) {
     setBrief(null);
 
     try {
-      const res = await fetch(`${apiBase}/handover/generate`, {
+      const res = await fetch(`${apiBase}/handover/generate?plant_id=${plantId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -50,7 +52,7 @@ export default function HandoverBrief({ apiBase = '/api' }) {
     } finally {
       setLoading(false);
     }
-  }, [apiBase]);
+  }, [apiBase, plantId]);
 
   const handleCopy = useCallback(async () => {
     if (!brief?.brief) return;
@@ -114,6 +116,17 @@ export default function HandoverBrief({ apiBase = '/api' }) {
                 </span>
               )}
             </div>
+            {!!brief.system_state_summary?.incidents?.length && (
+              <div className="mb-4 border border-[var(--border-strong)] bg-[var(--surface-panel)] p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="label-caps status-warning">Active Incidents</p>
+                  <span className="industrial-badge status-warning">{brief.system_state_summary.incidents.length}</span>
+                </div>
+                <p className="caption-mono text-[var(--text)] mt-2">
+                  {brief.system_state_summary.incidents[0].first_action}
+                </p>
+              </div>
+            )}
             <div className="space-y-1">
               {renderBriefContent(brief.brief)}
             </div>

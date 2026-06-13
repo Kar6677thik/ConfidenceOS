@@ -18,6 +18,8 @@ import StartupBanner from './components/StartupBanner';
 import FlagBar from './components/FlagBar';
 import QueryPanel from './components/QueryPanel';
 import NavBar from './components/NavBar';
+import IncidentQueue from './components/IncidentQueue';
+import EvidenceStack from './components/EvidenceStack';
 
 const SENSOR_IDS = ['LT-5100', 'FI-2010', 'FO-2020', 'PT-3100', 'TT-4100', 'ZT-6100'];
 const PLANT_IDS = ['plant-a', 'plant-b', 'plant-c'];
@@ -183,6 +185,31 @@ function LeftRail() {
   );
 }
 
+function ContextStrip({ context }) {
+  if (!context) return null;
+  const cls = statusClass(context.severity);
+  return (
+    <div className="industrial-panel mb-[1px]">
+      <div className="industrial-panel-header py-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-3 mb-2">
+            <span className={`industrial-badge ${cls}`}>{context.state || 'STEADY_STATE'}</span>
+            <span className="caption-mono text-[var(--data-mono)]">{context.layout_hint || 'standard_monitoring'}</span>
+          </div>
+          <p className="caption-mono text-[var(--text)] truncate">{context.operator_focus || 'No active operator focus.'}</p>
+        </div>
+        {!!context.priority_sensors?.length && (
+          <div className="flex flex-wrap justify-end gap-2 max-w-[320px]">
+            {context.priority_sensors.map((sensorId) => (
+              <span key={sensorId} className="industrial-badge text-[var(--data-mono)]">{sensorId}</span>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function OperatorDashboard() {
   const {
     connect,
@@ -202,6 +229,8 @@ function OperatorDashboard() {
     fetchPredictions,
     plantId,
     role,
+    plantContext,
+    incidents,
   } = useStore();
 
   useEffect(() => {
@@ -233,6 +262,8 @@ function OperatorDashboard() {
               </div>
             </div>
 
+            <ContextStrip context={plantContext} />
+
             <div className="mb-[1px]">
               <StartupBanner
                 isActive={mode?.is_active ?? false}
@@ -254,7 +285,11 @@ function OperatorDashboard() {
             </div>
 
             <div className="mt-[1px]">
-              <FlagBar confidence={confidence} massBalance={massBalance} staleFlags={staleFlags} />
+              {Array.isArray(incidents) ? (
+                <IncidentQueue incidents={incidents} confidence={confidence} massBalance={massBalance} staleFlags={staleFlags} />
+              ) : (
+                <FlagBar confidence={confidence} massBalance={massBalance} staleFlags={staleFlags} />
+              )}
             </div>
           </main>
 
@@ -270,6 +305,7 @@ function OperatorDashboard() {
                 <EngineerDeepDive selectedSensorId={selectedSensorId} confidence={confidence} />
               </Panel>
             )}
+            <EvidenceStack selectedSensorId={selectedSensorId} confidence={confidence} incidents={incidents} />
             <HealthTimeline sensorId={selectedSensorId} />
             <HandoverBrief />
           </aside>

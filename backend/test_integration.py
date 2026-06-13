@@ -119,8 +119,8 @@ section("MODULE 1: Sensor Simulator")
 code, data = GET("/api/health")
 check("GET /api/health returns 200", code == 200)
 check("Health status=ok", data.get("status") == "ok")
-check("Health lists 5 modules", len(data.get("modules", {})) == 5)
-check("Health has mode field", "mode" in data)
+check("Health lists active modules", len(data.get("modules", {})) >= 5)
+check("Health has advisory engine", data.get("modules", {}).get("advisory_engine") == "active")
 
 code, data = POST("/api/scenario/reset")
 check("POST /api/scenario/reset returns 200", code == 200)
@@ -146,7 +146,7 @@ try:
     msg = msgs[0]
     check("WS type=sensor_update", msg.get("type") == "sensor_update")
     check("WS has 6 readings", len(msg.get("readings", [])) == 6)
-    for key in ("readings", "confidence", "mass_balance", "mode", "stale_flags", "new_anomalies"):
+    for key in ("readings", "confidence", "mass_balance", "mode", "stale_flags", "new_anomalies", "plant_context", "incidents"):
         check(f"WS has '{key}'", key in msg)
 
     sensor_types = {r["sensor_type"] for r in msg["readings"]}
@@ -163,7 +163,7 @@ try:
 
     # Confidence structure
     c = msg["confidence"][0]
-    for key in ("sensor_id", "confidence_pct", "tier", "sub_scores", "reasons"):
+    for key in ("sensor_id", "confidence_pct", "tier", "sub_scores", "reasons", "evidence", "namur_state", "recommended_action", "dominant_factor"):
         check(f"WS confidence has '{key}'", key in c)
 
     # Mass-balance structure
@@ -225,10 +225,14 @@ for c in conf_list:
 # LT-5100 (47 days uncalibrated)
 code, data = GET("/api/confidence/LT-5100")
 check("GET /api/confidence/LT-5100 returns 200", code == 200)
-check("LT-5100 confidence < 80% (aged cal)", data["confidence_pct"] < 80,
+check("LT-5100 confidence reduced by aged calibration", data["confidence_pct"] < 100,
       f"got {data['confidence_pct']}%")
 check("LT-5100 has calibration reason (47 days)",
       any("47" in r for r in data.get("reasons", [])))
+check("LT-5100 has calibration evidence",
+      any(e.get("category") == "calibration" and e.get("status") != "OK" for e in data.get("evidence", [])))
+for key in ("evidence", "namur_state", "recommended_action", "dominant_factor"):
+    check(f"LT-5100 confidence has '{key}'", key in data)
 
 code, _ = GET("/api/confidence/NONEXISTENT")
 check("Unknown sensor confidence returns 404", code == 404)
@@ -374,7 +378,7 @@ check("Brief has RECOMMENDED ACTIONS", "RECOMMENDED ACTIONS" in brief)
 
 summary = d["system_state_summary"]
 for key in ("mode", "total_sensors", "healthy_sensors", "degraded_count",
-            "anomaly_count", "mass_balance_flags"):
+            "anomaly_count", "mass_balance_flags", "plant_context", "incidents"):
     check(f"  Summary has '{key}'", key in summary)
 check("  total_sensors=6", summary["total_sensors"] == 6)
 

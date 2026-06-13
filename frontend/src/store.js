@@ -47,6 +47,8 @@ const useStore = create((set, get) => ({
   mode: null,             // startup manager state
   staleFlags: [],         // stale reading flags
   newAnomalies: [],       // anomalies detected this tick
+  plantContext: null,     // advisory context inferred by backend
+  incidents: [],          // fused advisory incidents
   timestamp: null,        // last update timestamp
 
   // ── Derived / computed ────────────────────────────────────────────────
@@ -76,6 +78,8 @@ const useStore = create((set, get) => ({
       chartHistory: [],
       selectedSensorId: null,
       predictions: {},
+      plantContext: null,
+      incidents: [],
     });
 
     // Reconnect after state update
@@ -143,6 +147,8 @@ const useStore = create((set, get) => ({
             mode: data.mode || null,
             staleFlags: data.stale_flags || [],
             newAnomalies: data.new_anomalies || [],
+            plantContext: data.plant_context || null,
+            incidents: data.incidents || [],
             timestamp: data.timestamp,
             averageConfidence: avgConf,
             chartHistory: newHistory,

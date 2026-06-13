@@ -73,6 +73,10 @@ class ConfidenceResult:
     tier: str                      # HIGH, MEDIUM, LOW, CRITICAL
     sub_scores: SubScores
     reasons: list[str]             # Human-readable reason strings
+    namur_state: str = "NORMAL"
+    evidence: list[dict] = field(default_factory=list)
+    recommended_action: str = "Continue normal monitoring."
+    dominant_factor: str = "none"
 
     def to_dict(self) -> dict:
         return {
@@ -86,6 +90,10 @@ class ConfidenceResult:
                 "physical_plausibility": round(self.sub_scores.physical_plausibility_score, 3),
             },
             "reasons": self.reasons,
+            "namur_state": self.namur_state,
+            "evidence": self.evidence,
+            "recommended_action": self.recommended_action,
+            "dominant_factor": self.dominant_factor,
         }
 
 
@@ -228,6 +236,20 @@ class ConfidenceEngine:
             )
             pct = round(max(0.0, min(100.0, composite * 100)), 1)
             tier = self._get_tier(pct)
+            dominant_factor = self._dominant_factor(sub)
+            namur_state = self._namur_state(tier, sub, r.get("failure_mode"))
+            evidence = self._build_evidence(
+                sensor_id=sid,
+                sensor_type=stype,
+                value=value,
+                unit=r.get("unit", ""),
+                failure_mode=r.get("failure_mode"),
+                sub_scores=sub,
+                reasons=reasons,
+            )
+            recommended_action = self._recommended_action(
+                dominant_factor, sid, tier, namur_state
+            )
 
             results.append(ConfidenceResult(
                 sensor_id=sid,
@@ -235,11 +257,143 @@ class ConfidenceEngine:
                 tier=tier,
                 sub_scores=sub,
                 reasons=reasons,
+                namur_state=namur_state,
+                evidence=evidence,
+                recommended_action=recommended_action,
+                dominant_factor=dominant_factor,
             ))
 
         return results
 
     # ── Sub-score: Calibration ───────────────────────────────────────────
+
+    def _dominant_factor(self, sub_scores: SubScores) -> str:
+        """Return the weakest confidence dimension for operator explanation."""
+        factors = {
+            "calibration": sub_scores.calibration_score,
+            "stability": sub_scores.stability_score,
+            "cross_sensor": sub_scores.cross_sensor_score,
+            "physical_plausibility": sub_scores.physical_plausibility_score,
+        }
+        factor, score = min(factors.items(), key=lambda item: item[1])
+        return factor if score < 0.95 else "none"
+
+    def _namur_state(self, tier: str, sub_scores: SubScores, failure_mode: Optional[str]) -> str:
+        """
+        Map ConfidenceOS evidence into NAMUR-style maintenance language.
+
+        This does not replace the confidence tier; it gives operators and
+        maintainers the industrial condition vocabulary behind the number.
+        """
+        if tier == "CRITICAL":
+            return "FAILURE"
+        if failure_mode == "stuck_reading" or sub_scores.stability_score < 0.5:
+            return "FAILURE"
+        if sub_scores.physical_plausibility_score <= 0.6 or sub_scores.cross_sensor_score <= 0.6:
+            return "OUT_OF_SPECIFICATION"
+        if tier in ("LOW", "MEDIUM") or sub_scores.calibration_score < 0.7:
+            return "MAINTENANCE_REQUIRED"
+        return "NORMAL"
+
+    def _recommended_action(self, dominant_factor: str, sensor_id: str, tier: str, namur_state: str) -> str:
+        """Translate the dominant weakness into a deterministic first action."""
+        if tier == "HIGH" and namur_state == "NORMAL" and dominant_factor == "none":
+            return "Continue normal monitoring."
+        actions = {
+            "calibration": f"Verify calibration record for {sensor_id}; schedule calibration if status is overdue.",
+            "stability": f"Verify {sensor_id} locally or compare against an independent field indication.",
+            "cross_sensor": f"Cross-check {sensor_id} against adjacent tags and the mass-balance panel before relying on it.",
+            "physical_plausibility": f"Inspect process condition and transmitter range for {sensor_id}; confirm the value is physically possible.",
+            "none": f"Review {sensor_id} evidence before using this value as a primary operating reference.",
+        }
+        return actions.get(dominant_factor, actions["none"])
+
+    def _evidence_status(self, score: float) -> tuple[str, str]:
+        if score >= 0.8:
+            return "OK", "INFO"
+        if score >= 0.5:
+            return "DEGRADED", "WARNING"
+        return "BAD", "CRITICAL"
+
+    def _build_evidence(
+        self,
+        sensor_id: str,
+        sensor_type: str,
+        value: float,
+        unit: str,
+        failure_mode: Optional[str],
+        sub_scores: SubScores,
+        reasons: list[str],
+    ) -> list[dict]:
+        """Build the evidence stack consumed by the advisory UI."""
+        age_days = self.calibration_ages.get(sensor_id, 0.0)
+        envelope = self._adaptive_envelopes.get(sensor_id) or OPERATING_ENVELOPES.get(sensor_type)
+        envelope_text = None
+        if envelope:
+            envelope_text = f"{envelope['normal_min']:.0f}-{envelope['normal_max']:.0f} {envelope.get('unit', unit)}"
+
+        rows = [
+            {
+                "category": "calibration",
+                "score": sub_scores.calibration_score,
+                "message": f"Calibration age {age_days:.0f} days against {self.calibration_interval_days:.0f}-day interval.",
+                "value": round(age_days, 1),
+                "threshold": self.calibration_interval_days,
+                "action": f"Verify calibration record for {sensor_id}.",
+            },
+            {
+                "category": "stability",
+                "score": sub_scores.stability_score,
+                "message": self._reason_for_category(reasons, "Stability") or "Signal movement is consistent with recent history.",
+                "value": round(value, 2),
+                "threshold": f"stuck>{STUCK_SUSPECT_SECONDS:.0f}s",
+                "action": f"Compare {sensor_id} with local indication if stability degrades.",
+            },
+            {
+                "category": "cross_sensor",
+                "score": sub_scores.cross_sensor_score,
+                "message": self._reason_for_category(reasons, "Cross-check") or "Adjacent sensor relationship is currently plausible.",
+                "value": round(value, 2),
+                "threshold": "process relationship",
+                "action": f"Review adjacent tags for {sensor_id}.",
+            },
+            {
+                "category": "physical_plausibility",
+                "score": sub_scores.physical_plausibility_score,
+                "message": self._reason_for_category(reasons, "Plausibility") or "Reading is within configured physical envelope.",
+                "value": round(value, 2),
+                "threshold": envelope_text or "not configured",
+                "action": f"Confirm transmitter range and process state for {sensor_id}.",
+            },
+        ]
+
+        evidence = []
+        for row in rows:
+            status, severity = self._evidence_status(row.pop("score"))
+            evidence.append({
+                "status": status,
+                "severity": severity,
+                **row,
+            })
+
+        if failure_mode:
+            evidence.append({
+                "category": "simulation",
+                "status": "DEGRADED",
+                "severity": "WARNING",
+                "message": f"Simulator failure mode active: {failure_mode}.",
+                "value": failure_mode,
+                "threshold": "scenario",
+                "action": f"Treat {sensor_id} as scenario-affected during replay/demo.",
+            })
+
+        return evidence
+
+    def _reason_for_category(self, reasons: list[str], prefix: str) -> Optional[str]:
+        for reason in reasons:
+            if reason.startswith(prefix):
+                return reason
+        return None
 
     def _calibration_score(self, sensor_id: str, reasons: list[str]) -> float:
         """

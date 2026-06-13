@@ -34,15 +34,26 @@ const SENSOR_LABELS = {
   valve: 'Valve Position',
 };
 
+const NAMUR_CLASS = {
+  NORMAL: 'status-safe',
+  MAINTENANCE_REQUIRED: 'status-caution',
+  OUT_OF_SPECIFICATION: 'status-warning',
+  FAILURE: 'status-critical',
+  FUNCTION_CHECK: 'status-warning',
+};
+
 export default function SensorCard({ reading, confidence, isSelected, onSelect }) {
   if (!reading || !confidence) return null;
 
   const tier = confidence.tier || 'HIGH';
   const pct = Math.round(confidence.confidence_pct ?? 100);
   const meta = TIER_META[tier] || TIER_META.HIGH;
-  const primaryReason = confidence.reasons?.[0] || 'Operating within design threshold.';
+  const primaryEvidence = confidence.evidence?.find((item) => item.status !== 'OK');
+  const primaryReason = primaryEvidence?.message || confidence.reasons?.[0] || 'Operating within design threshold.';
   const value = typeof reading.value === 'number' ? reading.value.toFixed(1) : '--';
   const sensorType = SENSOR_LABELS[reading.sensor_type] || reading.sensor_type || 'Sensor';
+  const namurState = confidence.namur_state || 'NORMAL';
+  const namurClass = NAMUR_CLASS[namurState] || 'text-[var(--data-mono)]';
 
   return (
     <button
@@ -64,6 +75,11 @@ export default function SensorCard({ reading, confidence, isSelected, onSelect }
         <span className={`industrial-badge ${meta.className}`}>
           {meta.label} {pct}%
         </span>
+      </div>
+
+      <div className="flex items-center justify-between gap-2">
+        <span className={`industrial-badge ${namurClass}`}>{namurState}</span>
+        <span className="caption-mono text-[var(--data-mono)]">{confidence.dominant_factor || 'none'}</span>
       </div>
 
       <div className="flex items-baseline gap-3">
@@ -104,6 +120,11 @@ export default function SensorCard({ reading, confidence, isSelected, onSelect }
         <p className={`caption-mono line-clamp-2 ${tier === 'CRITICAL' ? 'status-critical' : tier === 'LOW' ? 'status-warning' : 'text-[var(--data-mono)]'}`}>
           {primaryReason}
         </p>
+        {confidence.recommended_action && tier !== 'HIGH' && (
+          <p className="caption-mono line-clamp-1 status-safe">
+            Action: {confidence.recommended_action}
+          </p>
+        )}
       </div>
 
       {isSelected && <div className="absolute right-0 top-0 h-full w-1 bg-[var(--safe)]" />}

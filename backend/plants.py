@@ -96,6 +96,9 @@ class PlantInstance:
         self.latest_confidence: dict[str, dict] = {}
         self.latest_mb_state: dict = {}
         self.latest_readings: list = []
+        self.latest_context: dict = {}
+        self.latest_incidents: list = []
+        self.latest_new_anomalies: list = []
 
     def info(self) -> dict:
         """Return plant metadata."""
