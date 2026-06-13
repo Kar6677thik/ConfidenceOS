@@ -529,7 +529,7 @@ async def generate_handover_brief(plant_id: str = Query(default="plant-a"), db: 
 
     # V2: Log the brief
     try:
-        log_shift_handover(db, plant_id, brief.get("brief_text", ""), brief.get("source", "fallback"))
+        log_shift_handover(db, plant_id, brief.get("brief", ""), brief.get("source", "fallback"))
     except Exception:
         pass
 

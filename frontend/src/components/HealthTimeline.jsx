@@ -24,6 +24,15 @@ const CALIBRATION_STATUS_STYLES = {
   EXPIRED:  'bg-red-500/20 text-red-400 border-red-500/40',
 };
 
+const CALIBRATION_STATUS_LABELS = {
+  current: 'OK',
+  due_soon: 'STALE',
+  expired: 'EXPIRED',
+  OK: 'OK',
+  STALE: 'STALE',
+  EXPIRED: 'EXPIRED',
+};
+
 // ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
@@ -60,7 +69,8 @@ function CalibrationCard({ calibration }) {
   if (!calibration) return null;
 
   const { age_days: age, score, status } = calibration;
-  const badgeStyle = CALIBRATION_STATUS_STYLES[status] || CALIBRATION_STATUS_STYLES.OK;
+  const displayStatus = CALIBRATION_STATUS_LABELS[status] || 'UNKNOWN';
+  const badgeStyle = CALIBRATION_STATUS_STYLES[displayStatus] || CALIBRATION_STATUS_STYLES.OK;
 
   return (
     <div className="mb-5">
@@ -83,7 +93,7 @@ function CalibrationCard({ calibration }) {
         {/* Status badge */}
         <div className="bg-gray-800/50 rounded-lg p-3 flex items-center justify-center">
           <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${badgeStyle}`}>
-            {status ?? 'UNKNOWN'}
+            {displayStatus}
           </span>
         </div>
       </div>

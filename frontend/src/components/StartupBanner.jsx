@@ -55,18 +55,20 @@ function ModeToggle({ isActive, onToggle }) {
 
 /** Single stale flag row with acknowledge button */
 function StaleFlagItem({ flag, onAcknowledge }) {
+  const sensorId = flag.sensor_id ?? flag.sensorId ?? flag.id;
+
   return (
     <li className="flex items-center justify-between gap-3 bg-gray-800/50 rounded-lg px-3 py-2 border border-gray-700/40">
       <div className="min-w-0 flex-1">
         <p className="text-sm font-mono text-amber-300 truncate">
-          {flag.sensorId ?? flag.id ?? 'Unknown sensor'}
+          {sensorId ?? 'Unknown sensor'}
         </p>
         {flag.message && (
           <p className="text-[11px] text-gray-500 mt-0.5 truncate">{flag.message}</p>
         )}
       </div>
       <button
-        onClick={() => onAcknowledge?.(flag.sensorId ?? flag.id)}
+        onClick={() => sensorId && onAcknowledge?.(sensorId)}
         className="
           shrink-0 text-[11px] font-semibold px-3 py-1 rounded-md
           bg-amber-500/15 text-amber-400 border border-amber-500/30
@@ -135,7 +137,7 @@ export default function StartupBanner({
             <ul className="space-y-2 max-h-48 overflow-y-auto pr-1">
               {staleFlags.map((flag, idx) => (
                 <StaleFlagItem
-                  key={flag.sensorId ?? flag.id ?? idx}
+                  key={flag.sensor_id ?? flag.sensorId ?? flag.id ?? idx}
                   flag={flag}
                   onAcknowledge={onAcknowledge}
                 />
