@@ -1,15 +1,11 @@
 import { useMemo } from 'react';
 import {
-  AreaChart,
-  Area,
   LineChart,
   Line,
   XAxis,
   YAxis,
   Tooltip,
   ResponsiveContainer,
-  ReferenceLine,
-  Legend,
 } from 'recharts';
 
 /**

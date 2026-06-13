@@ -136,6 +136,7 @@ class ConfidenceEngine:
         # Tier threshold overrides (Module 5 — Startup Mode)
         # When set, _get_tier uses these thresholds instead of the defaults.
         self._tier_thresholds: dict[str, int] | None = None
+        self._adaptive_envelopes: dict[str, dict] = {}
 
     def set_calibration_age(self, sensor_id: str, days: float) -> None:
         """Set the simulated calibration age for a sensor (days since last cal)."""
@@ -155,6 +156,10 @@ class ConfidenceEngine:
     def clear_tier_thresholds(self) -> None:
         """Clear tier overrides — revert to default thresholds."""
         self._tier_thresholds = None
+
+    def set_adaptive_envelopes(self, envelopes: dict[str, dict]) -> None:
+        """Set learned physical plausibility envelopes keyed by sensor_id."""
+        self._adaptive_envelopes = envelopes or {}
 
     def _get_tier(self, pct: float) -> str:
         """Classify confidence percentage into a tier, respecting any overrides."""
@@ -438,7 +443,7 @@ class ConfidenceEngine:
         1.0 if within normal operating envelope.
         0.0 if reading is impossible given physical constraints.
         """
-        envelope = OPERATING_ENVELOPES.get(sensor_type)
+        envelope = self._adaptive_envelopes.get(sensor_id) or OPERATING_ENVELOPES.get(sensor_type)
         if envelope is None:
             return 1.0
 

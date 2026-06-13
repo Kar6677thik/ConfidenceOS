@@ -143,6 +143,26 @@ def _build_context(live_state: dict, anomalies: list, predictions: dict = None) 
         for a in anomalies[:10]:
             sections.append(f"  [{a.get('severity', '?')}] {a.get('sensor_id', '?')}: {a.get('description', '')} ({a.get('timestamp', '')})")
 
+    histories = live_state.get("confidence_history", {})
+    if histories:
+        sections.append("\n=== CONFIDENCE HISTORY SUMMARY ===")
+        for sid, entries in histories.items():
+            if not entries:
+                continue
+            first = entries[0].get("confidence_pct", 0)
+            last = entries[-1].get("confidence_pct", 0)
+            sections.append(f"  {sid}: {first:.1f}% -> {last:.1f}% over {len(entries)} samples")
+
+    fleet = live_state.get("fleet", [])
+    if fleet:
+        sections.append("\n=== FLEET SUMMARY ===")
+        for plant in fleet:
+            sections.append(
+                f"  {plant.get('plant_id')}: {plant.get('name')} | "
+                f"health {plant.get('health_pct')}% | risk {plant.get('risk_score')} | "
+                f"status {plant.get('status')}"
+            )
+
     # Predictions
     if predictions:
         sections.append("\n=== PREDICTIVE FORECASTS ===")

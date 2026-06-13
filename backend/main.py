@@ -23,7 +23,9 @@ V2 endpoints (new):
 """
 
 import asyncio
+import base64
 import json
+import math
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -48,6 +50,7 @@ from plants import PlantManager
 from mass_balance import DEFAULT_TOLERANCE
 from prediction import predict_all_sensors
 from causal_graph import get_graph_state
+from adaptive_thresholds import compute_adaptive_envelopes
 import nlquery
 
 
@@ -64,6 +67,7 @@ BASE_MB_TOLERANCE = DEFAULT_TOLERANCE
 # Confidence logging throttle — log every N ticks to avoid DB bloat
 _confidence_log_counter: dict[str, int] = {}
 CONFIDENCE_LOG_INTERVAL = 5  # Log every 5 seconds
+_plant_loop_status: dict[str, dict] = {}
 
 
 # ─── Pydantic models ────────────────────────────────────────────────────────
@@ -227,11 +231,23 @@ async def _plant_tick_loop(plant_id: str, plant):
                     )
 
             db.commit()
+            _plant_loop_status[plant_id] = {
+                "status": "ok",
+                "last_tick": now,
+                "tick_count": plant.simulator.tick_count,
+                "last_error": None,
+            }
             await asyncio.sleep(1.0)
     except asyncio.CancelledError:
         db.close()
     except Exception as e:
         print(f"[PlantTick] Error in {plant_id}: {e}")
+        _plant_loop_status[plant_id] = {
+            "status": "error",
+            "last_tick": time.time(),
+            "tick_count": getattr(plant.simulator, "tick_count", 0),
+            "last_error": str(e),
+        }
         db.close()
 
 
@@ -587,6 +603,38 @@ def get_fleet_overview():
     }
 
 
+@app.get("/api/fleet/history")
+def get_fleet_history(hours: float = Query(default=24.0), db: Session = Depends(get_db)):
+    """Return simple fleet health trend points from confidence logs."""
+    cutoff = datetime.utcnow() - timedelta(hours=hours)
+    rows = (
+        db.query(ConfidenceLogModel)
+        .filter(ConfidenceLogModel.timestamp >= cutoff)
+        .order_by(ConfidenceLogModel.timestamp.asc())
+        .limit(50000)
+        .all()
+    )
+
+    buckets: dict[str, dict] = {}
+    bucket_minutes = 15
+    for row in rows:
+        minute = (row.timestamp.minute // bucket_minutes) * bucket_minutes
+        bucket_time = row.timestamp.replace(minute=minute, second=0, microsecond=0)
+        key = bucket_time.isoformat()
+        item = buckets.setdefault(key, {"timestamp": key, "plants": {}})
+        plant_bucket = item["plants"].setdefault(row.plant_id, [])
+        plant_bucket.append(row.confidence_pct)
+
+    trend = []
+    for item in buckets.values():
+        point = {"timestamp": item["timestamp"]}
+        for plant_id, values in item["plants"].items():
+            point[plant_id] = round(sum(values) / len(values), 1) if values else None
+        trend.append(point)
+
+    return {"hours": hours, "trend": trend}
+
+
 # ─── Predictive Failure Engine (Module 7) ────────────────────────────────────
 
 @app.get("/api/predictions/{plant_id}")
@@ -626,11 +674,20 @@ async def query_plant(request: QueryRequest, db: Session = Depends(get_db)):
     plant = plant_manager.get(request.plant_id)
 
     # Build live state
+    sensor_histories = {}
+    for reading in plant.latest_readings:
+        sid = reading.get("sensor_id")
+        if not sid:
+            continue
+        sensor_histories[sid] = get_confidence_history(db, request.plant_id, sid, hours=24.0)
+
     live_state = {
         "readings": plant.latest_readings,
         "confidence": list(plant.latest_confidence.values()),
         "mass_balance": plant.latest_mb_state,
         "mode": plant.startup_manager.to_dict(),
+        "confidence_history": sensor_histories,
+        "fleet": plant_manager.get_fleet_summary(),
     }
 
     anomalies = get_recent_anomalies(db, limit=20, hours=24.0, plant_id=request.plant_id)
@@ -666,6 +723,25 @@ def get_causal_graph(plant_id: str):
 
 # ─── Incident Forensics & Replay (Module 10) ─────────────────────────────────
 
+@app.get("/api/adaptive-thresholds/{plant_id}")
+def get_adaptive_thresholds(
+    plant_id: str,
+    hours: float = Query(default=72.0),
+    db: Session = Depends(get_db),
+):
+    """Compute learned sensor envelopes and apply them to the plant confidence engine."""
+    plant = plant_manager.get(plant_id)
+    envelopes = compute_adaptive_envelopes(db, plant_id, hours=hours)
+    plant.confidence_engine.set_adaptive_envelopes(envelopes)
+    return {
+        "plant_id": plant_id,
+        "hours": hours,
+        "envelopes": envelopes,
+        "count": len(envelopes),
+        "generated_at": datetime.utcnow().isoformat(),
+    }
+
+
 @app.get("/api/forensics/presets")
 def get_forensics_presets():
     """Return available preset incidents for replay."""
@@ -695,6 +771,14 @@ def get_forensics_presets():
             },
         ]
     }
+
+
+@app.get("/api/forensics/presets/{preset_id}")
+def get_forensics_preset_data(preset_id: str):
+    """Return precomputed demo replay data for a named incident preset."""
+    if preset_id != "texas-city":
+        raise HTTPException(status_code=404, detail=f"Unknown forensics preset '{preset_id}'.")
+    return _build_texas_city_replay()
 
 
 @app.get("/api/forensics/{plant_id}")
@@ -759,10 +843,107 @@ def get_forensics_data(
         "data_points": len(sorted_timeline),
         "timeline": sorted_timeline,
         "anomalies": anomalies,
+        "annotations": [],
+        "confidence_trajectory": _confidence_trajectory_from_timeline(sorted_timeline),
+        "replay": {"default_speed": 30, "available_speeds": [1, 5, 15, 30, 60]},
     }
 
 
 # ─── Compliance Report (Module 11) ───────────────────────────────────────────
+
+def _confidence_trajectory_from_timeline(timeline: list[dict]) -> dict:
+    trajectory: dict[str, list] = {}
+    for point in timeline:
+        for sensor_id, conf in point.get("confidence", {}).items():
+            trajectory.setdefault(sensor_id, []).append({
+                "timestamp": point["timestamp"],
+                "confidence_pct": conf.get("confidence_pct"),
+                "tier": conf.get("tier"),
+            })
+    return trajectory
+
+
+def _build_texas_city_replay() -> dict:
+    """Build a compact deterministic Texas City replay for the demo."""
+    start = datetime(2005, 3, 23, 12, 0, 0)
+    annotations = [
+        {"minute": 0, "title": "Startup begins", "body": "Raffinate splitter startup is underway."},
+        {"minute": 18, "title": "Sensor drift begins", "body": "LT-5100 starts diverging from flow-implied level."},
+        {"minute": 45, "title": "ConfidenceOS warning", "body": "Mass-balance and confidence checks identify unreliable level data."},
+        {"minute": 64, "title": "Critical state", "body": "Tower inventory is physically inconsistent with indicated level."},
+        {"minute": 80, "title": "Explosion time", "body": "Historical incident time marker."},
+    ]
+
+    timeline = []
+    confidence_trajectory = {"LT-5100": [], "FI-2010": [], "FO-2020": [], "PT-3100": [], "TT-4100": [], "ZT-6100": []}
+    for minute in range(0, 81, 2):
+        ts = (start + timedelta(minutes=minute)).isoformat()
+        actual_level = 50 + minute * 1.35
+        measured_level = 50 + minute * 0.12 if minute < 18 else 52 + math.sin(minute / 6) * 0.8
+        lt_conf = max(12, 94 - minute * 1.05)
+        discrepancy = abs(actual_level - measured_level)
+
+        confidence = {
+            "LT-5100": {"confidence_pct": round(lt_conf, 1), "tier": "CRITICAL" if lt_conf < 20 else ("LOW" if lt_conf < 50 else ("MEDIUM" if lt_conf < 80 else "HIGH"))},
+            "FI-2010": {"confidence_pct": 88, "tier": "HIGH"},
+            "FO-2020": {"confidence_pct": 82 if minute < 50 else 68, "tier": "HIGH" if minute < 50 else "MEDIUM"},
+            "PT-3100": {"confidence_pct": 86, "tier": "HIGH"},
+            "TT-4100": {"confidence_pct": 84, "tier": "HIGH"},
+            "ZT-6100": {"confidence_pct": 80 if minute < 55 else 44, "tier": "HIGH" if minute < 55 else "LOW"},
+        }
+
+        readings = {
+            "LT-5100": {"value": round(measured_level, 2), "unit": "ft", "sensor_type": "level"},
+            "FI-2010": {"value": round(125 + minute * 1.4, 2), "unit": "gpm", "sensor_type": "flow_in"},
+            "FO-2020": {"value": round(max(20, 118 - minute * 0.8), 2), "unit": "gpm", "sensor_type": "flow_out"},
+            "PT-3100": {"value": round(21 + minute * 0.18, 2), "unit": "psi", "sensor_type": "pressure"},
+            "TT-4100": {"value": round(350 + minute * 0.9, 2), "unit": "F", "sensor_type": "temperature"},
+            "ZT-6100": {"value": 0 if minute < 55 else 100, "unit": "%", "sensor_type": "valve"},
+        }
+
+        flags = []
+        if discrepancy > 20:
+            flags.append({
+                "severity": "CRITICAL" if discrepancy > 55 else "WARNING",
+                "message": f"Flow-implied level diverges from LT-5100 by {discrepancy:.1f} ft.",
+            })
+
+        point = {
+            "timestamp": ts,
+            "minute": minute,
+            "readings": readings,
+            "confidence": confidence,
+            "mass_balance": {
+                "implied_level": round(actual_level, 2),
+                "measured_level": round(measured_level, 2),
+                "discrepancy": round(discrepancy, 2),
+                "flags": flags,
+            },
+        }
+        timeline.append(point)
+        for sensor_id, conf in confidence.items():
+            confidence_trajectory[sensor_id].append({
+                "timestamp": ts,
+                "minute": minute,
+                "confidence_pct": conf["confidence_pct"],
+                "tier": conf["tier"],
+            })
+
+    return {
+        "id": "texas-city",
+        "name": "Texas City Incident (Demo)",
+        "plant_id": "plant-a",
+        "duration_minutes": 80,
+        "timeline": timeline,
+        "annotations": annotations,
+        "confidence_trajectory": confidence_trajectory,
+        "replay": {"default_speed": 30, "available_speeds": [1, 5, 15, 30, 60]},
+        "counterfactual": {
+            "traditional_hmi": "Shows LT-5100 level without trust context.",
+            "confidenceos": "Shows confidence degradation, mass-balance divergence, and recommended verification.",
+        },
+    }
+
 
 @app.post("/api/compliance/generate")
 async def generate_compliance_report(request: ComplianceRequest, db: Session = Depends(get_db)):
@@ -824,7 +1005,7 @@ async def generate_compliance_report(request: ComplianceRequest, db: Session = D
         alarm_by_severity, sensor_reliability, mb_anomalies, plant
     )
 
-    return {
+    report = {
         "plant_id": request.plant_id,
         "plant_name": plant.name,
         "report_type": request.report_type,
@@ -845,6 +1026,13 @@ async def generate_compliance_report(request: ComplianceRequest, db: Session = D
             },
             "recommendations": recommendations,
         },
+    }
+    pdf_text = _format_compliance_report_text(report)
+    return {
+        **report,
+        "report": report,
+        "pdf_base64": base64.b64encode(_build_simple_pdf(pdf_text)).decode("ascii"),
+        "pdf_filename": f"confidenceos_{request.plant_id}_{request.report_type}_report.pdf",
     }
 
 
@@ -889,6 +1077,75 @@ def _generate_compliance_recommendations(alarm_by_severity, sensor_reliability, 
 
 # ─── Simulation Sandbox (Module 15) ──────────────────────────────────────────
 
+def _format_compliance_report_text(report: dict) -> str:
+    sections = report.get("sections", {})
+    alarm = sections.get("alarm_summary", {})
+    mb = sections.get("mass_balance_summary", {})
+    handover = sections.get("shift_handover_log", {})
+    recommendations = sections.get("recommendations", [])
+
+    lines = [
+        "ConfidenceOS Compliance Report",
+        f"Plant: {report.get('plant_name')} ({report.get('plant_id')})",
+        f"Report type: {report.get('report_type')}",
+        f"Period: {report.get('period_hours')} hours",
+        f"Generated: {report.get('generated_at')}",
+        "",
+        "Alarm Summary",
+        f"Total alarms: {alarm.get('total_alarms', 0)}",
+        f"Alarm rate/hour: {alarm.get('alarm_rate_per_hour', 0)}",
+        "",
+        "Mass-Balance Summary",
+        f"Total flags: {mb.get('total_flags', 0)}",
+        "",
+        "Shift Handover Log",
+        f"Generated handovers: {handover.get('count', 0)}",
+        "",
+        "Recommendations",
+    ]
+    for rec in recommendations:
+        lines.append(f"- {rec.get('priority', 'info').upper()}: {rec.get('action', '')}")
+    lines.extend(["", "Digital signature: ConfidenceOS Demo Authority", "Signature status: simulated"])
+    return "\n".join(lines)
+
+
+def _pdf_escape(text: str) -> str:
+    return text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+
+
+def _build_simple_pdf(text: str) -> bytes:
+    """Create a minimal single-page PDF containing plain report text."""
+    lines = text.splitlines()[:42]
+    content_lines = ["BT", "/F1 10 Tf", "50 780 Td", "14 TL"]
+    for line in lines:
+        content_lines.append(f"({_pdf_escape(line[:95])}) Tj")
+        content_lines.append("T*")
+    content_lines.append("ET")
+    stream = "\n".join(content_lines).encode("latin-1", "replace")
+
+    objects = [
+        b"1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n",
+        b"2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n",
+        b"3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >> endobj\n",
+        b"4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n",
+        b"5 0 obj << /Length " + str(len(stream)).encode("ascii") + b" >> stream\n" + stream + b"\nendstream endobj\n",
+    ]
+    pdf = bytearray(b"%PDF-1.4\n")
+    offsets = [0]
+    for obj in objects:
+        offsets.append(len(pdf))
+        pdf.extend(obj)
+    xref_start = len(pdf)
+    pdf.extend(f"xref\n0 {len(objects) + 1}\n".encode("ascii"))
+    pdf.extend(b"0000000000 65535 f \n")
+    for offset in offsets[1:]:
+        pdf.extend(f"{offset:010d} 00000 n \n".encode("ascii"))
+    pdf.extend(
+        f"trailer << /Size {len(objects) + 1} /Root 1 0 R >>\nstartxref\n{xref_start}\n%%EOF\n".encode("ascii")
+    )
+    return bytes(pdf)
+
+
 @app.post("/api/sandbox/run")
 def run_sandbox(request: SandboxRequest):
     """Run a simulated failure scenario without affecting live data."""
@@ -906,22 +1163,48 @@ def run_sandbox(request: SandboxRequest):
     for sid, age in plant.config["calibration_ages"].items():
         ce.set_calibration_age(sid, age)
 
+    severity_factor = {"mild": 0.6, "moderate": 1.0, "severe": 1.8}.get(request.severity, 1.0)
+
     # Simulate the failure progression
     results = []
     duration_ticks = int(request.duration_hours * 3600 / 60)  # Sample every 60 seconds
     for i in range(min(duration_ticks, 360)):  # Cap at 360 samples
+        time_hours = i * 60 / 3600
         readings = sim.tick()
+        for reading in readings:
+            if reading["sensor_id"] != request.sensor_id:
+                continue
+            if request.failure_mode == "calibration_drift":
+                reading["value"] = round(reading["value"] + time_hours * 2.5 * severity_factor, 2)
+                reading["failure_mode"] = "calibration_drift"
+            elif request.failure_mode == "stuck_reading" and results:
+                reading["value"] = results[-1]["reading"]["value"]
+                reading["failure_mode"] = "stuck_reading"
+            elif request.failure_mode == "sg_mismatch":
+                reading["value"] = round(reading["value"] * max(0.35, 1.0 - 0.08 * time_hours * severity_factor), 2)
+                reading["failure_mode"] = "sg_mismatch"
+            elif request.failure_mode == "command_state_decoupling":
+                reading["value"] = 0.0
+                reading["failure_mode"] = "command_state_decoupling"
+
         confidence_results = ce.score_readings(readings)
         mb_state = mbe.update(readings)
+        confidence_payload = [cr.to_dict() for cr in confidence_results]
+        selected_reading = next((r for r in readings if r["sensor_id"] == request.sensor_id), None)
+        selected_confidence = next((cr for cr in confidence_payload if cr["sensor_id"] == request.sensor_id), None)
 
-        for cr in confidence_results:
-            if cr.sensor_id == request.sensor_id:
-                results.append({
-                    "time_hours": round(i * 60 / 3600, 2),
-                    "confidence_pct": cr.confidence_pct,
-                    "tier": cr.tier,
-                    "reasons": cr.reasons[:2],
-                })
+        if selected_confidence and selected_reading:
+            results.append({
+                "time_hours": round(time_hours, 2),
+                "reading": selected_reading,
+                "confidence": selected_confidence,
+                "confidence_pct": selected_confidence["confidence_pct"],
+                "tier": selected_confidence["tier"],
+                "reasons": selected_confidence["reasons"][:2],
+                "mass_balance": mb_state.to_dict(),
+                "flags": [f.to_dict() for f in mb_state.flags],
+                "all_confidence": confidence_payload,
+            })
 
         # Simulate degradation
         current_age = ce.calibration_ages.get(request.sensor_id, 0)
@@ -934,6 +1217,7 @@ def run_sandbox(request: SandboxRequest):
         "failure_mode": request.failure_mode,
         "severity": request.severity,
         "duration_hours": request.duration_hours,
+        "sample_count": len(results),
         "results": results,
     }
 
@@ -951,6 +1235,8 @@ def health_check():
         "tick_count": plant_a.simulator.tick_count,
         "active_connections": len(active_connections),
         "plants": len(plant_manager.plants),
+        "plant_loops": _plant_loop_status,
+        "db_status": "writing" if any(s.get("status") == "ok" for s in _plant_loop_status.values()) else "warming_up",
         "modules": {
             "sensor_simulator": "active",
             "confidence_engine": "active",
@@ -960,6 +1246,10 @@ def health_check():
             "prediction_engine": "active",
             "nlquery_engine": "active",
             "causal_graph": "active",
+            "adaptive_thresholds": "active",
+            "compliance_pdf": "active",
+            "forensics_replay": "active",
+            "sandbox": "active",
             "fleet_manager": "active",
         },
     }

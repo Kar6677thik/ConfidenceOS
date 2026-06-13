@@ -14,7 +14,7 @@ const NAV_ITEMS = [
 ];
 
 export default function NavBar() {
-  const { connected, averageConfidence, role, setRole, plantId } = useStore();
+  const { connected, averageConfidence, role, setRole } = useStore();
   const location = useLocation();
 
   const visibleItems = NAV_ITEMS.filter(item => item.roles.includes(role));

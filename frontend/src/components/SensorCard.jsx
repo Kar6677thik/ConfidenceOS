@@ -1,5 +1,3 @@
-import { useMemo } from 'react';
-
 /**
  * SensorCard — PRD §5.2 Confidence Indicator Widget
  *
@@ -38,11 +36,7 @@ export default function SensorCard({ reading, confidence, isSelected, onSelect }
   const sensorInfo = SENSOR_LABELS[reading.sensor_type] || { label: reading.sensor_type, icon: '📡' };
 
   // Primary reason string (first reason, truncated)
-  const primaryReason = useMemo(() => {
-    const reasons = confidence.reasons || [];
-    if (reasons.length === 0) return 'All checks nominal.';
-    return reasons[0];
-  }, [confidence.reasons]);
+  const primaryReason = confidence.reasons?.[0] || 'All checks nominal.';
 
   return (
     <button

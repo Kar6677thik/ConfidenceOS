@@ -2,7 +2,7 @@
 database.py — SQLAlchemy setup and models for ConfidenceOS V2.
 
 V1 tables: SensorReading, AnomalyLog
-V2 tables: ConfidenceLog, FlagEvent, ShiftHandoverLog
+V2 tables: ConfidenceLog, FlagEvent, ShiftHandoverLog, AdaptiveEnvelopeLog
 
 All tables now include plant_id for multi-plant support.
 """
@@ -102,6 +102,22 @@ class ShiftHandoverLog(Base):
     plant_id = Column(String(20), index=True, nullable=False, default="plant-a")
     brief_text = Column(Text, nullable=False)
     source = Column(String(20), nullable=False)  # 'claude' or 'fallback'
+    generated_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class AdaptiveEnvelopeLog(Base):
+    """Stores learned operating envelopes for adaptive plausibility checks."""
+    __tablename__ = "adaptive_envelope_log"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    plant_id = Column(String(20), index=True, nullable=False, default="plant-a")
+    sensor_id = Column(String(10), index=True, nullable=False)
+    sensor_type = Column(String(20), nullable=False)
+    mean_value = Column(Float, nullable=False)
+    std_dev = Column(Float, nullable=False)
+    normal_min = Column(Float, nullable=False)
+    normal_max = Column(Float, nullable=False)
+    sample_count = Column(Integer, nullable=False)
     generated_at = Column(DateTime, default=datetime.utcnow, index=True)
 
 

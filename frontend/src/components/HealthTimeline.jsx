@@ -226,7 +226,8 @@ export default function HealthTimeline({ sensorId, apiBase = '/api' }) {
   }, [apiBase]);
 
   useEffect(() => {
-    fetchHealth(sensorId);
+    const timer = setTimeout(() => fetchHealth(sensorId), 0);
+    return () => clearTimeout(timer);
   }, [sensorId, fetchHealth]);
 
   // ── Render ─────────────────────────────────────────────────────────────

@@ -118,6 +118,28 @@ def predict_sensor(confidence_history: list[dict]) -> dict:
         model_fit = "poor"
 
     current_confidence = v[-1]
+    model_type = "linear"
+
+    # Step-change detection: recent confidence dropped sharply versus prior window.
+    if len(v) >= 12:
+        recent_avg = float(np.mean(v[-4:]))
+        previous_avg = float(np.mean(v[-12:-4]))
+        if previous_avg - recent_avg >= 12:
+            model_type = "step_change"
+            model_fit = "good"
+
+    # Exponential-like degradation: log(confidence) fits better than linear.
+    if np.all(v > 0) and model_type == "linear":
+        try:
+            exp_coeffs = np.polyfit(t_hours, np.log(v), 1)
+            exp_pred = np.exp(np.polyval(exp_coeffs, t_hours))
+            exp_res = np.sum((v - exp_pred) ** 2)
+            if exp_res < ss_res * 0.85 and exp_coeffs[0] < 0:
+                model_type = "exponential"
+                slope = exp_coeffs[0] * current_confidence
+                model_fit = "good" if r_squared >= 0.75 else "fair"
+        except Exception:
+            pass
 
     # Predict time to thresholds (only if slope is negative — degrading)
     time_to_low = None
@@ -176,7 +198,7 @@ def predict_sensor(confidence_history: list[dict]) -> dict:
     )
 
     return {
-        "model_type": "linear",
+        "model_type": model_type,
         "model_fit": model_fit,
         "slope_per_hour": round(slope, 3),
         "r_squared": round(r_squared, 3),
@@ -184,9 +206,11 @@ def predict_sensor(confidence_history: list[dict]) -> dict:
         "time_to_critical_hours": time_to_critical,
         "range_low": range_low,
         "range_critical": range_critical,
+        "confidence_interval": range_critical or range_low,
         "primary_driver": primary_driver,
         "driver_rate": driver_rate,
         "recommended_action": recommended_action,
+        "action": recommended_action,
     }
 
 
