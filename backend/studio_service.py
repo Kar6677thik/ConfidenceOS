@@ -24,6 +24,15 @@ DEFAULT_ASSIGNMENTS = [
     {"asset_id": "FG-2010", "template_id": "flow_pair", "approved": True, "source": "demo_default"},
 ]
 
+DEFAULT_APPROVED_BINDINGS = [
+    {"raw_tag": "U15_LT_5100.PV", "source": "demo_default_engineer_approval"},
+    {"raw_tag": "15-FI-2010", "source": "demo_default_engineer_approval"},
+    {"raw_tag": "FO2020_RATE", "source": "demo_default_engineer_approval"},
+    {"raw_tag": "ZT6100.POS", "source": "demo_default_engineer_approval"},
+    {"raw_tag": "PT_3100_PROCESS", "source": "demo_default_engineer_approval"},
+    {"raw_tag": "TEMP4100", "source": "demo_default_engineer_approval"},
+]
+
 
 def get_state() -> dict:
     if not STATE_PATH.exists():
@@ -276,6 +285,72 @@ def mapping_court_detail(raw_tag: str) -> dict:
     return mapping_court_for_tag(raw_tag, get_state())
 
 
+def approve_raw_tag(raw_tag: str) -> dict:
+    state = get_state()
+    row = mapping_court_for_tag(raw_tag, state)
+    if not row.get("proposed_canonical_tag"):
+        return {
+            "status": "not_approved",
+            "reason": "No canonical mapping exists. Mark ignored with a reason or keep blocking.",
+            "mapping": row,
+        }
+    approved = [
+        item for item in state.get("approved_bindings", [])
+        if item.get("raw_tag") != raw_tag
+    ]
+    approved.append({
+        "raw_tag": raw_tag,
+        "source": "studio_engineer_approval",
+        "approved_at": time.time(),
+    })
+    ignored = dict(state.get("ignored_raw_tags", {}))
+    ignored.pop(raw_tag, None)
+    state["approved_bindings"] = approved
+    state["ignored_raw_tags"] = ignored
+    state["last_build"] = None
+    state["last_build_id"] = None
+    save_state(state)
+    return {"status": "approved", "mapping": mapping_court_for_tag(raw_tag, get_state())}
+
+
+def ignore_raw_tag(raw_tag: str, reason: str) -> dict:
+    reason = (reason or "").strip()
+    if not reason:
+        return {
+            "status": "not_ignored",
+            "reason": "Ignored raw tags require an engineering reason.",
+            "mapping": mapping_court_for_tag(raw_tag, get_state()),
+        }
+    state = get_state()
+    approved = [
+        item for item in state.get("approved_bindings", [])
+        if item.get("raw_tag") != raw_tag
+    ]
+    ignored = dict(state.get("ignored_raw_tags", {}))
+    ignored[raw_tag] = reason
+    state["approved_bindings"] = approved
+    state["ignored_raw_tags"] = ignored
+    state["last_build"] = None
+    state["last_build_id"] = None
+    save_state(state)
+    return {"status": "ignored", "mapping": mapping_court_for_tag(raw_tag, get_state())}
+
+
+def keep_raw_tag_blocking(raw_tag: str) -> dict:
+    state = get_state()
+    state["approved_bindings"] = [
+        item for item in state.get("approved_bindings", [])
+        if item.get("raw_tag") != raw_tag
+    ]
+    ignored = dict(state.get("ignored_raw_tags", {}))
+    ignored.pop(raw_tag, None)
+    state["ignored_raw_tags"] = ignored
+    state["last_build"] = None
+    state["last_build_id"] = None
+    save_state(state)
+    return {"status": "blocking", "mapping": mapping_court_for_tag(raw_tag, get_state())}
+
+
 def studio_overview() -> dict:
     state = get_state()
     return {
@@ -301,7 +376,7 @@ def _default_state() -> dict:
         "last_build": None,
         "assignments": DEFAULT_ASSIGNMENTS,
         "suggestions": [],
-        "approved_bindings": [],
+        "approved_bindings": DEFAULT_APPROVED_BINDINGS,
         "ignored_raw_tags": {},
         "notes": [],
     }

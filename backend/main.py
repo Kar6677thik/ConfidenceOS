@@ -67,10 +67,13 @@ from decision_integrity import (
 from studio_service import (
     assign_template as studio_assign_template,
     auto_map as studio_auto_map,
+    approve_raw_tag as studio_approve_raw_tag,
     current_build as studio_current_build,
     diff as studio_diff,
     generate_preview as studio_generate_preview,
+    ignore_raw_tag as studio_ignore_raw_tag,
     imported_signals as studio_imported_signals,
+    keep_raw_tag_blocking as studio_keep_raw_tag_blocking,
     mapping_court_detail as studio_mapping_court_detail,
     mapping_court_items as studio_mapping_court,
     publish as studio_publish,
@@ -138,6 +141,10 @@ class StudioTemplateAssignmentRequest(BaseModel):
 class StudioGenerateRequest(BaseModel):
     role: str = "Engineer"
     context: str = "auto"
+
+class StudioRawTagResolutionRequest(BaseModel):
+    raw_tag: str
+    reason: str = ""
 
 class ShiftNoteRequest(BaseModel):
     plant_id: str = "plant-a"
@@ -771,6 +778,30 @@ def get_studio_mapping_court():
 def get_studio_mapping_court_detail(raw_tag: str):
     """Return one evidence-ledger row for an imported raw tag."""
     return studio_mapping_court_detail(raw_tag)
+
+
+@app.post("/api/studio/mapping-court/approve")
+def post_studio_mapping_approve(request: StudioRawTagResolutionRequest):
+    """Approve a deterministic raw-tag mapping. Engineer approval remains explicit."""
+    result = studio_approve_raw_tag(request.raw_tag)
+    if result.get("status") == "not_approved":
+        raise HTTPException(status_code=409, detail=result)
+    return result
+
+
+@app.post("/api/studio/mapping-court/ignore")
+def post_studio_mapping_ignore(request: StudioRawTagResolutionRequest):
+    """Ignore an imported raw tag with an engineering reason."""
+    result = studio_ignore_raw_tag(request.raw_tag, request.reason)
+    if result.get("status") == "not_ignored":
+        raise HTTPException(status_code=422, detail=result)
+    return result
+
+
+@app.post("/api/studio/mapping-court/keep-blocking")
+def post_studio_mapping_keep_blocking(request: StudioRawTagResolutionRequest):
+    """Keep an imported raw tag unresolved so publish remains blocked."""
+    return studio_keep_raw_tag_blocking(request.raw_tag)
 
 
 @app.post("/api/studio/auto-map")
