@@ -1,8 +1,8 @@
 """
-nlquery.py — Natural Language Plant Query Interface for ConfidenceOS V2 (Module 8).
+nlquery.py — Grounded Operator Explanation interface for ConfidenceOS V2 (Module 8).
 
-Lets anyone ask the system anything in plain English and get a grounded,
-cited answer. Uses Claude API with strict grounding instructions.
+Lets an operator ask plant-state questions in plain English and get a grounded,
+cited operating-basis answer. Uses Claude API with strict grounding instructions.
 Falls back to structured text if no API key is set.
 """
 
@@ -26,7 +26,7 @@ You have access to:
 - Live sensor readings with confidence scores
 - Active mass-balance flags
 - Recent anomalies
-- Prediction data (if available)
+- Confidence degradation forecast data (if available)
 """
 
 
@@ -37,13 +37,13 @@ async def query_plant(
     predictions: dict = None,
 ) -> dict:
     """
-    Answer a natural language question about plant state.
+    Answer a grounded operator question about plant state.
     
     Args:
         question: the user's question in plain English
         live_state: dict with readings, confidence, mass_balance, mode
         anomalies: list of recent anomaly dicts
-        predictions: prediction data per sensor (optional)
+        predictions: confidence degradation forecast data per sensor (optional)
     
     Returns:
         dict with 'answer', 'sources', and 'source_type' ('claude' or 'fallback')

@@ -22,17 +22,17 @@ export default function QueryPanel() {
 
   const suggestions = [
     'Why is LT-5100 flagged?',
-    'Is the mass balance healthy?',
-    'Which sensor needs attention?',
-    'What is the current risk level?',
+    'What is the operating basis?',
+    'Which trusted substitute should I use?',
+    'What verification is required?',
   ];
 
   return (
     <section className="industrial-panel h-full min-h-[360px] flex flex-col overflow-hidden">
       <div className="industrial-panel-header">
         <div>
-          <h2 className="industrial-panel-title">Plant Query</h2>
-          <p className="caption-mono text-[var(--data-mono)]">SYSTEM LOG / GROUNDED ANSWERS</p>
+          <h2 className="industrial-panel-title">Grounded Operator Explanation</h2>
+          <p className="caption-mono text-[var(--data-mono)]">SYSTEM LOG / EVIDENCE-LINKED ANSWERS</p>
         </div>
       </div>
 
@@ -59,7 +59,7 @@ export default function QueryPanel() {
               <p className="text-[var(--text)]">{entry.question}</p>
             </div>
             <div className="border border-[var(--border-strong)] bg-[var(--surface-panel)] p-4">
-              <p className="label-caps text-[var(--text-muted)] mb-2">System Analysis</p>
+              <p className="label-caps text-[var(--text-muted)] mb-2">Operating Basis</p>
               <p className="leading-relaxed text-[var(--text)]">{entry.answer}</p>
               {entry.sources?.length > 0 && (
                 <div className="flex flex-wrap gap-2 mt-3">
@@ -71,7 +71,7 @@ export default function QueryPanel() {
                 </div>
               )}
               <div className="caption-mono text-[var(--data-mono)] mt-3">
-                {entry.source_type === 'claude' ? 'CLAUDE' : 'STRUCTURED'} / {new Date(entry.timestamp).toLocaleTimeString()}
+                {entry.source_type === 'claude' ? 'GROUNDED MODEL' : 'STRUCTURED'} / {new Date(entry.timestamp).toLocaleTimeString()}
               </div>
             </div>
           </div>
@@ -90,7 +90,7 @@ export default function QueryPanel() {
             type="text"
             value={input}
             onChange={(event) => setInput(event.target.value)}
-            placeholder="Ask anything about this plant..."
+            placeholder="Ask for operating basis, evidence, or verification..."
             className="industrial-input flex-1"
             disabled={queryLoading}
           />
@@ -99,7 +99,7 @@ export default function QueryPanel() {
             disabled={queryLoading || !input.trim()}
             className="industrial-control text-[var(--safe)] disabled:opacity-40"
           >
-            Send
+            Explain
           </button>
         </div>
       </form>

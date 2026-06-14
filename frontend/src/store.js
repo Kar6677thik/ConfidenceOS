@@ -6,7 +6,7 @@
  *   - Live sensor readings, confidence scores, mass-balance state
  *   - Operating mode (NORMAL / STARTUP)
  *   - Stale reading flags, anomalies
- *   - V2: Plant selection, role-based views, fleet data, predictions
+ *   - V2: Plant selection, role-based views, integrity overview, confidence forecasts
  *   - UI state: selected sensor, mass-balance chart history
  */
 
@@ -28,15 +28,15 @@ const useStore = create((set, get) => ({
   plantId: 'plant-a',
   role: 'Operator',  // Operator | Engineer | Manager | Auditor
 
-  // ── V2: Fleet data ────────────────────────────────────────────────────
+  // ── V2: Instrument integrity overview ─────────────────────────────────
   fleetData: [],
   fleetLoading: false,
 
-  // ── V2: Predictions ───────────────────────────────────────────────────
+  // ── V2: Confidence degradation forecasts ──────────────────────────────
   predictions: {},
   predictionsLoading: false,
 
-  // ── V2: Query ─────────────────────────────────────────────────────────
+  // ── V2: Grounded operator explanation ─────────────────────────────────
   queryHistory: [],
   queryLoading: false,
 
@@ -225,7 +225,7 @@ const useStore = create((set, get) => ({
     }
   },
 
-  // ── V2: Fleet actions ─────────────────────────────────────────────────
+  // ── V2: Integrity overview actions ────────────────────────────────────
 
   fetchFleet: async () => {
     set({ fleetLoading: true });
@@ -240,7 +240,7 @@ const useStore = create((set, get) => ({
     }
   },
 
-  // ── V2: Prediction actions ────────────────────────────────────────────
+  // ── V2: Confidence forecast actions ───────────────────────────────────
 
   fetchPredictions: async (plantId) => {
     const pid = plantId || get().plantId;
@@ -251,12 +251,12 @@ const useStore = create((set, get) => ({
       const data = await res.json();
       set({ predictions: data.predictions || {}, predictionsLoading: false });
     } catch (err) {
-      console.error('[Store] fetchPredictions failed:', err);
+      console.error('[Store] fetch confidence forecasts failed:', err);
       set({ predictionsLoading: false });
     }
   },
 
-  // ── V2: NL Query actions ──────────────────────────────────────────────
+  // ── V2: Grounded explanation actions ──────────────────────────────────
 
   askQuestion: async (question) => {
     const { plantId } = get();

@@ -13,9 +13,9 @@ V1 endpoints (maintained for backward compat):
   - POST /api/scenario/load, /api/scenario/reset
 
 V2 endpoints (new):
-  - GET /api/fleet — fleet overview with risk scores for all plants
-  - GET /api/predictions/{plant_id} — predictive failure forecasts
-  - POST /api/query — natural language plant query
+  - GET /api/fleet — instrument integrity overview for all plants
+  - GET /api/predictions/{plant_id} — confidence degradation forecasts
+  - POST /api/query — grounded operator explanation
   - GET /api/graph/{plant_id} — causal graph state
   - GET /api/forensics/{plant_id} — historical data for replay
   - GET /api/forensics/presets — available preset incidents
@@ -595,8 +595,8 @@ def get_read_only_integration_layer():
         "writes_supported": False,
         "positioning": (
             "ConfidenceOS subscribes to tag data and publishes trust, evidence, "
-            "handover, and decision-freeze metadata. It does not replace DCS/PLC/HMI "
-            "control layers or write commands to ABB-class systems."
+            "handover, and decision-freeze metadata as a read-only trust layer beside "
+            "existing HMI/DCS control layers. It does not write commands to ABB-class systems."
         ),
         "active_providers": {
             plant_id: plant.tag_provider.to_dict()
@@ -939,11 +939,11 @@ def reset_scenario(plant_id: str = Query(default="plant-a")):
 # V2 ENDPOINTS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# ─── Fleet Overview (Module 9) ───────────────────────────────────────────────
+# ─── Instrument Integrity Overview (Module 9) ────────────────────────────────
 
 @app.get("/api/fleet")
 def get_fleet_overview():
-    """Return fleet-level summary with risk scores for all plants."""
+    """Return instrument integrity summary for all plants."""
     return {
         "fleet": plant_manager.get_fleet_summary(),
         "plant_count": len(plant_manager.plants),
@@ -953,7 +953,7 @@ def get_fleet_overview():
 
 @app.get("/api/fleet/history")
 def get_fleet_history(hours: float = Query(default=24.0), db: Session = Depends(get_db)):
-    """Return simple fleet health trend points from confidence logs."""
+    """Return simple instrument integrity trend points from confidence logs."""
     cutoff = datetime.utcnow() - timedelta(hours=hours)
     rows = (
         db.query(ConfidenceLogModel)
@@ -983,11 +983,11 @@ def get_fleet_history(hours: float = Query(default=24.0), db: Session = Depends(
     return {"hours": hours, "trend": trend}
 
 
-# ─── Predictive Failure Engine (Module 7) ────────────────────────────────────
+# ─── Confidence Degradation Forecast (Module 7) ──────────────────────────────
 
 @app.get("/api/predictions/{plant_id}")
 def get_predictions(plant_id: str, db: Session = Depends(get_db)):
-    """Return predictive failure forecasts for all sensors in a plant."""
+    """Return confidence degradation forecasts for all sensors in a plant."""
     plant = plant_manager.get(plant_id)
     histories = {}
     for sid in plant.latest_confidence:
@@ -1003,7 +1003,7 @@ def get_predictions(plant_id: str, db: Session = Depends(get_db)):
 
 @app.get("/api/predictions/{plant_id}/{sensor_id}")
 def get_sensor_prediction(plant_id: str, sensor_id: str, db: Session = Depends(get_db)):
-    """Return predictive failure forecast for a single sensor."""
+    """Return confidence degradation forecast for a single sensor."""
     history = get_confidence_history(db, plant_id, sensor_id, hours=24.0)
     from prediction import predict_sensor
     prediction = predict_sensor(history)
@@ -1014,11 +1014,11 @@ def get_sensor_prediction(plant_id: str, sensor_id: str, db: Session = Depends(g
     return prediction
 
 
-# ─── Natural Language Query (Module 8) ───────────────────────────────────────
+# ─── Grounded Operator Explanation (Module 8) ────────────────────────────────
 
 @app.post("/api/query")
 async def query_plant(request: QueryRequest, db: Session = Depends(get_db)):
-    """Answer a natural language question about a plant."""
+    """Answer a grounded operator question about a plant."""
     plant = plant_manager.get(request.plant_id)
 
     # Build live state

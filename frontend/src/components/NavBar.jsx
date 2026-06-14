@@ -4,11 +4,11 @@ import useStore from '../store';
 const ROLES = ['Operator', 'Engineer', 'Manager', 'Auditor'];
 
 const NAV_ITEMS = [
-  { path: '/', label: 'Fleet', roles: ['Operator', 'Engineer', 'Manager', 'Auditor'] },
+  { path: '/', label: 'Integrity', roles: ['Operator', 'Engineer', 'Manager', 'Auditor'] },
   { path: '/operator', label: 'Plant A', roles: ['Operator', 'Engineer', 'Manager'] },
-  { path: '/predictions', label: 'Predictions', roles: ['Operator', 'Engineer', 'Manager'] },
-  { path: '/forensics', label: 'Forensics', roles: ['Engineer', 'Manager', 'Auditor'] },
-  { path: '/graph', label: 'Graph', roles: ['Engineer', 'Manager'] },
+  { path: '/predictions', label: 'Confidence Debt', roles: ['Operator', 'Engineer', 'Manager'] },
+  { path: '/forensics', label: 'Incident Timeline', roles: ['Engineer', 'Manager', 'Auditor'] },
+  { path: '/graph', label: 'Trust Graph', roles: ['Engineer', 'Manager'] },
   { path: '/compliance', label: 'Compliance', roles: ['Manager', 'Auditor'] },
   { path: '/sandbox', label: 'Sandbox', roles: ['Engineer'] },
 ];
@@ -75,12 +75,12 @@ export default function NavBar() {
         </select>
 
         <div className={`caption-mono ${alerts > 0 ? 'status-critical' : 'status-safe'}`}>
-          Active Alert Counter: {alerts}
+          Verification Required: {alerts}
         </div>
 
         {location.pathname !== '/' && (
           <div className={`caption-mono ${healthClass}`}>
-            Health {averageConfidence}%
+            Integrity {averageConfidence}%
           </div>
         )}
 

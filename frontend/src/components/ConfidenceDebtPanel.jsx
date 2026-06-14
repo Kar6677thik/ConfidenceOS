@@ -58,7 +58,7 @@ export default function ConfidenceDebtPanel({ compact = false }) {
       </div>
       <div className="industrial-body space-y-3">
         <p className="caption-mono text-[var(--data-mono)]">
-          Time below confidence tier x criticality x active context. This is not predictive failure.
+          Time below confidence tier x criticality x active context. Used for maintenance operating priority.
         </p>
         {body}
       </div>

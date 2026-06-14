@@ -101,7 +101,7 @@ function SensorGrid({ readings, confidence, selectedSensorId, onSelectSensor, co
 
 function PredictionCard({ prediction }) {
   if (!prediction) {
-    return <p className="caption-mono text-[var(--data-mono)]">Select a sensor to view forecast data.</p>;
+    return <p className="caption-mono text-[var(--data-mono)]">Select a sensor to view confidence degradation forecast data.</p>;
   }
 
   return (
@@ -112,11 +112,11 @@ function PredictionCard({ prediction }) {
       </div>
       <div className="industrial-grid-shell grid-cols-2">
         <div className="industrial-panel-subtle p-3">
-          <p className="label-caps text-[var(--text-muted)]">LOW in</p>
+          <p className="label-caps text-[var(--text-muted)]">LOW confidence in</p>
           <p className="font-data text-3xl status-warning">{prediction.time_to_low_hours ?? 'N/A'}h</p>
         </div>
         <div className="industrial-panel-subtle p-3">
-          <p className="label-caps text-[var(--text-muted)]">CRITICAL in</p>
+          <p className="label-caps text-[var(--text-muted)]">Verification required in</p>
           <p className="font-data text-3xl status-critical">{prediction.time_to_critical_hours ?? 'N/A'}h</p>
         </div>
       </div>
@@ -507,7 +507,7 @@ function OperatorDashboard() {
             <div className="h-[520px]">
               <QueryPanel />
             </div>
-            <Panel title="Predictive Forecast" className="border-t-0">
+            <Panel title="Confidence Degradation Forecast" className="border-t-0">
               <PredictionCard prediction={selectedPrediction} />
             </Panel>
             {role === 'Engineer' && (
@@ -554,8 +554,8 @@ function FleetOverviewPage() {
     <PageFrame>
       <div className="page-scroll p-8">
         <header className="mb-10">
-          <h1 className="text-[56px] leading-none font-extrabold text-[var(--text)]">Fleet Risk Profile</h1>
-          <p className="mt-4 text-xl text-[var(--text-muted)]">Monitoring {fleetData.length || 3} Active Plants</p>
+          <h1 className="text-[56px] leading-none font-extrabold text-[var(--text)]">Instrument Integrity Overview</h1>
+          <p className="mt-4 text-xl text-[var(--text-muted)]">Read-only trust layer beside existing HMI/DCS for {fleetData.length || 3} active plants</p>
         </header>
 
         <div className="industrial-grid-shell grid-cols-1 md:grid-cols-3 mb-12">
@@ -577,7 +577,7 @@ function FleetOverviewPage() {
                 </div>
 
                 <div className="mb-8">
-                  <h3 className="label-caps text-[var(--text-muted)] mb-3">Active Flags</h3>
+                  <h3 className="label-caps text-[var(--text-muted)] mb-3">Operating Basis Issues</h3>
                   <ul className="space-y-3">
                     {(plant.top_issues || []).slice(0, 3).map((issue) => (
                       <li key={issue} className="caption-mono text-[var(--text)] flex items-center gap-3">
@@ -588,14 +588,14 @@ function FleetOverviewPage() {
                     {(!plant.top_issues || plant.top_issues.length === 0) && (
                       <li className="caption-mono text-[var(--text-muted)] flex items-center gap-3">
                         <span className="led-square text-[var(--disabled)]" />
-                        Nominal Operation
+                        Normal operation
                       </li>
                     )}
                   </ul>
                 </div>
 
                 <div className="mt-auto">
-                  <h3 className="label-caps text-[var(--text-muted)] mb-3">4H Health Sparkline</h3>
+                  <h3 className="label-caps text-[var(--text-muted)] mb-3">4H Integrity Sparkline</h3>
                   <svg className="w-full h-16" preserveAspectRatio="none" viewBox="0 0 200 40" aria-hidden="true">
                     <polyline
                       fill="none"
@@ -610,7 +610,7 @@ function FleetOverviewPage() {
           })}
         </div>
 
-        <Panel title="Fleet Health Trend (24h)">
+        <Panel title="Instrument Integrity Trend (24h)">
           <div className="h-80 border border-[var(--border-strong)] bg-[#090b0c]">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={trend} margin={{ top: 24, right: 24, left: 0, bottom: 14 }}>
@@ -631,7 +631,7 @@ function FleetOverviewPage() {
   );
 }
 
-function PredictiveTimelinePage() {
+function ConfidenceDebtPage() {
   const { plantId, predictions, predictionsLoading, fetchPredictions } = useStore();
 
   useEffect(() => {
@@ -649,7 +649,7 @@ function PredictiveTimelinePage() {
         <header className="flex items-end justify-between">
           <div>
             <p className="label-caps status-safe">Confidence Debt Maintenance</p>
-            <h1 className="text-4xl font-bold">Maintenance Priority / {plantId}</h1>
+            <h1 className="text-4xl font-bold">Confidence Debt / {plantId}</h1>
           </div>
           <button onClick={() => fetchPredictions(plantId)} className="industrial-control status-safe">
             {predictionsLoading ? 'Refreshing...' : 'Refresh'}
@@ -658,7 +658,7 @@ function PredictiveTimelinePage() {
 
         <ConfidenceDebtPanel />
 
-        <Panel title="Confidence Trend Timeline">
+        <Panel title="Confidence Degradation Forecast">
           <div className="space-y-3">
             {rows.map((prediction) => {
               const low = Math.min(12, prediction.time_to_low_hours ?? 12);
@@ -679,7 +679,7 @@ function PredictiveTimelinePage() {
           </div>
         </Panel>
 
-        <Panel title="Action Queue">
+        <Panel title="Maintenance Operating Basis">
           <div className="space-y-[1px] bg-[var(--border-strong)] border border-[var(--border-strong)]">
             {actionQueue.map((prediction) => (
               <div key={prediction.sensor_id} className="industrial-panel-subtle p-4">
@@ -687,7 +687,7 @@ function PredictiveTimelinePage() {
                 <p className="caption-mono text-[var(--data-mono)] mt-2">{prediction.recommended_action || prediction.action}</p>
               </div>
             ))}
-            {actionQueue.length === 0 && <p className="industrial-panel-subtle p-4 caption-mono text-[var(--data-mono)]">No sensors currently forecast to cross a lower tier.</p>}
+            {actionQueue.length === 0 && <p className="industrial-panel-subtle p-4 caption-mono text-[var(--data-mono)]">No sensors currently forecast to cross a lower confidence tier.</p>}
           </div>
         </Panel>
       </div>
@@ -744,7 +744,7 @@ function ForensicsPage() {
     <PageFrame>
       <div className="h-full flex flex-col overflow-hidden">
         <div className="h-[90px] shrink-0 bg-[var(--surface-panel)] border-b border-[var(--warning)] px-5 flex items-center gap-6">
-          <span className="industrial-badge bg-[var(--warning)] text-[var(--surface-base)] border-[var(--warning)]">Replay Mode</span>
+          <span className="industrial-badge bg-[var(--warning)] text-[var(--surface-base)] border-[var(--warning)]">Counterfactual Timeline</span>
           <span className="caption-mono status-warning">Texas City Incident</span>
           <button onClick={() => setPlaying((value) => !value)} className="industrial-control text-[var(--text)]">
             {playing ? 'Pause' : 'Play'}
@@ -803,13 +803,13 @@ function ForensicsPage() {
           <aside className="bg-[var(--surface-panel)] overflow-y-auto scrollbar-thin">
             <Panel title="Counterfactual Analysis" className="h-full" bodyClassName="industrial-body space-y-5">
               <div className="grid grid-cols-2 gap-[1px] bg-[var(--border-strong)] border border-[var(--border-strong)]">
-                <button onClick={() => setMode('confidenceos')} className={`industrial-panel-subtle p-3 label-caps ${mode === 'confidenceos' ? 'status-safe' : 'text-[var(--data-mono)]'}`}>Confidence OS</button>
-                <button onClick={() => setMode('traditional')} className={`industrial-panel-subtle p-3 label-caps ${mode === 'traditional' ? 'status-safe' : 'text-[var(--data-mono)]'}`}>Traditional HMI</button>
+                <button onClick={() => setMode('confidenceos')} className={`industrial-panel-subtle p-3 label-caps ${mode === 'confidenceos' ? 'status-safe' : 'text-[var(--data-mono)]'}`}>ConfidenceOS Trust Layer</button>
+                <button onClick={() => setMode('traditional')} className={`industrial-panel-subtle p-3 label-caps ${mode === 'traditional' ? 'status-safe' : 'text-[var(--data-mono)]'}`}>Existing HMI View</button>
               </div>
               <div className="industrial-panel-subtle p-4 border-[var(--safe)]">
-                <p className="label-caps text-[var(--text)] mb-3">AI Root Cause Projection</p>
+                <p className="label-caps text-[var(--text)] mb-3">Evidence-Based Operating Basis</p>
                 <p className="text-[var(--text)] leading-relaxed">
-                  ConfidenceOS mass-balance models indicate degraded level confidence. Traditional view hides confidence and mass-balance warnings.
+                  Normal operation enters an inferred startup mode. LT-5100 looks plausible but loses trust, alarms collapse into one abnormal situation, evidence creates an action contract, and unresolved verification becomes handover debt.
                 </p>
               </div>
               <div>
@@ -1052,7 +1052,7 @@ function App() {
         <Routes>
           <Route path="/" element={<FleetOverviewPage />} />
           <Route path="/operator" element={<OperatorDashboard />} />
-          <Route path="/predictions" element={<PredictiveTimelinePage />} />
+          <Route path="/predictions" element={<ConfidenceDebtPage />} />
           <Route path="/forensics" element={<ForensicsPage />} />
           <Route path="/graph" element={<CausalGraphPage />} />
           <Route path="/compliance" element={<CompliancePage />} />

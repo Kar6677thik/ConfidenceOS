@@ -1,5 +1,5 @@
 """
-prediction.py — Predictive Failure Engine for ConfidenceOS V2 (Module 7).
+prediction.py — Confidence Degradation Forecast for ConfidenceOS V2 (Module 7).
 
 Forecasts when each sensor will cross confidence tier thresholds.
 Uses numpy polyfit for linear regression — no scikit-learn dependency.
@@ -16,14 +16,14 @@ THRESHOLD_CRITICAL = 20.0
 
 def predict_sensor(confidence_history: list[dict]) -> dict:
     """
-    Predict when a sensor's confidence will cross LOW and CRITICAL thresholds.
+    Forecast when a sensor's confidence may cross LOW and CRITICAL thresholds.
     
     Args:
         confidence_history: list of dicts with 'confidence_pct' and 'timestamp' keys,
                            ordered by timestamp ascending.
     
     Returns:
-        Prediction dict with time-to-threshold forecasts.
+        Forecast dict with time-to-threshold confidence degradation estimates.
     """
     if len(confidence_history) < 10:
         return {
@@ -35,7 +35,7 @@ def predict_sensor(confidence_history: list[dict]) -> dict:
             "range_critical": None,
             "primary_driver": None,
             "driver_rate": None,
-            "recommended_action": "Insufficient data for prediction. Need at least 10 data points.",
+            "recommended_action": "Insufficient data for confidence degradation forecast. Need at least 10 data points.",
         }
 
     # Extract timestamps and confidence values
