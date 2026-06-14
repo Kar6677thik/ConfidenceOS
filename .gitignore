@@ -56,3 +56,13 @@ pnpm-debug.log*
 Thumbs.db
 ehthumbs.db
 Icon?
+
+# Markdown Files
+*.md
+**/*.md
+
+# State Files & Temporary Build Outputs
+backend/studio_state.json
+package-lock.json
+
+
