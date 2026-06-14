@@ -228,6 +228,58 @@ function ContextStrip({ context, incidents = [], incidentTimeline = [] }) {
   );
 }
 
+function AssetIntegrationStrip({ plantId }) {
+  const [metadata, setMetadata] = useState(null);
+
+  useEffect(() => {
+    let active = true;
+    Promise.all([
+      fetch('/api/asset-model').then((res) => (res.ok ? res.json() : null)),
+      fetch('/api/integration/read-only-layer').then((res) => (res.ok ? res.json() : null)),
+    ])
+      .then(([assetPayload, integrationPayload]) => {
+        if (active) setMetadata({ asset: assetPayload?.asset_model, integration: integrationPayload });
+      })
+      .catch(() => {
+        if (active) setMetadata(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  if (!metadata?.asset && !metadata?.integration) return null;
+
+  const equipment = metadata.asset?.equipment || {};
+  const relationship = (equipment.relationships || []).find((item) => item.type === 'mass_balance_validation') || {};
+  const provider = metadata.integration?.active_providers?.[plantId] || {};
+  const sensorCount = equipment.sensor_tags?.length || 0;
+  const validationText = relationship.source_tags?.length
+    ? `${relationship.source_tags.join(' + ')} validates ${relationship.validated_tag}`
+    : 'metadata relationship unavailable';
+
+  return (
+    <div className="industrial-panel mb-[1px]">
+      <div className="industrial-body grid grid-cols-1 md:grid-cols-3 gap-[1px] bg-[var(--border-strong)]">
+        <div className="bg-[var(--surface-panel)] p-3">
+          <p className="label-caps text-[var(--text-muted)]">Asset Metadata</p>
+          <p className="caption-mono text-[var(--text)] mt-1">{equipment.equipment_id || 'V-5100'} / {sensorCount} tags</p>
+        </div>
+        <div className="bg-[var(--surface-panel)] p-3">
+          <p className="label-caps text-[var(--text-muted)]">Self-Configured Check</p>
+          <p className="caption-mono text-[var(--text)] mt-1">{validationText}</p>
+        </div>
+        <div className="bg-[var(--surface-panel)] p-3">
+          <p className="label-caps status-safe">Shadow Mode</p>
+          <p className="caption-mono text-[var(--text)] mt-1">
+            {provider.display_name || 'TagProvider'} / {provider.control_writes_enabled === false ? 'no control writes' : 'read-only'}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function asList(value) {
   if (Array.isArray(value)) return value.filter(Boolean);
   if (value == null || value === '') return [];
@@ -419,6 +471,8 @@ function OperatorDashboard() {
             </div>
 
             <ContextStrip context={plantContext} incidents={incidents} incidentTimeline={incidentTimeline} />
+
+            <AssetIntegrationStrip plantId={plantId} />
 
             <div className="mb-[1px]">
               <StartupBanner

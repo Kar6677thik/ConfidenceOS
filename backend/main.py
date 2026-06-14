@@ -1234,8 +1234,11 @@ def _build_texas_city_replay() -> dict:
     start = datetime(2005, 3, 23, 12, 0, 0)
     annotations = [
         {"minute": 0, "title": "Startup begins", "body": "Raffinate splitter startup is underway."},
-        {"minute": 18, "title": "Sensor drift begins", "body": "LT-5100 starts diverging from flow-implied level."},
-        {"minute": 45, "title": "ConfidenceOS warning", "body": "Mass-balance and confidence checks identify unreliable level data."},
+        {"minute": 12, "title": "Confidence degraded", "body": "LT-5100 confidence falls below normal operating trust."},
+        {"minute": 18, "title": "Mass-balance divergence detected", "body": "FI-2010 and FO-2020 imply rising inventory while LT-5100 remains low."},
+        {"minute": 24, "title": "Action contract created", "body": "Do not use LT-5100 as the sole level reference; verify locally before feed increase."},
+        {"minute": 30, "title": "Decision freeze created", "body": "Feed and load increase decisions are blocked until level integrity is verified."},
+        {"minute": 45, "title": "Handover debt created", "body": "Unresolved level integrity and decision freeze must survive shift handover."},
         {"minute": 64, "title": "Critical state", "body": "Tower inventory is physically inconsistent with indicated level."},
         {"minute": 80, "title": "Explosion time", "body": "Historical incident time marker."},
     ]
