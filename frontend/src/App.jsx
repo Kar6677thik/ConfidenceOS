@@ -20,6 +20,7 @@ import QueryPanel from './components/QueryPanel';
 import NavBar from './components/NavBar';
 import IncidentQueue from './components/IncidentQueue';
 import EvidenceStack from './components/EvidenceStack';
+import IncidentTimeline from './components/IncidentTimeline';
 
 const SENSOR_IDS = ['LT-5100', 'FI-2010', 'FO-2020', 'PT-3100', 'TT-4100', 'ZT-6100'];
 const PLANT_IDS = ['plant-a', 'plant-b', 'plant-c'];
@@ -222,6 +223,129 @@ function ContextStrip({ context, incidents = [], incidentTimeline = [] }) {
   );
 }
 
+function asList(value) {
+  if (Array.isArray(value)) return value.filter(Boolean);
+  if (value == null || value === '') return [];
+  return [value];
+}
+
+function formatStressValue(value) {
+  return String(value || '')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function StressValueList({ values, empty = 'Not available' }) {
+  const rows = asList(values);
+  if (rows.length === 0) {
+    return <p className="caption-mono text-[var(--data-mono)]">{empty}</p>;
+  }
+  return (
+    <div className="space-y-2">
+      {rows.slice(0, 6).map((value) => (
+        <p key={value} className="caption-mono text-[var(--text)]">{formatStressValue(value)}</p>
+      ))}
+    </div>
+  );
+}
+
+function StressRow({ label, tone = 'text-[var(--text-muted)]', children }) {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-[220px_1fr] gap-[1px] bg-[var(--border-strong)]">
+      <div className="bg-[var(--surface-lowest)] p-4">
+        <p className={`label-caps ${tone}`}>{label}</p>
+      </div>
+      <div className="bg-[var(--surface-panel)] p-4 min-w-0">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function StressModeLayout({
+  connected,
+  plantId,
+  context,
+  incidents,
+  confidence,
+  massBalance,
+  incidentTimeline,
+}) {
+  const leadIncident = incidents?.[0];
+  const contract = leadIncident?.action_contract || {};
+  const collapse = leadIncident?.alarm_collapse;
+  const collapsedCount = collapse?.raw_signal_count ?? leadIncident?.source_flags?.length;
+  const doNotTrust = asList(contract.do_not_use).length
+    ? contract.do_not_use
+    : leadIncident?.affected_sensors || context?.priority_sensors || [];
+  const firstSafeAction = contract.first_safe_action || leadIncident?.first_action || context?.operator_focus;
+  const evidenceRefs = leadIncident?.evidence_refs || [];
+  const degradedEvidence = (confidence || [])
+    .filter((item) => item.tier && item.tier !== 'HIGH')
+    .map((item) => `${item.sensor_id}: ${item.confidence_pct}% confidence (${item.tier})`);
+  const massBalanceEvidence = (massBalance?.flags || [])
+    .map((flag) => flag.message || `Mass-balance discrepancy ${flag.discrepancy}`);
+  const evidenceRows = [
+    ...evidenceRefs.map((item) => `${item.sensor_id}: ${item.message || item.category}`),
+    ...massBalanceEvidence,
+    ...degradedEvidence,
+  ];
+
+  return (
+    <main className="min-w-0 overflow-y-auto scrollbar-thin bg-[var(--surface-base)] p-[1px]">
+      <section className="industrial-panel min-h-full">
+        <div className="industrial-panel-header">
+          <div className="min-w-0">
+            <p className="label-caps text-[var(--text-muted)]">Stress Mode / {plantId}</p>
+            <h1 className="industrial-panel-title truncate">{leadIncident?.title || context?.state || 'Abnormal Situation'}</h1>
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            <span className={`industrial-badge ${connected ? 'status-safe' : 'status-critical'}`}>{connected ? 'LIVE' : 'OFFLINE'}</span>
+            <span className={`industrial-badge ${statusClass(context?.severity)}`}>{context?.severity || 'WARNING'}</span>
+          </div>
+        </div>
+
+        <div className="industrial-body">
+          <div className="space-y-[1px] bg-[var(--border-strong)] border border-[var(--border-strong)]">
+            <StressRow label="Abnormal Situation" tone="status-warning">
+              <p className="caption-mono text-[var(--text)]">{leadIncident?.summary || context?.operator_focus || 'Abnormal plant context active.'}</p>
+              {collapsedCount != null && (
+                <p className="caption-mono text-[var(--data-mono)] mt-2">Collapsed from {collapsedCount} signals</p>
+              )}
+              {!!leadIncident?.root_trigger && (
+                <p className="caption-mono text-[var(--data-mono)] mt-2">Hypothesis: {formatStressValue(leadIncident.root_trigger)}</p>
+              )}
+            </StressRow>
+
+            <StressRow label="Do Not Trust" tone="status-critical">
+              <StressValueList values={doNotTrust} empty="No blocked instrument trust restriction reported." />
+            </StressRow>
+
+            <StressRow label="Use Instead" tone="status-safe">
+              <StressValueList values={contract.trusted_substitutes} empty="Use manual field verification or adjacent validated references." />
+            </StressRow>
+
+            <StressRow label="First Safe Action" tone="status-safe">
+              <StressValueList values={firstSafeAction} empty="Verify evidence before taking the next operating action." />
+            </StressRow>
+
+            <StressRow label="Exit Condition">
+              <StressValueList values={contract.exit_conditions} empty="No exit condition reported yet." />
+            </StressRow>
+
+            <StressRow label="Evidence" tone="status-warning">
+              <StressValueList values={evidenceRows} empty="No structured evidence reported yet." />
+              <div className="mt-4">
+                <IncidentTimeline events={incidentTimeline} compact />
+              </div>
+            </StressRow>
+          </div>
+        </div>
+      </section>
+    </main>
+  );
+}
+
 function OperatorDashboard() {
   const {
     connect,
@@ -255,12 +379,26 @@ function OperatorDashboard() {
   }, [fetchPredictions, plantId]);
 
   const selectedPrediction = predictions?.[selectedSensorId];
+  const isStressMode = ['WARNING', 'CRITICAL'].includes(String(plantContext?.severity || '').toUpperCase());
 
   return (
     <PageFrame>
       <div className="h-full flex overflow-hidden">
         <LeftRail />
-        <div className="flex-1 min-w-0 grid grid-cols-[1fr_360px] bg-[var(--border-strong)] gap-[1px] overflow-hidden">
+        {isStressMode ? (
+          <div className="flex-1 min-w-0 bg-[var(--border-strong)] overflow-hidden">
+            <StressModeLayout
+              connected={connected}
+              plantId={plantId}
+              context={plantContext}
+              incidents={incidents}
+              confidence={confidence}
+              massBalance={massBalance}
+              incidentTimeline={incidentTimeline}
+            />
+          </div>
+        ) : (
+          <div className="flex-1 min-w-0 grid grid-cols-[1fr_360px] bg-[var(--border-strong)] gap-[1px] overflow-hidden">
           <main className="min-w-0 overflow-y-auto scrollbar-thin bg-[var(--surface-base)] p-[1px]">
             <div className="industrial-panel mb-[1px]">
               <div className="industrial-panel-header">
@@ -319,10 +457,12 @@ function OperatorDashboard() {
               </Panel>
             )}
             <EvidenceStack selectedSensorId={selectedSensorId} confidence={confidence} incidents={incidents} />
+            <IncidentTimeline events={incidentTimeline} />
             <HealthTimeline sensorId={selectedSensorId} />
             <HandoverBrief />
           </aside>
-        </div>
+          </div>
+        )}
       </div>
     </PageFrame>
   );
