@@ -1,5 +1,5 @@
 /**
- * store.js — Zustand store for ConfidenceOS V2 Dashboard.
+ * store.js - Zustand store for ConfidenceOS Runtime.
  *
  * Manages:
  *   - WebSocket connection to /ws/sensors (auto-reconnect, plant-aware)
@@ -26,7 +26,7 @@ const useStore = create((set, get) => ({
 
   // ── V2: Plant & Role ──────────────────────────────────────────────────
   plantId: 'plant-a',
-  role: 'Operator',  // Operator | Engineer | Manager | Auditor
+  role: 'Operator',  // Operator | Maintenance | Engineer | Manager | Auditor
 
   // ── V2: Instrument integrity overview ─────────────────────────────────
   fleetData: [],

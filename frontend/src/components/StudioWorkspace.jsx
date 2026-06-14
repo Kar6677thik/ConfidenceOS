@@ -9,7 +9,7 @@ const ABB_ALIGNMENT_CHECKLIST = [
   ['auto-generated HMI screens', 'Runtime manifests and faceplates generated from asset metadata and approved templates.'],
   ['reusable templates', 'Studio template library covers vessel, valve, flow pair, and abnormal situation patterns.'],
   ['metadata-driven engineering', 'Asset/signal graph is the source of truth for navigation, evidence, and generated screens.'],
-  ['AI-assisted configuration', 'Suggestion workflow is bounded by approval; deterministic fallback is active when no AI key is configured.'],
+  ['AI-assisted configuration', 'AI suggests mappings when available; deterministic suggestions remain visible and engineer approval is required.'],
   ['low-code/no-code editing', 'Engineers approve mappings, change template assignments, preview, publish, and reset without editing code.'],
   ['role-based UI', 'Operator, Maintenance, Engineer, Manager, and Auditor roles receive different generated sections.'],
   ['context-aware UI', 'Runtime switches to stress mode when WARNING or CRITICAL context is inferred.'],
@@ -110,15 +110,15 @@ export default function StudioWorkspace() {
           <div className="industrial-panel-header">
             <div>
               <p className="label-caps text-[var(--text-muted)]">ConfidenceOS Studio</p>
-              <h1 className="industrial-panel-title text-base">Import / Discover</h1>
+              <h1 className="industrial-panel-title text-base">Asset Model / Signal Binding</h1>
             </div>
           </div>
           <div className="industrial-body space-y-4">
             <button onClick={autoMap} disabled={busy} className="industrial-control status-safe w-full disabled:opacity-50">
-              {busy ? 'Working...' : 'Auto-Map Simulator Tags'}
+              {busy ? 'Working...' : 'Suggest Signal Binding'}
             </button>
             <button onClick={generate} disabled={busy} className="industrial-control text-[var(--text)] w-full disabled:opacity-50">
-              Generate Preview
+              Generate Publish Preview
             </button>
             <button onClick={publish} disabled={busy} className="industrial-control status-warning w-full disabled:opacity-50">
               Publish To Runtime
@@ -129,7 +129,7 @@ export default function StudioWorkspace() {
             <div className="industrial-panel-subtle p-3">
               <p className="label-caps text-[var(--text-muted)]">Imported Signals</p>
               <p className="font-data text-3xl status-safe mt-2">{signals?.signals?.length || 0}</p>
-              <p className="caption-mono text-[var(--data-mono)] mt-1">{signals?.source || 'waiting for import'}</p>
+              <p className="caption-mono text-[var(--data-mono)] mt-1">{signals?.source || 'waiting for asset model import'}</p>
             </div>
           </div>
         </section>
@@ -153,7 +153,8 @@ export default function StudioWorkspace() {
           <div className="industrial-panel-header">
             <div>
               <p className="label-caps text-[var(--text-muted)]">Low-Code Engineering Flow</p>
-              <h1 className="industrial-panel-title">Import / Map / Assign / Generate / Publish</h1>
+              <h1 className="industrial-panel-title">Studio To Runtime Demo Path</h1>
+              <p className="caption-mono text-[var(--data-mono)] mt-2">Studio / generate screens / Runtime / abnormal situation / role views / unresolved handover debt</p>
             </div>
             <span className={`industrial-badge ${validation.status === 'valid' ? 'status-safe' : 'status-warning'}`}>{validation.status || 'loading'}</span>
           </div>
@@ -179,8 +180,8 @@ export default function StudioWorkspace() {
 
         <section className="industrial-panel mb-[1px]">
           <div className="industrial-panel-header">
-            <h2 className="industrial-panel-title text-base">Auto-Map Suggestions</h2>
-            <span className="industrial-badge text-[var(--data-mono)]">Approval required</span>
+            <h2 className="industrial-panel-title text-base">AI Suggests / Engineer Approves</h2>
+            <span className="industrial-badge text-[var(--data-mono)]">approval required</span>
           </div>
           <div className="industrial-body space-y-[1px] bg-[var(--border-strong)]">
             {suggestions.map((item) => (
@@ -197,14 +198,14 @@ export default function StudioWorkspace() {
               </div>
             ))}
             {suggestions.length === 0 && (
-              <p className="bg-[var(--surface-panel)] p-4 caption-mono text-[var(--data-mono)]">Run Auto-Map to generate deterministic suggestions.</p>
+              <p className="bg-[var(--surface-panel)] p-4 caption-mono text-[var(--data-mono)]">Run signal binding suggestions to generate deterministic, approval-required mappings.</p>
             )}
           </div>
         </section>
 
         <section className="industrial-panel">
           <div className="industrial-panel-header">
-            <h2 className="industrial-panel-title text-base">Generated Runtime Preview</h2>
+            <h2 className="industrial-panel-title text-base">Publish Preview / Generated From Template</h2>
             <span className="industrial-badge text-[var(--data-mono)]">{preview?.faceplates?.length || 0} faceplates</span>
           </div>
           <div className="industrial-body">
@@ -224,7 +225,7 @@ export default function StudioWorkspace() {
                 </div>
               </div>
             ) : (
-              <p className="caption-mono text-[var(--data-mono)]">Generate a preview to inspect Runtime screens before publish.</p>
+              <p className="caption-mono text-[var(--data-mono)]">Generate a publish preview to inspect Runtime screens, template provenance, and signal binding before publish.</p>
             )}
           </div>
         </section>
@@ -233,7 +234,7 @@ export default function StudioWorkspace() {
       <aside className="bg-[var(--surface-panel)] overflow-y-auto scrollbar-thin">
         <section className="industrial-panel border-t-0">
           <div className="industrial-panel-header">
-            <h2 className="industrial-panel-title text-base">Validation Warnings</h2>
+            <h2 className="industrial-panel-title text-base">Validation Warning</h2>
           </div>
           <div className="industrial-body space-y-[1px] bg-[var(--border-strong)]">
             {(validation.warnings || []).map((warning) => (
@@ -249,7 +250,7 @@ export default function StudioWorkspace() {
         </section>
         <section className="industrial-panel border-t-0">
           <div className="industrial-panel-header">
-            <h2 className="industrial-panel-title text-base">Generation Diff</h2>
+            <h2 className="industrial-panel-title text-base">Publish Preview Diff</h2>
           </div>
           <div className="industrial-body">
             <p className="caption-mono text-[var(--data-mono)]">{diff.change_count || 0} change(s) from demo default.</p>
@@ -260,7 +261,7 @@ export default function StudioWorkspace() {
         </section>
         <section className="industrial-panel border-t-0">
           <div className="industrial-panel-header">
-            <h2 className="industrial-panel-title text-base">Assignments</h2>
+            <h2 className="industrial-panel-title text-base">Low-Code Template Assignment</h2>
           </div>
           <div className="industrial-body space-y-[1px] bg-[var(--border-strong)]">
             {(overview?.state?.assignments || []).map((item) => (

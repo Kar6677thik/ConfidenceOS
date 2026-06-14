@@ -406,7 +406,7 @@ function StressModeLayout({
   );
 }
 
-function OperatorDashboard() {
+function OperatorSupportView() {
   const {
     connect,
     connected,
@@ -533,7 +533,7 @@ function OperatorDashboard() {
   );
 }
 
-function FleetOverviewPage() {
+function InstrumentIntegrityOverviewPage() {
   const { fleetData, fleetLoading, fetchFleet, setPlantId } = useStore();
   const [trend, setTrend] = useState([]);
   const navigate = useNavigate();
@@ -1057,8 +1057,8 @@ function App() {
           <Route path="/runtime" element={<RuntimePlatform />} />
           <Route path="/studio" element={<StudioWorkspace />} />
           <Route path="/handover" element={<ShiftChannel />} />
-          <Route path="/integrity" element={<FleetOverviewPage />} />
-          <Route path="/operator" element={<OperatorDashboard />} />
+          <Route path="/integrity" element={<InstrumentIntegrityOverviewPage />} />
+          <Route path="/operator" element={<OperatorSupportView />} />
           <Route path="/predictions" element={<ConfidenceDebtPage />} />
           <Route path="/forensics" element={<ForensicsPage />} />
           <Route path="/graph" element={<CausalGraphPage />} />

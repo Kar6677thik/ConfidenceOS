@@ -98,7 +98,7 @@ function ConfidenceCourtroom({ selected, explanation, loading }) {
         </p>
       </CourtroomRow>
 
-      <CourtroomRow label="Assumptions Used">
+      <CourtroomRow label="Engineering Assumptions Used">
         {assumptions.length ? (
           <div className="space-y-2">
             {assumptions.slice(0, 6).map((item) => (

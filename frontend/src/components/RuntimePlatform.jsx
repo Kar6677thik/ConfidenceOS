@@ -22,6 +22,31 @@ function asList(value) {
   return [value];
 }
 
+function DemoPathStrip() {
+  const steps = [
+    'Studio',
+    'Generate Screens',
+    'Runtime',
+    'Abnormal Situation',
+    'Role Views',
+    'Handover Debt',
+  ];
+  return (
+    <section className="industrial-panel mb-[1px]">
+      <div className="industrial-body">
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-[1px] bg-[var(--border-strong)] border border-[var(--border-strong)]">
+          {steps.map((step, index) => (
+            <div key={step} className="bg-[var(--surface-panel)] p-3 min-h-[70px]">
+              <p className="label-caps text-[var(--text-muted)]">Step {index + 1}</p>
+              <p className={`caption-mono mt-2 ${index === 2 ? 'status-safe' : 'text-[var(--text)]'}`}>{step}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function NavigationTree({ navigation, selected, onSelect }) {
   const areas = navigation?.areas || [];
   return (
@@ -133,7 +158,7 @@ function Faceplate({ faceplate, selected, onSelect }) {
         })}
       </div>
       <p className="caption-mono text-[var(--data-mono)] mt-4">
-        Generated from {faceplate.provenance?.template_id} / approved {String(faceplate.provenance?.approved)}
+        generated from template {faceplate.provenance?.template_id} / signal binding approved {String(faceplate.provenance?.approved)}
       </p>
     </button>
   );
@@ -207,7 +232,7 @@ export default function RuntimePlatform() {
   if (!manifest) {
     return (
       <div className="industrial-page p-8">
-        <p className="caption-mono text-[var(--data-mono)]">Generating Runtime from asset model and templates...</p>
+        <p className="caption-mono text-[var(--data-mono)]">Generating Runtime from asset model, reusable templates, and signal binding...</p>
       </div>
     );
   }
@@ -220,7 +245,7 @@ export default function RuntimePlatform() {
           <section className="industrial-panel min-h-full">
             <div className="industrial-panel-header">
               <div>
-                <p className="label-caps status-warning">Stress Mode / Generated Runtime</p>
+                <p className="label-caps status-warning">Context-Aware Runtime / Verification Required</p>
                 <h1 className="industrial-panel-title">{manifest.operating_basis?.abnormal_situation}</h1>
               </div>
               <span className={`industrial-badge ${connected ? 'status-safe' : 'status-critical'}`}>{connected ? 'LIVE' : 'OFFLINE'}</span>
@@ -245,7 +270,7 @@ export default function RuntimePlatform() {
           <div className="industrial-panel-header">
             <div>
               <p className="label-caps text-[var(--text-muted)]">Generated Runtime / {role}</p>
-              <h1 className="industrial-panel-title">Trust-Aware HMI From Metadata</h1>
+              <h1 className="industrial-panel-title">Read-Only Trust-Aware HMI Layer</h1>
             </div>
             <div className="flex items-center gap-2">
               <span className={`industrial-badge ${statusClass(plantContext?.severity)}`}>{manifest.context}</span>
@@ -253,6 +278,7 @@ export default function RuntimePlatform() {
             </div>
           </div>
         </section>
+        <DemoPathStrip />
         <section className="industrial-panel mb-[1px]">
           <div className="industrial-panel-header">
             <h2 className="industrial-panel-title text-base">Situation Workspace</h2>
@@ -265,8 +291,8 @@ export default function RuntimePlatform() {
         <section className="industrial-panel">
           <div className="industrial-panel-header">
             <div>
-              <p className="label-caps text-[var(--text-muted)]">Generated Equipment Faceplates</p>
-              <h2 className="industrial-panel-title text-base">Template-Bound Equipment</h2>
+              <p className="label-caps text-[var(--text-muted)]">Generated From Template</p>
+              <h2 className="industrial-panel-title text-base">Generated From Template / Signal Binding</h2>
             </div>
           </div>
           <div className="industrial-body grid grid-cols-1 xl:grid-cols-2 gap-[1px] bg-[var(--border-strong)]">
@@ -280,7 +306,7 @@ export default function RuntimePlatform() {
         <section className="industrial-panel border-t-0">
           <div className="industrial-panel-header">
             <div>
-              <p className="label-caps text-[var(--text-muted)]">Template Provenance</p>
+              <p className="label-caps text-[var(--text-muted)]">Asset Model / Signal Binding</p>
               <h2 className="industrial-panel-title text-base">{selectedFaceplate?.title || selected}</h2>
             </div>
           </div>
@@ -293,7 +319,7 @@ export default function RuntimePlatform() {
         <RolePanel manifest={manifest} />
         <section className="industrial-panel border-t-0">
           <div className="industrial-panel-header">
-            <h2 className="industrial-panel-title text-base">Generated Validation</h2>
+            <h2 className="industrial-panel-title text-base">Validation Warning Status</h2>
           </div>
           <div className="industrial-body">
             <p className={`caption-mono ${manifest.validation?.status === 'valid' ? 'status-safe' : 'status-warning'}`}>
