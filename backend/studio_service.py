@@ -169,6 +169,42 @@ def generate_preview(role: str = "Engineer", context: str = "auto") -> dict:
     return manifest
 
 
+def runtime_manifest(role: str = "Operator", context: str = "auto", live_state: dict | None = None) -> dict:
+    """Return Runtime manifest hydrated from the latest published compiler build.
+
+    Runtime remains read-only: this function only joins the approved compiler
+    artifact with current simulator/provider state for display.
+    """
+    state = get_state()
+    published = state.get("published_manifest") or {}
+    published_build_id = state.get("published_build_id")
+    last_build = state.get("last_build") or {}
+    build_validation = last_build.get("validation") if last_build.get("build_id") == published_build_id else None
+    build_receipts = last_build.get("receipts") if last_build.get("build_id") == published_build_id else None
+    build_context = {
+        "build_id": published.get("build_id") or published_build_id or "runtime-ad-hoc",
+        "validation_status": published.get("validation_status") or last_build.get("status") or "PASS_WITH_WARNINGS",
+        "validation": build_validation or published.get("validation") or validate_assignments(state.get("assignments", [])),
+        "receipts": build_receipts or published.get("receipts") or published.get("provenance", {}).get("receipts", []),
+        "source_tags": published.get("provenance", {}).get("source_tags", []),
+        "published_build_id": published_build_id,
+        "runtime_source": "published_build" if published else "ad_hoc_generation",
+    }
+    manifest = generate_screen_manifest(
+        role=role,
+        context=context,
+        live_state=live_state or {},
+        assignments=state.get("assignments", []),
+        build_context=build_context,
+    )
+    return {
+        **manifest,
+        "published_build_id": published_build_id,
+        "published_revision": state.get("published_revision"),
+        "runtime_source": build_context["runtime_source"],
+    }
+
+
 def publish() -> dict:
     state = get_state()
     build = state.get("last_build")

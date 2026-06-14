@@ -55,7 +55,7 @@ from advisory import detect_plant_context, build_incidents, build_timeline_event
 from assumptions import build_confidence_explanation, load_assumptions
 from asset_model import load_asset_model
 from model_graph import get_assets, get_model_graph, get_navigation, get_signals
-from screen_generator import equipment_manifest, generate_screen_manifest
+from screen_generator import equipment_manifest
 from decision_integrity import (
     active_verification_tokens,
     annotate_incidents_for_handover,
@@ -78,6 +78,7 @@ from studio_service import (
     mapping_court_items as studio_mapping_court,
     publish as studio_publish,
     reset as studio_reset,
+    runtime_manifest as studio_runtime_manifest,
     run_compiler_build as studio_run_compiler_build,
     studio_overview,
     template_tests as studio_template_tests,
@@ -697,13 +698,12 @@ def get_generated_screens(
     context: str = Query(default="auto"),
     plant_id: str = Query(default="plant-a"),
 ):
-    """Generate Runtime screen manifest from metadata, templates, role, context, and live state."""
+    """Return latest published Runtime manifest hydrated with live read-only state."""
     plant = plant_manager.get(plant_id)
-    return generate_screen_manifest(
+    return studio_runtime_manifest(
         role=role,
         context=context,
         live_state=_runtime_live_state(plant_id, plant),
-        assignments=studio_overview()["state"].get("assignments", []),
     )
 
 

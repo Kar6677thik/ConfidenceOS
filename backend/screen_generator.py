@@ -115,7 +115,7 @@ def generate_screen_manifest(
         "navigation": get_navigation(),
         "role_policy": role_policy,
         "context_policy": context_policy,
-        "validation": validation,
+        "validation": build_context.get("validation") or validation,
         "semantic_zoom": ["plant", "area", "unit", "module", "equipment", "signal"],
         "provenance": {
             "asset_model_id": get_model_graph().get("model_id"),
