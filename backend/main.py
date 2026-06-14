@@ -221,15 +221,14 @@ async def _plant_tick_loop(plant_id: str, plant):
             for item in confidence_data:
                 item["handover_required"] = item.get("tier") in ("LOW", "CRITICAL")
 
-            # Update cached confidence
-            for cr in confidence_results:
-                payload = cr.to_dict()
-                payload["handover_required"] = payload.get("tier") in ("LOW", "CRITICAL")
-                plant.latest_confidence[cr.sensor_id] = payload
-
             # Update mass-balance
             mb_state = plant.mass_balance_engine.update(readings)
             plant.latest_mb_state = mb_state.to_dict()
+            confidence_data = _derive_trust_states(confidence_data, readings, plant.latest_mb_state)
+
+            # Update cached confidence after trust quarantine/substitution is derived.
+            for payload in confidence_data:
+                plant.latest_confidence[payload["sensor_id"]] = payload
 
             # Check stale readings
             stale_flags = plant.startup_manager.check_stale_readings(readings, now)
@@ -440,12 +439,74 @@ def _handover_debt_events(plant_id: str, debt: dict, timestamp: float) -> list[d
     return events
 
 
+def _derive_trust_states(confidence: list[dict], readings: list[dict], mass_balance: dict | None) -> list[dict]:
+    """Derive read-only trust quarantine state from confidence and mass-balance evidence."""
+    readings_by_id = {item.get("sensor_id"): item for item in readings or []}
+    flags = (mass_balance or {}).get("flags", [])
+    contradiction_active = any(flag.get("severity") in ("WARNING", "CRITICAL") for flag in flags)
+    by_id = {item.get("sensor_id"): item for item in confidence if item.get("sensor_id")}
+    lt = by_id.get("LT-5100")
+    level_quarantined = bool(
+        lt
+        and lt.get("tier") in ("LOW", "CRITICAL")
+        and contradiction_active
+    )
+    flow_substitute_valid = all(
+        by_id.get(tag, {}).get("tier") in ("HIGH", "MEDIUM")
+        and readings_by_id.get(tag) is not None
+        for tag in ("FI-2010", "FO-2020")
+    )
+
+    decorated = []
+    for item in confidence:
+        sensor_id = item.get("sensor_id")
+        tier = item.get("tier")
+        reading_available = readings_by_id.get(sensor_id) is not None
+        trust_state = "TRUSTED"
+        trust_reason = "Confidence and availability support normal use."
+        substitute_for = None
+        decision_basis_allowed = True
+
+        if not reading_available:
+            trust_state = "UNAVAILABLE"
+            trust_reason = "No current reading is available for this tag."
+            decision_basis_allowed = False
+        elif sensor_id == "LT-5100" and level_quarantined:
+            trust_state = "QUARANTINED"
+            trust_reason = "Level confidence is LOW/CRITICAL while mass-balance contradiction is active."
+            decision_basis_allowed = False
+        elif sensor_id in ("FI-2010", "FO-2020") and level_quarantined and flow_substitute_valid:
+            trust_state = "SUBSTITUTED"
+            trust_reason = "Flow pair is valid enough to support flow-implied level as trusted substitute."
+            substitute_for = "flow_implied_level"
+        elif tier in ("LOW", "CRITICAL"):
+            trust_state = "DEGRADED"
+            trust_reason = "Confidence tier is below operator-trusted range."
+            decision_basis_allowed = False
+        elif tier == "MEDIUM":
+            trust_state = "DEGRADED"
+            trust_reason = "Confidence tier requires evidence review before use as primary basis."
+
+        decorated.append({
+            **item,
+            "trust_state": trust_state,
+            "trust_reason": trust_reason,
+            "decision_basis_allowed": decision_basis_allowed,
+            "substitute_for": substitute_for,
+            "quarantine_active": trust_state == "QUARANTINED",
+        })
+    return decorated
+
+
 def _runtime_live_state(plant_id: str, plant) -> dict:
     """Collect frontend-friendly live state for generated Runtime manifests."""
+    confidence = list(plant.latest_confidence.values())
+    if confidence and any("trust_state" not in item for item in confidence):
+        confidence = _derive_trust_states(confidence, plant.latest_readings, plant.latest_mb_state)
     return {
         "plant_id": plant_id,
         "readings": plant.latest_readings,
-        "confidence": list(plant.latest_confidence.values()),
+        "confidence": confidence,
         "mass_balance": plant.latest_mb_state,
         "mode": plant.latest_mode_payload,
         "plant_context": plant.latest_context,
@@ -475,6 +536,8 @@ async def sensor_stream(
             now = time.time()
             readings = plant.latest_readings
             confidence_data = list(plant.latest_confidence.values())
+            if confidence_data and any("trust_state" not in item for item in confidence_data):
+                confidence_data = _derive_trust_states(confidence_data, readings, plant.latest_mb_state)
             stale_flags = plant.startup_manager.check_stale_readings(readings, now) if readings else []
 
             await websocket.send_json({

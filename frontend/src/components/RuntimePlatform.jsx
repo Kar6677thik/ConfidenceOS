@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import useStore from '../store';
 import GenerationReceipt, { ReceiptSummary } from './GenerationReceipt';
-import IncidentTimeline from './IncidentTimeline';
 
 function statusClass(value) {
   const status = String(value || '').toUpperCase();
-  if (status === 'CRITICAL' || status === 'BLOCKING' || status === 'LOW') return 'status-critical';
+  if (status === 'CRITICAL' || status === 'BLOCKING' || status === 'LOW' || status === 'QUARANTINED' || status === 'UNAVAILABLE') return 'status-critical';
   if (status === 'WARNING' || status === 'PASS_WITH_WARNINGS') return 'status-warning';
-  if (status === 'MEDIUM' || status === 'CAUTION') return 'status-caution';
+  if (status === 'MEDIUM' || status === 'CAUTION' || status === 'DEGRADED') return 'status-caution';
+  if (status === 'SUBSTITUTED') return 'status-safe';
   return 'status-safe';
 }
 
@@ -30,7 +30,7 @@ function confidenceValue(confidence) {
 
 function signalTrustState(signal) {
   const confidence = signal?.confidence || {};
-  const tier = confidence.tier || confidence.state || 'HIGH';
+  const tier = signal?.trust_state || confidence.trust_state || confidence.tier || confidence.state || 'HIGH';
   const pct = confidenceValue(confidence);
   return {
     tier,
@@ -266,24 +266,33 @@ function OperatingBasisLedger({ basisLines, compact = false }) {
 }
 
 function decisionTimeScore(situation, confidence) {
+  if (situation?.decision_time_score) return situation.decision_time_score;
   const affected = asList(situation?.affected_sensors);
   const scores = (confidence || [])
     .filter((item) => affected.includes(item.sensor_id))
     .map((item) => Number(item.confidence_pct))
     .filter(Number.isFinite);
-  if (!scores.length) return situation?.severity === 'critical' ? 35 : 72;
-  return Math.round(scores.reduce((sum, score) => sum + score, 0) / scores.length);
+  const score = scores.length
+    ? Math.round(scores.reduce((sum, item) => sum + item, 0) / scores.length)
+    : situation?.severity === 'critical' ? 35 : 72;
+  return {
+    score,
+    traditional_steps: 6,
+    confidenceos_steps: 2,
+    decision_compression: '6 -> 2',
+    required_operator_actions: 1,
+  };
 }
 
 function SituationWorkspace({ situations, basis, confidence }) {
   const lead = situations?.[0] || {};
   const contract = lead.action_contract || {};
-  const collapse = lead.alarm_collapse || {};
+  const collapse = lead.alarm_collapse_receipt || basis?.alarm_collapse_receipt || lead.alarm_collapse || {};
   const score = decisionTimeScore(lead, confidence);
   const rows = [
     ['Do Not Trust', contract.do_not_use || basis?.do_not_trust, 'status-critical'],
     ['Trusted Substitute', contract.trusted_substitutes || basis?.trusted_substitutes, 'status-safe'],
-    ['First Safe Action', contract.first_safe_action || basis?.first_safe_action, 'status-safe'],
+    ['Operator Single Safe Move', contract.operator_single_safe_move || basis?.operator_single_safe_move || contract.first_safe_action || basis?.first_safe_action, 'status-safe'],
     ['Decision Freeze', contract.blocked_decisions || basis?.decision_freeze, 'status-warning'],
     ['Exit Condition', contract.exit_conditions || basis?.exit_condition, 'text-[var(--data-mono)]'],
   ];
@@ -297,7 +306,8 @@ function SituationWorkspace({ situations, basis, confidence }) {
         </div>
         <div className="text-right">
           <p className="label-caps text-[var(--text-muted)]">Decision-Time Score</p>
-          <p className={`text-2xl font-bold ${statusClass(score < 50 ? 'CRITICAL' : score < 75 ? 'WARNING' : 'SAFE')}`}>{score}</p>
+          <p className={`text-2xl font-bold ${statusClass(score.score < 50 ? 'CRITICAL' : score.score < 75 ? 'WARNING' : 'SAFE')}`}>{score.decision_compression}</p>
+          <p className="caption-mono text-[var(--data-mono)] mt-1">{score.required_operator_actions} required operator action</p>
         </div>
       </div>
       <div className="industrial-body">
@@ -322,8 +332,10 @@ function SituationWorkspace({ situations, basis, confidence }) {
           <div className="bg-[var(--surface-panel)] p-4">
             <p className="label-caps text-[var(--text-muted)]">Alarm Collapse Receipt</p>
             <p className="caption-mono text-[var(--text)] mt-2">
-              {collapse.collapsed ? `Collapsed from ${collapse.raw_signal_count || collapse.consumed_alarm_types?.length || 0} signals.` : 'No alarm collapse active.'}
+              {(collapse.raw_signal_count || collapse.collapsed) ? `Collapsed from ${collapse.raw_signal_count || collapse.consumed_alarm_types?.length || 0} raw signals; suppressed ${collapse.suppressed_alarm_count ?? 0}.` : 'No alarm collapse active.'}
             </p>
+            <p className="caption-mono text-[var(--text)] mt-2">{collapse.operator_question}</p>
+            <p className="caption-mono text-[var(--data-mono)] mt-1">{collapse.collapse_reason}</p>
             {asList(collapse.consumed_alarm_types).map((item) => (
               <p key={item} className="caption-mono text-[var(--data-mono)] mt-1">{formatText(item)}</p>
             ))}
@@ -375,6 +387,89 @@ function GeneratedFaceplate({ faceplate, selected, onSelect }) {
       </div>
       <ReceiptSummary item={faceplate} />
     </button>
+  );
+}
+
+function StressField({ label, value, status = 'text-[var(--data-mono)]' }) {
+  const values = asList(value);
+  return (
+    <div className="border border-[var(--border-strong)] bg-[var(--surface-panel)] p-4">
+      <p className={`label-caps ${status}`}>{label}</p>
+      {values.length ? values.slice(0, 5).map((item) => (
+        <p key={typeof item === 'string' ? item : JSON.stringify(item)} className="caption-mono text-[var(--text)] mt-2">
+          {typeof item === 'string' ? formatText(item) : formatText(item?.message || item?.sensor_id || item?.source || item?.category)}
+        </p>
+      )) : <p className="caption-mono text-[var(--data-mono)] mt-2">Not active</p>}
+    </div>
+  );
+}
+
+function PressureModeRuntime({ manifest, situations, confidence }) {
+  const lead = situations?.[0] || {};
+  const basis = manifest.operating_basis || {};
+  const contract = lead.action_contract || {};
+  const collapse = lead.alarm_collapse_receipt || basis.alarm_collapse_receipt || lead.alarm_collapse || {};
+  const score = lead.decision_time_score || basis.decision_time_score || decisionTimeScore(lead, confidence);
+  const singleMove = contract.operator_single_safe_move || basis.operator_single_safe_move || contract.first_safe_action || basis.first_safe_action;
+
+  return (
+    <div className="industrial-page bg-[var(--surface-base)] overflow-y-auto scrollbar-thin">
+      <main className="max-w-6xl mx-auto p-[1px]">
+        <section className="industrial-panel mb-[1px]">
+          <div className="industrial-panel-header">
+            <div>
+              <p className="label-caps status-warning">Pressure-Mode Runtime</p>
+              <h1 className="industrial-panel-title">{lead.title || basis.abnormal_situation || 'Abnormal situation active'}</h1>
+            </div>
+            <span className={`industrial-badge ${statusClass(manifest.context)}`}>{formatText(manifest.context)}</span>
+          </div>
+        </section>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-[1px] bg-[var(--border-strong)]">
+          <StressField label="Abnormal Situation" value={lead.title || basis.abnormal_situation} status="status-warning" />
+          <StressField label="Operator Single Safe Move" value={singleMove} status="status-safe" />
+          <StressField label="Do Not Trust" value={contract.do_not_use || basis.do_not_trust} status="status-critical" />
+          <StressField label="Trusted Substitute" value={contract.trusted_substitutes || basis.trusted_substitutes} status="status-safe" />
+          <StressField label="Decision Freeze" value={contract.blocked_decisions || basis.decision_freeze} status="status-warning" />
+          <StressField label="Exit Condition" value={contract.exit_conditions || basis.exit_condition} />
+        </div>
+
+        <section className="industrial-panel mt-[1px]">
+          <div className="industrial-body grid grid-cols-1 lg:grid-cols-2 gap-[1px] bg-[var(--border-strong)]">
+            <div className="bg-[var(--surface-panel)] p-4">
+              <p className="label-caps text-[var(--text-muted)]">Alarm Collapse Receipt</p>
+              <p className="caption-mono text-[var(--text)] mt-2">
+                Raw signals: {collapse.raw_signal_count ?? 0} / suppressed alarms: {collapse.suppressed_alarm_count ?? 0}
+              </p>
+              <p className="caption-mono text-[var(--text)] mt-2">{collapse.operator_question || 'Can the operator trust level before increasing feed?'}</p>
+              <p className="caption-mono text-[var(--data-mono)] mt-1">{collapse.collapse_reason || 'All signals affect the same operating basis.'}</p>
+              <p className="caption-mono text-[var(--data-mono)] mt-2">
+                {asList(collapse.raw_signals).join(', ') || 'No raw signals reported.'}
+              </p>
+            </div>
+            <div className="bg-[var(--surface-panel)] p-4">
+              <p className="label-caps text-[var(--text-muted)]">Decision-Time Score</p>
+              <p className={`text-4xl font-bold mt-2 ${statusClass(score.score < 50 ? 'CRITICAL' : score.score < 75 ? 'WARNING' : 'SAFE')}`}>
+                {score.decision_compression || '6 -> 2'}
+              </p>
+              <p className="caption-mono text-[var(--data-mono)] mt-2">
+                Traditional steps: {score.traditional_steps ?? 6} / ConfidenceOS steps: {score.confidenceos_steps ?? 2}
+              </p>
+              <p className="caption-mono text-[var(--text)] mt-2">
+                Required operator actions: {score.required_operator_actions ?? 1}
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <section className="border border-[var(--border-strong)] bg-[var(--surface-panel)] p-4 mt-[1px]">
+          <p className="label-caps status-warning">Grounded Operator Explanation Disabled</p>
+          <p className="caption-mono text-[var(--text)] mt-2">
+            Grounded explanation disabled during active decision freeze. Use operating-basis workflow.
+          </p>
+        </section>
+      </main>
+    </div>
   );
 }
 
@@ -466,7 +561,6 @@ export default function RuntimePlatform() {
     plantContext,
     confidence,
     incidents,
-    incidentTimeline,
     handoverDebt,
     confidenceDebt,
   } = storeState;
@@ -511,7 +605,8 @@ export default function RuntimePlatform() {
     () => computeTrustMap(manifest, { ...storeState, incidents, handoverDebt }),
     [manifest, storeState, incidents, handoverDebt],
   );
-  const stressMode = manifest?.stress_mode || ['WARNING', 'CRITICAL'].includes(String(plantContext?.severity || '').toUpperCase());
+  const stressMode = manifest?.stress_mode || ['WARNING', 'CRITICAL'].includes(String(plantContext?.severity || '').toUpperCase())
+    || ['WARNING', 'CRITICAL', 'MASS_BALANCE_DIVERGENCE', 'MANUAL_VERIFICATION_REQUIRED'].includes(String(manifest?.context || '').toUpperCase());
 
   if (!manifest) {
     return (
@@ -524,30 +619,7 @@ export default function RuntimePlatform() {
   }
 
   if (stressMode) {
-    return (
-      <div className="industrial-page grid grid-cols-[340px_1fr] gap-[1px] bg-[var(--border-strong)] overflow-hidden">
-        <TrustMapNavigation
-          navigation={manifest.navigation}
-          faceplates={faceplates}
-          selected={selectedFaceplate?.equipment_id || selected}
-          onSelect={setSelected}
-          trustMap={trustMap}
-        />
-        <main className="bg-[var(--surface-base)] p-[1px] overflow-y-auto scrollbar-thin">
-          <RuntimeHeader manifest={manifest} role={role} plantContext={plantContext} connected={connected} />
-          <SituationWorkspace situations={situations} basis={manifest.operating_basis} confidence={confidence} />
-          <OperatingBasisLedger basisLines={basisLines} compact />
-          <section className="industrial-panel">
-            <div className="industrial-panel-header">
-              <h2 className="industrial-panel-title text-base">Evidence Timeline</h2>
-            </div>
-            <div className="industrial-body">
-              <IncidentTimeline events={incidentTimeline} compact />
-            </div>
-          </section>
-        </main>
-      </div>
-    );
+    return <PressureModeRuntime manifest={manifest} situations={situations} confidence={confidence} />;
   }
 
   return (

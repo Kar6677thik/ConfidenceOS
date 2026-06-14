@@ -2,9 +2,14 @@ import { useState, useRef, useEffect } from 'react';
 import useStore from '../store';
 
 export default function QueryPanel() {
-  const { queryHistory, queryLoading, askQuestion } = useStore();
+  const { queryHistory, queryLoading, askQuestion, plantContext, incidents } = useStore();
   const [input, setInput] = useState('');
   const scrollRef = useRef(null);
+  const activeDecisionFreeze = (incidents || []).some((incident) => (
+    incident.action_contract?.blocked_decisions?.length || incident.blocked_decisions?.length
+  ));
+  const stressContext = ['WARNING', 'CRITICAL'].includes(String(plantContext?.severity || '').toUpperCase())
+    || ['MASS_BALANCE_DIVERGENCE', 'MANUAL_VERIFICATION_REQUIRED'].includes(String(plantContext?.state || '').toUpperCase());
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -26,6 +31,24 @@ export default function QueryPanel() {
     'Which trusted substitute should I use?',
     'What verification is required?',
   ];
+
+  if (stressContext || activeDecisionFreeze) {
+    return (
+      <section className="industrial-panel h-full min-h-[220px] flex flex-col overflow-hidden">
+        <div className="industrial-panel-header">
+          <div>
+            <h2 className="industrial-panel-title">Grounded Operator Explanation</h2>
+            <p className="caption-mono status-warning">DISABLED DURING ACTIVE DECISION FREEZE</p>
+          </div>
+        </div>
+        <div className="industrial-body">
+          <p className="caption-mono text-[var(--text)]">
+            Grounded explanation disabled during active decision freeze. Use operating-basis workflow.
+          </p>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <section className="industrial-panel h-full min-h-[360px] flex flex-col overflow-hidden">

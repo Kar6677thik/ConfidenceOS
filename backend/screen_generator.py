@@ -165,10 +165,14 @@ def _faceplate_for_asset(
     signal_rows = []
     for signal in signals:
         tag = signal.get("tag")
+        confidence = confidence_by_id.get(tag)
         signal_rows.append({
             **signal,
             "reading": readings_by_id.get(tag),
-            "confidence": confidence_by_id.get(tag),
+            "confidence": confidence,
+            "trust_state": _signal_trust_state(confidence, readings_by_id.get(tag)),
+            "decision_basis_allowed": (confidence or {}).get("decision_basis_allowed", True),
+            "trust_reason": (confidence or {}).get("trust_reason"),
         })
     source_tags = [signal.get("tag") for signal in signals if signal.get("tag")]
     metadata = _generation_metadata(
@@ -280,6 +284,8 @@ def _situations(
                 ],
                 warnings=_validation_messages(build_context.get("validation", {}), asset_id=asset_id),
             ),
+            "alarm_collapse_receipt": _alarm_collapse_receipt(incident),
+            "decision_time_score": _decision_time_score(incident, live_state.get("confidence", [])),
             **incident,
         })
     return decorated
@@ -293,9 +299,13 @@ def _operating_basis(live_state: dict, situations: list[dict]) -> dict:
         "do_not_trust": contract.get("do_not_use", []),
         "trusted_substitutes": contract.get("trusted_substitutes", []),
         "first_safe_action": contract.get("first_safe_action") or lead.get("first_action") or "Continue normal monitoring.",
+        "operator_single_safe_move": contract.get("operator_single_safe_move") or contract.get("first_safe_action") or lead.get("first_action") or "Continue normal monitoring.",
         "decision_freeze": contract.get("blocked_decisions", []),
         "exit_condition": contract.get("exit_conditions", []),
         "evidence": lead.get("evidence_refs", []),
+        "trust_quarantine": lead.get("trust_quarantine", {}),
+        "alarm_collapse_receipt": _alarm_collapse_receipt(lead) if lead else {},
+        "decision_time_score": _decision_time_score(lead, live_state.get("confidence", [])) if lead else _decision_time_score({}, live_state.get("confidence", [])),
     }
 
 
@@ -375,14 +385,25 @@ def _stress_mode_panel(
             warnings=_validation_messages(build_context.get("validation", {})),
         ),
         "active": active,
-        "sections": ["abnormal_situation", "do_not_trust", "trusted_substitute", "first_safe_action", "exit_condition", "evidence"],
+        "sections": [
+            "abnormal_situation",
+            "operator_single_safe_move",
+            "do_not_trust",
+            "trusted_substitute",
+            "decision_freeze",
+            "exit_condition",
+            "alarm_collapse_receipt",
+            "decision_time_score",
+        ],
         "operating_basis": basis,
+        "grounded_explanation_disabled": active,
+        "grounded_explanation_message": "Grounded explanation disabled during active decision freeze. Use operating-basis workflow.",
     }
 
 
 def _is_stress(live_state: dict, context_state: str) -> bool:
     severity = (live_state.get("plant_context") or {}).get("severity")
-    return severity in ("WARNING", "CRITICAL") or context_state in ("MASS_BALANCE_DIVERGENCE", "MANUAL_VERIFICATION_REQUIRED")
+    return severity in ("WARNING", "CRITICAL") or context_state in ("WARNING", "CRITICAL", "MASS_BALANCE_DIVERGENCE", "MANUAL_VERIFICATION_REQUIRED")
 
 
 def _validation_messages(validation: dict, asset_id: str | None = None, template_id: str | None = None) -> list[str]:
@@ -406,3 +427,45 @@ def _situation_source_tags(incident: dict, build_context: dict) -> list[str]:
             tags.extend(values)
     tags.extend(build_context.get("source_tags", []))
     return sorted({tag for tag in tags if isinstance(tag, str)})
+
+
+def _signal_trust_state(confidence: dict | None, reading: dict | None) -> str:
+    if confidence and confidence.get("trust_state"):
+        return confidence["trust_state"]
+    if not reading:
+        return "UNAVAILABLE"
+    tier = (confidence or {}).get("tier")
+    if tier in ("LOW", "CRITICAL", "MEDIUM"):
+        return "DEGRADED"
+    return "TRUSTED"
+
+
+def _alarm_collapse_receipt(incident: dict) -> dict:
+    collapse = incident.get("alarm_collapse") or {}
+    raw_signals = collapse.get("raw_signals") or incident.get("affected_sensors") or []
+    raw_count = collapse.get("raw_signal_count") or len(raw_signals)
+    return {
+        "raw_signal_count": raw_count,
+        "suppressed_alarm_count": collapse.get("suppressed_alarm_count", max(0, raw_count - 1)),
+        "operator_question": collapse.get("operator_question", "Can the operator trust level before increasing feed?"),
+        "collapse_reason": collapse.get("collapse_reason", "All signals affect the same operating basis."),
+        "raw_signals": raw_signals,
+        "consumed_alarm_types": collapse.get("consumed_alarm_types", []),
+    }
+
+
+def _decision_time_score(incident: dict, confidence: list[dict]) -> dict:
+    affected = set(incident.get("affected_sensors") or [])
+    scores = [
+        float(item.get("confidence_pct"))
+        for item in confidence or []
+        if item.get("sensor_id") in affected and item.get("confidence_pct") is not None
+    ]
+    score = round(sum(scores) / len(scores)) if scores else (35 if incident.get("severity") == "CRITICAL" else 72)
+    return {
+        "score": score,
+        "traditional_steps": 6,
+        "confidenceos_steps": 2,
+        "decision_compression": "6 -> 2",
+        "required_operator_actions": 1,
+    }

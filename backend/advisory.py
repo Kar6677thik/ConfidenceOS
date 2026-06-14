@@ -147,7 +147,7 @@ def build_incidents(
         )
         first_action = (
             "Do not use indicated level as the sole reference; verify level by sight glass "
-            "or independent field indication before increasing feed."
+            "or local indication before increasing feed."
         )
         contract = _action_contract(
             kind="inventory_accumulation",
@@ -156,6 +156,14 @@ def build_incidents(
             readings=readings,
             extra_substitutes=["manual_level_check", "sight_glass"],
         )
+        consumed_alarm_types = _consumed_alarm_types(
+            level_degraded=level_degraded,
+            mb_flags=mb_flags,
+            stale_flags=stale if startup_like else [],
+            startup_like=startup_like,
+        )
+        raw_signals = _raw_signals_for_collapse(level_degraded, mb_flags, stale if startup_like else [])
+        raw_signal_count = len(raw_signals) + len(consumed_alarm_types)
         incidents.append({
             "incident_id": f"{plant_id}:level-integrity",
             "title": "Inventory accumulation with unreliable level indication",
@@ -164,13 +172,12 @@ def build_incidents(
             "abnormal_situation": "inventory_accumulation",
             "alarm_collapse": {
                 "collapsed": True,
-                "consumed_alarm_types": _consumed_alarm_types(
-                    level_degraded=level_degraded,
-                    mb_flags=mb_flags,
-                    stale_flags=stale if startup_like else [],
-                    startup_like=startup_like,
-                ),
-                "raw_signal_count": len(level_degraded) + len(mb_flags) + (len(stale) if startup_like else 0),
+                "consumed_alarm_types": consumed_alarm_types,
+                "raw_signal_count": raw_signal_count,
+                "suppressed_alarm_count": max(0, raw_signal_count - 1),
+                "operator_question": "Can the operator trust level before increasing feed?",
+                "collapse_reason": "All signals affect the same operating basis.",
+                "raw_signals": raw_signals,
             },
             "affected_sensors": list(dict.fromkeys(sensors + _sensor_ids_from_flags(mb_flags))),
             "summary": (
@@ -185,6 +192,14 @@ def build_incidents(
             ],
             "action_contract": contract,
             "blocked_decisions": contract["blocked_decisions"],
+            "trust_quarantine": {
+                "quarantined_signals": [
+                    item.get("sensor_id") for item in level_degraded
+                    if item.get("trust_state") == "QUARANTINED"
+                ] or sensors,
+                "substituted_by": contract.get("trusted_substitutes", []),
+                "decision_basis_allowed": False,
+            },
             "handover_required": True,
             "evidence_refs": _evidence_refs(level_degraded, ["cross_sensor", "physical_plausibility", "calibration"]),
             "context": plant_context.get("state", "UNKNOWN"),
@@ -386,6 +401,7 @@ def _action_contract(
     for item in extra_substitutes or []:
         substitutes.append(item)
     if kind in ("inventory_accumulation", "level_integrity"):
+        substitutes.append("flow_implied_level_from_FI_2010_FO_2020")
         blocked = action_contract_decisions() or [
             "increase_feed",
             "increase_load",
@@ -403,7 +419,13 @@ def _action_contract(
         "do_not_use": list(dict.fromkeys(do_not_use)),
         "trusted_substitutes": list(dict.fromkeys(substitutes)),
         "first_safe_action": first_safe_action,
+        "operator_single_safe_move": (
+            "Verify level locally before increasing feed."
+            if kind in ("inventory_accumulation", "level_integrity")
+            else first_safe_action
+        ),
         "blocked_decisions": blocked,
+        "blocked_basis": list(dict.fromkeys(do_not_use)),
         "exit_conditions": exits,
     }
 
@@ -502,3 +524,14 @@ def _source_flags(flags: list[dict]) -> list[dict]:
         }
         for flag in flags
     ]
+
+
+def _raw_signals_for_collapse(level_degraded: list[dict], mb_flags: list[dict], stale_flags: list[dict]) -> list[str]:
+    signals = [item.get("sensor_id") for item in level_degraded if item.get("sensor_id")]
+    signals.extend(_sensor_ids_from_flags(mb_flags))
+    signals.extend(
+        flag.get("sensor_id") or flag.get("sensorId") or flag.get("id")
+        for flag in stale_flags
+        if flag.get("sensor_id") or flag.get("sensorId") or flag.get("id")
+    )
+    return list(dict.fromkeys(signals))
