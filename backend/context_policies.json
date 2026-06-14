@@ -39,7 +39,7 @@
     "CRITICAL": {
       "label": "Critical",
       "layout": "stress_operating_basis",
-      "promoted_sections": ["abnormal_situation", "do_not_trust", "trusted_substitute", "first_safe_action", "exit_condition"],
+      "promoted_sections": ["abnormal_situation", "do_not_trust", "trusted_substitute", "first_safe_action", "evidence_ledger", "exit_condition"],
       "suppressed_sections": ["all_nonessential"]
     }
   }

@@ -80,11 +80,12 @@ class HmiGenerationTests(unittest.TestCase):
 
     def test_template_validation_catches_missing_required_signals(self):
         valid = validate_assignments([{"asset_id": "V-5100", "template_id": "vessel"}])
-        self.assertEqual(valid["items"][0]["status"], "valid")
+        self.assertEqual(valid["items"][0]["status"], "warning")
+        self.assertFalse(valid["blocking"])
 
         invalid = validate_assignments([{"asset_id": "XV-6100", "template_id": "vessel"}])
-        self.assertEqual(invalid["status"], "warnings")
-        self.assertTrue(invalid["warnings"])
+        self.assertEqual(invalid["status"], "blocking")
+        self.assertTrue(invalid["blocking"])
 
     def test_generated_screens_are_role_aware_and_read_only(self):
         for role in ["Operator", "Maintenance", "Engineer", "Manager", "Auditor"]:

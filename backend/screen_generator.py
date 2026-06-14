@@ -23,6 +23,20 @@ def generate_screen_manifest(
     role_policy = load_role_policies().get("policies", {}).get(role) or load_role_policies().get("policies", {}).get("Operator", {})
     context_policy = load_context_policies().get("policies", {}).get(context_state, {})
     validation = validate_assignments(assignments or [])
+    stress = _is_stress(live_state, context_state)
+    build_id = build_context.get("build_id", "runtime-ad-hoc")
+    validation_status = build_context.get("validation_status") or ("PASS_WITH_WARNINGS" if validation.get("warnings") else "PASS")
+    receipts = build_context.get("receipts", [])
+    source_tags = build_context.get("source_tags", [])
+    build_context = {
+        **build_context,
+        "build_id": build_id,
+        "validation_status": validation_status,
+        "validation": build_context.get("validation") or validation,
+        "source_tags": source_tags,
+    }
+    warnings = _validation_messages(build_context.get("validation") or validation)
+    plant_id = live_state.get("plant_id", "plant-a")
     assets = get_assets()
     faceplates = [
         _faceplate_for_asset(asset, live_state, role, context_state, assignments or [], build_context)
@@ -30,11 +44,61 @@ def generate_screen_manifest(
         if asset.get("asset_type") in ("process_vessel", "valve", "flow_pair")
     ]
     faceplates = [item for item in faceplates if item]
-    situations = _situations(live_state)
-    stress = _is_stress(live_state, context_state)
-    build_id = build_context.get("build_id", "runtime-ad-hoc")
-    validation_status = build_context.get("validation_status") or ("PASS_WITH_WARNINGS" if validation.get("warnings") else "PASS")
-    receipts = build_context.get("receipts", [])
+    situations = _situations(live_state, build_context, role, context_state, validation_status)
+    screens = [
+        {
+            **_generation_metadata(
+                build_context=build_context,
+                generated_id=f"{build_id}:plant-overview",
+                asset_id=plant_id,
+                template_id="plant_overview",
+                role=role,
+                context_state=context_state,
+                validation_status=validation_status,
+                source_tags=source_tags,
+                generated_because=[
+                    "Plant overview generated from asset model hierarchy.",
+                    "Instrument integrity overview is required for Runtime navigation.",
+                ],
+                warnings=warnings,
+            ),
+            "screen_id": "plant-overview",
+            "screen_type": "plant_overview",
+            "title": "Instrument Integrity Overview",
+            "sections": ["semantic_navigation", "trust_hotspots", "unresolved_situations"],
+        },
+        {
+            **_generation_metadata(
+                build_context=build_context,
+                generated_id=f"{build_id}:unit-15-runtime",
+                asset_id="unit-15",
+                template_id="unit_overview",
+                role=role,
+                context_state=context_state,
+                validation_status=validation_status,
+                source_tags=source_tags,
+                generated_because=[
+                    "Unit Runtime generated from semantic plant hierarchy.",
+                    "Situation workspace and generated faceplates are required for operator use.",
+                ],
+                warnings=warnings,
+            ),
+            "screen_id": "unit-15-runtime",
+            "screen_type": "unit_overview",
+            "title": "Unit 15 ISOM Runtime",
+            "sections": ["situation_workspace", "generated_faceplates", "shift_channel"],
+        },
+    ]
+    role_sections = _role_sections(role, live_state, build_context, context_state, validation_status)
+    stress_mode_panel = _stress_mode_panel(
+        live_state=live_state,
+        situations=situations,
+        build_context=build_context,
+        role=role,
+        context_state=context_state,
+        validation_status=validation_status,
+        active=stress,
+    )
 
     return {
         "manifest_id": f"runtime:{role}:{context_state}",
@@ -63,29 +127,13 @@ def generate_screen_manifest(
             "source_tags": build_context.get("source_tags", []),
             "receipts": receipts,
         },
-        "screens": [
-            {
-                "screen_id": "plant-overview",
-                "generated_id": f"{build_id}:plant-overview",
-                "screen_type": "plant_overview",
-                "title": "Instrument Integrity Overview",
-                "sections": ["semantic_navigation", "trust_hotspots", "unresolved_situations"],
-                "receipt": _generation_receipt(build_id, "plant-overview", validation_status),
-            },
-            {
-                "screen_id": "unit-15-runtime",
-                "generated_id": f"{build_id}:unit-15-runtime",
-                "screen_type": "unit_overview",
-                "title": "Unit 15 ISOM Runtime",
-                "sections": ["situation_workspace", "generated_faceplates", "shift_channel"],
-                "receipt": _generation_receipt(build_id, "unit-15-runtime", validation_status),
-            },
-        ],
+        "screens": screens,
         "faceplates": faceplates,
         "receipts": receipts,
         "situations": situations,
         "operating_basis": _operating_basis(live_state, situations),
-        "role_sections": _role_sections(role, live_state),
+        "role_sections": role_sections,
+        "stress_mode_panel": stress_mode_panel,
     }
 
 
@@ -122,42 +170,76 @@ def _faceplate_for_asset(
             "reading": readings_by_id.get(tag),
             "confidence": confidence_by_id.get(tag),
         })
+    source_tags = [signal.get("tag") for signal in signals if signal.get("tag")]
+    metadata = _generation_metadata(
+        build_context=build_context,
+        generated_id=f"{build_context.get('build_id', 'runtime-ad-hoc')}:{asset_id}",
+        asset_id=asset_id,
+        template_id=template_id,
+        role=role,
+        context_state=context_state,
+        validation_status=build_context.get("validation_status", "PASS"),
+        source_tags=source_tags,
+        generated_because=[
+            f"{asset_id} is assigned template {template_id}.",
+            "Faceplate generated from asset model signal binding and role visibility policy.",
+        ],
+        warnings=_validation_messages(build_context.get("validation", {}), asset_id=asset_id, template_id=template_id),
+    )
     return {
+        **metadata,
         "equipment_id": asset_id,
-        "generated_id": f"{build_context.get('build_id', 'runtime-ad-hoc')}:{asset_id}",
         "title": asset.get("name", asset_id),
         "asset_type": asset.get("asset_type"),
-        "template_id": template_id,
         "template_label": template.get("label"),
-        "template_version": template.get("version", "1.0"),
         "role": role,
         "context": context_state,
-        "build_id": build_context.get("build_id", "runtime-ad-hoc"),
-        "validation_status": build_context.get("validation_status", "PASS"),
-        "source_tags": build_context.get("source_tags", []),
         "sections": template.get("role_visibility", {}).get(role, template.get("generated_ui_sections", [])),
         "signals": signal_rows,
-        "receipt": _generation_receipt(build_context.get("build_id", "runtime-ad-hoc"), asset_id, build_context.get("validation_status", "PASS")),
         "provenance": {
             "generated_from": ["asset_model.json", "equipment_templates.json", "role_policies.json", "context_policies.json"],
             "build_id": build_context.get("build_id", "runtime-ad-hoc"),
             "validation_status": build_context.get("validation_status", "PASS"),
             "template_id": template_id,
             "asset_id": asset_id,
-            "source_tags": build_context.get("source_tags", []),
+            "source_tags": source_tags,
             "approved": assignment.get("approved", False),
         },
     }
 
 
-def _generation_receipt(build_id: str, generated_item_id: str, validation_status: str) -> dict:
+def _generation_metadata(
+    build_context: dict,
+    generated_id: str,
+    asset_id: str,
+    template_id: str,
+    role: str,
+    context_state: str,
+    validation_status: str,
+    source_tags: list,
+    generated_because: list[str],
+    warnings: list[str] | None = None,
+) -> dict:
     return {
-        "stage": "screen_generation",
-        "severity": "INFO",
-        "build_id": build_id,
-        "generated_item_id": generated_item_id,
+        "generated_id": generated_id,
+        "build_id": build_context.get("build_id", "runtime-ad-hoc"),
+        "asset_id": asset_id,
+        "template_id": template_id,
+        "template_version": "1.0",
+        "source_tags": source_tags or [],
+        "role_policy": role,
+        "context_policy": context_state,
         "validation_status": validation_status,
-        "message": "Generated from asset model, approved template binding, role policy, and context policy.",
+        "receipt": {
+            "generated_because": generated_because,
+            "warnings": warnings or [],
+            "source_files": [
+                "asset_model.json",
+                "equipment_templates.json",
+                "role_policies.json",
+                "context_policies.json",
+            ],
+        },
     }
 
 
@@ -169,11 +251,38 @@ def _resolve_context(context: str, live_state: dict) -> str:
     return plant_context.get("state") or inferred or "STEADY_STATE"
 
 
-def _situations(live_state: dict) -> list[dict]:
+def _situations(
+    live_state: dict,
+    build_context: dict | None = None,
+    role: str = "Operator",
+    context_state: str = "STEADY_STATE",
+    validation_status: str = "PASS",
+) -> list[dict]:
+    build_context = build_context or {}
     incidents = live_state.get("incidents") or []
-    if incidents:
-        return incidents
-    return []
+    decorated = []
+    for index, incident in enumerate(incidents):
+        asset_id = incident.get("asset_id") or "V-5100"
+        source_tags = _situation_source_tags(incident, build_context)
+        decorated.append({
+            **_generation_metadata(
+                build_context=build_context,
+                generated_id=f"{build_context.get('build_id', 'runtime-ad-hoc')}:situation:{incident.get('incident_id', index)}",
+                asset_id=asset_id,
+                template_id="abnormal_situation",
+                role=role,
+                context_state=context_state,
+                validation_status=validation_status,
+                source_tags=source_tags,
+                generated_because=[
+                    "Abnormal situation generated from collapsed advisory incident.",
+                    "Situation workspace requires operating basis, evidence, action contract, and timeline.",
+                ],
+                warnings=_validation_messages(build_context.get("validation", {}), asset_id=asset_id),
+            ),
+            **incident,
+        })
+    return decorated
 
 
 def _operating_basis(live_state: dict, situations: list[dict]) -> dict:
@@ -190,25 +299,110 @@ def _operating_basis(live_state: dict, situations: list[dict]) -> dict:
     }
 
 
-def _role_sections(role: str, live_state: dict) -> list[dict]:
+def _role_sections(
+    role: str,
+    live_state: dict,
+    build_context: dict | None = None,
+    context_state: str = "STEADY_STATE",
+    validation_status: str = "PASS",
+) -> list[dict]:
+    build_context = build_context or {}
     if role == "Maintenance":
-        return [
+        rows = [
             {"section": "verification_tokens", "items": live_state.get("verification_tokens", [])},
             {"section": "confidence_debt", "items": live_state.get("confidence_debt", [])},
         ]
-    if role == "Engineer":
-        return [
+    elif role == "Engineer":
+        rows = [
             {"section": "signal_mapping", "items": get_model_graph().get("signals", [])},
             {"section": "validation", "items": []},
         ]
-    if role in ("Manager", "Auditor"):
-        return [
+    elif role in ("Manager", "Auditor"):
+        rows = [
             {"section": "handover_debt", "items": (live_state.get("handover_debt") or {}).get("entries", [])},
             {"section": "timeline", "items": live_state.get("incident_timeline", [])},
         ]
-    return [{"section": "operator_basis", "items": [_operating_basis(live_state, _situations(live_state))]}]
+    else:
+        rows = [{"section": "operator_basis", "items": [_operating_basis(live_state, _situations(live_state, build_context, role, context_state, validation_status))]}]
+
+    return [
+        {
+            **_generation_metadata(
+                build_context=build_context,
+                generated_id=f"{build_context.get('build_id', 'runtime-ad-hoc')}:role:{role}:{row['section']}",
+                asset_id=live_state.get("plant_id", "plant-a"),
+                template_id="role_section",
+                role=role,
+                context_state=context_state,
+                validation_status=validation_status,
+                source_tags=build_context.get("source_tags", []),
+                generated_because=[
+                    f"{row['section']} is visible for {role} role policy.",
+                    "Role-specific section generated from role_policies.json.",
+                ],
+                warnings=_validation_messages(build_context.get("validation", {})),
+            ),
+            **row,
+        }
+        for row in rows
+    ]
+
+
+def _stress_mode_panel(
+    live_state: dict,
+    situations: list[dict],
+    build_context: dict,
+    role: str,
+    context_state: str,
+    validation_status: str,
+    active: bool,
+) -> dict:
+    basis = _operating_basis(live_state, situations)
+    return {
+        **_generation_metadata(
+            build_context=build_context,
+            generated_id=f"{build_context.get('build_id', 'runtime-ad-hoc')}:stress-mode:{context_state}",
+            asset_id=live_state.get("plant_id", "plant-a"),
+            template_id="abnormal_situation",
+            role=role,
+            context_state=context_state,
+            validation_status=validation_status,
+            source_tags=build_context.get("source_tags", []),
+            generated_because=[
+                "Stress-mode panel generated from context policy.",
+                "WARNING/CRITICAL operating context requires nonessential panels to be removed.",
+            ],
+            warnings=_validation_messages(build_context.get("validation", {})),
+        ),
+        "active": active,
+        "sections": ["abnormal_situation", "do_not_trust", "trusted_substitute", "first_safe_action", "exit_condition", "evidence"],
+        "operating_basis": basis,
+    }
 
 
 def _is_stress(live_state: dict, context_state: str) -> bool:
     severity = (live_state.get("plant_context") or {}).get("severity")
     return severity in ("WARNING", "CRITICAL") or context_state in ("MASS_BALANCE_DIVERGENCE", "MANUAL_VERIFICATION_REQUIRED")
+
+
+def _validation_messages(validation: dict, asset_id: str | None = None, template_id: str | None = None) -> list[str]:
+    messages = []
+    for item in validation.get("warnings", []) + validation.get("blocking", []):
+        if asset_id and item.get("asset_id") not in (None, asset_id):
+            continue
+        if template_id and item.get("template_id") not in (None, template_id):
+            continue
+        message = item.get("message")
+        if message:
+            messages.append(message)
+    return messages
+
+
+def _situation_source_tags(incident: dict, build_context: dict) -> list[str]:
+    tags = []
+    for field in ("affected_sensors", "sensor_ids", "do_not_use"):
+        values = incident.get(field)
+        if isinstance(values, list):
+            tags.extend(values)
+    tags.extend(build_context.get("source_tags", []))
+    return sorted({tag for tag in tags if isinstance(tag, str)})

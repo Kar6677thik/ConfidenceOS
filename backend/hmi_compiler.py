@@ -13,7 +13,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from model_graph import get_model_graph
+from model_graph import get_assets, get_model_graph
 from screen_generator import generate_screen_manifest
 from template_library import validate_assignments
 
@@ -157,6 +157,7 @@ def run_build(
             build_context={
                 "build_id": build_id,
                 "validation_status": manifest_validation_status,
+                "validation": validation,
                 "receipts": receipts,
                 "source_tags": _source_tags(mapping_payload),
             },
@@ -199,24 +200,41 @@ def _build_validation(mapping_payload: dict, assignments: list[dict]) -> dict:
         if item.get("ignored"):
             info.append({
                 "severity": "INFO",
+                "level": "INFO",
+                "rule": "dirty_raw_tag_ignored",
                 "raw_tag": raw_tag,
                 "message": f"{raw_tag} ignored: {item.get('ignore_reason') or 'not bound to Runtime'}.",
             })
         elif item.get("blocking"):
             blocking.append({
                 "severity": "BLOCKING",
+                "level": "BLOCKING",
+                "rule": "dirty_raw_tag_unresolved",
                 "raw_tag": raw_tag,
                 "message": f"{raw_tag} is unresolved and must be mapped or ignored with a reason before publish.",
+            })
+        elif _maps_to_critical_asset_without_approval(item):
+            blocking.append({
+                "severity": "BLOCKING",
+                "level": "BLOCKING",
+                "rule": "dirty_critical_mapping_requires_engineer_approval",
+                "raw_tag": raw_tag,
+                "asset_id": item.get("proposed_asset_id"),
+                "message": f"{raw_tag} maps to critical asset {item.get('proposed_asset_id')} and requires engineer approval before publish.",
             })
         elif item.get("bucket") == "ambiguous":
             warnings.append({
                 "severity": "WARNING",
+                "level": "WARNING",
+                "rule": "dirty_raw_tag_ambiguous",
                 "raw_tag": raw_tag,
                 "message": f"{raw_tag} has an ambiguous deterministic mapping and should be engineer-reviewed.",
             })
         elif item.get("approval_required") and not item.get("approved"):
             warnings.append({
                 "severity": "WARNING",
+                "level": "WARNING",
+                "rule": "dirty_raw_tag_approval_recommended",
                 "raw_tag": raw_tag,
                 "message": f"{raw_tag} uses deterministic suggestion; engineer approval is required for final commissioning.",
             })
@@ -284,12 +302,16 @@ def _build_receipts(mapping_payload: dict, validation: dict) -> list[dict]:
 
 
 def _publish_diff(generated_manifest: dict, validation: dict, can_publish: bool) -> dict:
+    blocking = validation.get("blocking", [])
+    warnings = validation.get("warnings", [])
     if not can_publish:
+        changes = _blocked_diff_items(blocking, warnings)
         return {
             "status": "blocked",
-            "changes": [],
-            "blocked": validation.get("blocking", []),
-            "change_count": 0,
+            "changes": changes,
+            "blocked": blocking,
+            "warnings": warnings,
+            "change_count": len(changes),
         }
     faceplates = generated_manifest.get("faceplates", [])
     screens = generated_manifest.get("screens", [])
@@ -301,10 +323,12 @@ def _publish_diff(generated_manifest: dict, validation: dict, can_publish: bool)
         {"type": "generated_faceplate", "equipment_id": item.get("equipment_id"), "template_id": item.get("template_id")}
         for item in faceplates
     ])
+    changes.extend(_semantic_generation_diff(generated_manifest, validation))
     return {
         "status": "ready",
         "changes": changes,
-        "blocked": [],
+        "blocked": blocking,
+        "warnings": warnings,
         "change_count": len(changes),
     }
 
@@ -338,6 +362,82 @@ def _ignored_reason(raw_tag: str, state: dict) -> str | None:
     if isinstance(reason, str) and reason.strip():
         return reason.strip()
     return None
+
+
+def _maps_to_critical_asset_without_approval(item: dict) -> bool:
+    if item.get("approved") or item.get("ignored"):
+        return False
+    if item.get("bucket") not in {"mapped", "ambiguous"}:
+        return False
+    asset_id = item.get("proposed_asset_id")
+    if not asset_id:
+        return False
+    criticality_by_asset = {
+        asset.get("asset_id"): asset.get("criticality")
+        for asset in get_assets()
+    }
+    return criticality_by_asset.get(asset_id) in {"high", "critical", "safety_critical"}
+
+
+def _blocked_diff_items(blocking: list[dict], warnings: list[dict]) -> list[dict]:
+    changes = []
+    for item in blocking:
+        changes.append({
+            "type": "publish_blocked",
+            "rule": item.get("rule"),
+            "asset_id": item.get("asset_id"),
+            "raw_tag": item.get("raw_tag"),
+            "description": item.get("message"),
+        })
+    for item in warnings:
+        if item.get("rule") == "valve_command_signal_missing":
+            changes.append({
+                "type": "publish_warning",
+                "rule": item.get("rule"),
+                "asset_id": item.get("asset_id"),
+                "description": "Valve template has position feedback but no command signal; demo publish remains allowed after BLOCKING items are cleared.",
+            })
+    return changes
+
+
+def _semantic_generation_diff(generated_manifest: dict, validation: dict) -> list[dict]:
+    changes = []
+    faceplates = generated_manifest.get("faceplates", [])
+    by_template = {item.get("template_id"): item for item in faceplates}
+    vessel = by_template.get("vessel")
+    if vessel:
+        changes.append({
+            "type": "generated_hmi_change",
+            "asset_id": vessel.get("equipment_id"),
+            "description": f"Added vessel faceplate for {vessel.get('equipment_id')}.",
+        })
+        signal_tags = {signal.get("tag") for signal in vessel.get("signals", [])}
+        if {"FI-2010", "FO-2020", "LT-5100"}.issubset(signal_tags):
+            changes.append({
+                "type": "generated_hmi_change",
+                "asset_id": vessel.get("equipment_id"),
+                "description": "Added mass-balance section because FI/FO validate LT.",
+            })
+            changes.append({
+                "type": "generated_hmi_change",
+                "asset_id": vessel.get("equipment_id"),
+                "decision_id": "increase_feed",
+                "description": "Added decision freeze rule for increase_feed.",
+            })
+            changes.append({
+                "type": "generated_hmi_change",
+                "asset_id": vessel.get("equipment_id"),
+                "sensor_id": "LT-5100",
+                "description": "Added Maintenance verification task for LT-5100.",
+            })
+    for warning in validation.get("warnings", []):
+        if warning.get("rule") == "valve_command_signal_missing":
+            changes.append({
+                "type": "generated_hmi_warning",
+                "asset_id": warning.get("asset_id"),
+                "description": warning.get("message"),
+            })
+    return changes
 
 
 def _receipt(stage: str, severity: str, message: str, **extra) -> dict:
