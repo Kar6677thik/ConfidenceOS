@@ -51,7 +51,7 @@ from mass_balance import DEFAULT_TOLERANCE
 from prediction import predict_all_sensors
 from causal_graph import get_graph_state
 from adaptive_thresholds import compute_adaptive_envelopes
-from advisory import detect_plant_context, build_incidents
+from advisory import detect_plant_context, build_incidents, build_timeline_events
 import nlquery
 
 
@@ -69,6 +69,7 @@ BASE_MB_TOLERANCE = DEFAULT_TOLERANCE
 _confidence_log_counter: dict[str, int] = {}
 CONFIDENCE_LOG_INTERVAL = 5  # Log every 5 seconds
 _plant_loop_status: dict[str, dict] = {}
+INCIDENT_TIMELINE_MAX = 80
 
 
 # ─── Pydantic models ────────────────────────────────────────────────────────
@@ -219,12 +220,28 @@ async def _plant_tick_loop(plant_id: str, plant):
 
             stale_payload = [sf.to_dict() for sf in stale_flags]
             mode_payload = plant.startup_manager.to_dict()
+            inferred_mode = plant.mode_inference_engine.infer(
+                readings=readings,
+                confidence=confidence_data,
+                mass_balance=plant.latest_mb_state,
+                startup_mode=mode_payload,
+                stale_flags=stale_payload,
+            )
+            mode_payload = {
+                **mode_payload,
+                "inferred_mode": inferred_mode.get("mode"),
+                "inferred_state": inferred_mode.get("state"),
+                "mode_inference": inferred_mode,
+            }
+            plant.latest_inferred_mode = inferred_mode
+            plant.latest_mode_payload = mode_payload
             plant.latest_context = detect_plant_context(
                 readings=readings,
                 confidence=confidence_data,
                 mass_balance=plant.latest_mb_state,
                 mode=mode_payload,
                 stale_flags=stale_payload,
+                inferred_mode=inferred_mode,
             )
             plant.latest_incidents = build_incidents(
                 plant_id=plant_id,
@@ -233,6 +250,18 @@ async def _plant_tick_loop(plant_id: str, plant):
                 mass_balance=plant.latest_mb_state,
                 stale_flags=stale_payload,
                 plant_context=plant.latest_context,
+            )
+            tick_events = build_timeline_events(
+                plant_id=plant_id,
+                inferred_mode=inferred_mode,
+                confidence=confidence_data,
+                mass_balance=plant.latest_mb_state,
+                incidents=plant.latest_incidents,
+                timestamp=now,
+            )
+            plant.latest_incident_timeline = _merge_incident_timeline(
+                plant.latest_incident_timeline,
+                tick_events,
             )
             plant.latest_new_anomalies = new_anomalies
 
@@ -290,6 +319,18 @@ async def _plant_tick_loop(plant_id: str, plant):
 active_connections: list[WebSocket] = []
 
 
+def _merge_incident_timeline(existing: list[dict], current_events: list[dict]) -> list[dict]:
+    """Append only new active event keys, keeping a compact rolling history."""
+    seen = {event.get("event_id") for event in existing}
+    merged = list(existing)
+    for event in current_events:
+        if event.get("event_id") in seen:
+            continue
+        merged.append(event)
+        seen.add(event.get("event_id"))
+    return merged[-INCIDENT_TIMELINE_MAX:]
+
+
 @app.websocket("/ws/sensors")
 async def sensor_stream(
     websocket: WebSocket,
@@ -317,11 +358,17 @@ async def sensor_stream(
                 "readings": readings,
                 "confidence": confidence_data,
                 "mass_balance": plant.latest_mb_state,
-                "mode": plant.startup_manager.to_dict(),
+                "mode": {
+                    **plant.startup_manager.to_dict(),
+                    "inferred_mode": plant.latest_inferred_mode.get("mode"),
+                    "inferred_state": plant.latest_inferred_mode.get("state"),
+                    "mode_inference": plant.latest_inferred_mode,
+                },
                 "stale_flags": [f.to_dict() for f in stale_flags],
                 "new_anomalies": plant.latest_new_anomalies,
                 "plant_context": plant.latest_context,
                 "incidents": plant.latest_incidents,
+                "incident_timeline": plant.latest_incident_timeline,
             })
 
             await asyncio.sleep(1.0)
@@ -514,7 +561,12 @@ def get_sensor_anomalies(
 def get_mode(plant_id: str = Query(default="plant-a")):
     """Return the current operating mode."""
     plant = plant_manager.get(plant_id)
-    return plant.startup_manager.to_dict()
+    return {
+        **plant.startup_manager.to_dict(),
+        "inferred_mode": plant.latest_inferred_mode.get("mode"),
+        "inferred_state": plant.latest_inferred_mode.get("state"),
+        "mode_inference": plant.latest_inferred_mode,
+    }
 
 
 @app.post("/api/mode/startup")
@@ -522,7 +574,13 @@ def toggle_startup_mode(request: StartupModeRequest, plant_id: str = Query(defau
     """Toggle startup mode on or off."""
     plant = plant_manager.get(plant_id)
     plant.startup_manager.toggle(request.active)
-    return {"status": "activated" if request.active else "deactivated", **plant.startup_manager.to_dict()}
+    return {
+        "status": "activated" if request.active else "deactivated",
+        **plant.startup_manager.to_dict(),
+        "inferred_mode": plant.latest_inferred_mode.get("mode"),
+        "inferred_state": plant.latest_inferred_mode.get("state"),
+        "mode_inference": plant.latest_inferred_mode,
+    }
 
 
 @app.post("/api/mode/startup/acknowledge/{sensor_id}")
@@ -562,10 +620,15 @@ async def generate_handover_brief(plant_id: str = Query(default="plant-a"), db: 
         confidence_data=confidence_data,
         mass_balance_state=plant.latest_mb_state,
         anomalies=anomalies,
-        mode_state=plant.startup_manager.to_dict(),
+        mode_state={
+            **plant.startup_manager.to_dict(),
+            "inferred_mode": plant.latest_inferred_mode.get("mode"),
+            "mode_inference": plant.latest_inferred_mode,
+        },
         plant_context=plant.latest_context,
         incidents=plant.latest_incidents,
     )
+    system_state["incident_timeline"] = plant.latest_incident_timeline
 
     # Add predictions to state for V2 enhanced briefs
     if predictions:
@@ -723,7 +786,12 @@ async def query_plant(request: QueryRequest, db: Session = Depends(get_db)):
         "readings": plant.latest_readings,
         "confidence": list(plant.latest_confidence.values()),
         "mass_balance": plant.latest_mb_state,
-        "mode": plant.startup_manager.to_dict(),
+        "mode": {
+            **plant.startup_manager.to_dict(),
+            "inferred_mode": plant.latest_inferred_mode.get("mode"),
+            "mode_inference": plant.latest_inferred_mode,
+        },
+        "incident_timeline": plant.latest_incident_timeline,
         "confidence_history": sensor_histories,
         "fleet": plant_manager.get_fleet_summary(),
     }
@@ -1280,12 +1348,14 @@ def health_check():
             "confidence_engine": "active",
             "mass_balance_engine": "active",
             "startup_manager": "active",
+            "mode_inference": "active",
             "handover_generator": "active",
             "prediction_engine": "active",
             "nlquery_engine": "active",
             "causal_graph": "active",
             "adaptive_thresholds": "active",
             "advisory_engine": "active",
+            "incident_timeline": "active",
             "compliance_pdf": "active",
             "forensics_replay": "active",
             "sandbox": "active",

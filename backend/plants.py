@@ -16,6 +16,7 @@ from confidence import ConfidenceEngine
 from mass_balance import MassBalanceEngine, DEFAULT_TOLERANCE
 from startup import StartupManager
 from handover import HandoverBriefGenerator
+from mode_inference import ModeInferenceEngine
 
 
 # ── Plant configurations ────────────────────────────────────────────────────
@@ -81,6 +82,7 @@ class PlantInstance:
         self.confidence_engine = ConfidenceEngine()
         self.mass_balance_engine = MassBalanceEngine()
         self.startup_manager = StartupManager()
+        self.mode_inference_engine = ModeInferenceEngine()
         self.handover_generator = HandoverBriefGenerator()
 
         # Load scenario
@@ -96,8 +98,11 @@ class PlantInstance:
         self.latest_confidence: dict[str, dict] = {}
         self.latest_mb_state: dict = {}
         self.latest_readings: list = []
+        self.latest_mode_payload: dict = {}
         self.latest_context: dict = {}
+        self.latest_inferred_mode: dict = {}
         self.latest_incidents: list = []
+        self.latest_incident_timeline: list = []
         self.latest_new_anomalies: list = []
 
     def info(self) -> dict:
