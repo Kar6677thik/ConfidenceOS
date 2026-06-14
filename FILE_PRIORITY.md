@@ -43,62 +43,79 @@ These files define the application's core architecture, routing protocols, state
 * **Estimated Importance**: **10/10**
 
 #### 6. `frontend/src/App.jsx`
-* **Purpose**: The main layout layout of the web application. Defines all React Router routes and contains the layout code for all individual pages (Fleet, Operator, Predictions, Forensics Replay, Causal Graph, Compliance, Sandbox).
+* **Purpose**: The main router and shell of the web application. Configures page-level routing routes to the view modules and manages the global bottom status bar.
 * **Dependencies**: `frontend/src/store.js`, components in `frontend/src/components/`, `react-router-dom`
-* **When to Read**: To understand view layout mappings, update page routing, modify Recharts plots, or edit individual screen UI logic.
-* **Estimated Importance**: **10/10**
+* **When to Read**: To understand page routing or modify the root application shell.
+* **Estimated Importance**: **9/10**
 
 ---
 
 ## Tier 2: Feature Specific (Read only when required)
 
-These files implement specific business features or UI panels. Open them only when developing or debugging those specific domains.
+These files implement specific business features, analytical pages, or UI panels. Open them only when developing or debugging those specific domains.
 
-### Backend Engines & Scenarios
+### Modular Page Views (Frontend)
 
-#### 7. `backend/adaptive_thresholds.py`
+* `frontend/src/views/FleetOverview.jsx`: Grid view ranking plant integrity summaries and risk cards.
+* `frontend/src/views/OperatorDashboard.jsx`: Live operator dashboard rendering sensor grids, mass-balance charts, and side-panel utilities.
+* `frontend/src/views/PredictiveTimeline.jsx`: Predictive maintenance degradation timeline with probability corridors and confidence debt priorities.
+* `frontend/src/views/CausalGraph.jsx`: SVG-based diagnostic network displaying BFS propagation chains.
+* `frontend/src/views/ForensicsReplay.jsx`: Playback player enabling scrubbed simulation presets.
+* `frontend/src/views/CompliancePortal.jsx`: Alarm distribution charts, statistics, and audit PDF exporter.
+* `frontend/src/views/SandboxSimulator.jsx`: Direct scenario failure injector panel.
+* `frontend/src/views/EngineerDeepDive.jsx`: Operating envelope visualizer and adaptive thresholds explorer.
+
+### Backend Adapters & Engines
+
+#### 7. `backend/opc_ua_adapter.py` (New)
+* **Purpose**: Industrial adapter client template subscribing to a live OPC UA server's tags in a thread-safe, read-only manner.
+* **Dependencies**: `tag_provider.py`
+* **When to Read**: Connecting to physical industrial server protocols or testing tag-provider subclasses.
+* **Estimated Importance**: **8/10**
+
+#### 8. `backend/adaptive_thresholds.py`
 * **Purpose**: Dynamic operating envelopes calculations. Computes per-sensor learned envelopes using standard deviations on historical readings.
 * **Dependencies**: `backend/database.py` (reads SensorReading logs and Anomaly logs)
 * **When to Read**: When modifying how plausibility envelopes are computed or updating standard deviation bounds.
 * **Estimated Importance**: **8/10**
 
-#### 8. `backend/prediction.py`
+#### 9. `backend/prediction.py`
 * **Purpose**: Predictive Failure Engine. Uses `numpy.polyfit` linear regression on database histories to forecast when a degraded sensor will cross LOW (50%) and CRITICAL (20%) trust thresholds.
 * **Dependencies**: None (imported by `backend/main.py`)
 * **When to Read**: When working on degradation modeling, forecasting alerts, or failure schedule recommendations.
 * **Estimated Importance**: **8/10**
 
-#### 9. `backend/causal_graph.py`
+#### 10. `backend/causal_graph.py`
 * **Purpose**: Maps directional dependencies between sensors and uses a Breadth-First Search (BFS) to trace anomalous propagation paths back to their root cause.
 * **Dependencies**: None
 * **When to Read**: When adjusting plant topology mappings or refining root-cause narrative generation.
 * **Estimated Importance**: **7/10**
 
-#### 10. `backend/startup.py`
+#### 11. `backend/startup.py`
 * **Purpose**: Tightens operational envelopes and flags stuck sensors (unchanged readings $> 8$ minutes) during high-risk startup windows.
 * **Dependencies**: None
 * **When to Read**: When updating startup mode rules, acknowledgment flows, or custom threshold overrides.
 * **Estimated Importance**: **7/10**
 
-#### 11. `backend/handover.py`
+#### 12. `backend/handover.py`
 * **Purpose**: Generates shift handover briefs. Queries the Anthropic Claude API using plant state snapshots and falls back to a structured template if no key is configured.
 * **Dependencies**: None
 * **When to Read**: When working on operator communication screens or updating LLM system prompting.
 * **Estimated Importance**: **6/10**
 
-#### 12. `backend/nlquery.py`
+#### 13. `backend/nlquery.py`
 * **Purpose**: Natural Language Query Interface. Evaluates user text inputs against current plant conditions (readings, anomalies, predictions) using grounded Claude prompts or regex-driven fallbacks.
 * **Dependencies**: None
 * **When to Read**: When tweaking control room query parameters, citation extraction rules, or regex keywords.
 * **Estimated Importance**: **6/10**
 
-#### 13. `backend/simulator.py`
+#### 14. `backend/simulator.py`
 * **Purpose**: Implements mock telemetry generation and manages scenario failure injections (e.g. drift, stuck readings).
 * **Dependencies**: None
 * **When to Read**: When adding new virtual sensors, adjusting simulator ticks, or injecting new failure scenarios.
 * **Estimated Importance**: **6/10**
 
-#### 14. `backend/database.py`
+#### 15. `backend/database.py`
 * **Purpose**: SQLite schema definitions (SQLAlchemy 2.0).
 * **Dependencies**: None
 * **When to Read**: When changing database schemas, querying metrics, or adding historical persistence fields.
@@ -106,47 +123,14 @@ These files implement specific business features or UI panels. Open them only wh
 
 ### Frontend Components
 
-#### 15. `frontend/src/components/NavBar.jsx`
-* **Purpose**: Main header navigation, role switcher dropdown, and plant health indicators. Matches router paths.
-* **Dependencies**: `frontend/src/store.js`
-* **When to Read**: When adding new navigation paths or editing role-based views.
-* **Estimated Importance**: **8/10**
-
-#### 16. `frontend/src/components/SensorCard.jsx`
-* **Purpose**: Displays a grid card for a single sensor featuring real-time value sparklines, confidence gauges, and sub-score metrics.
-* **Dependencies**: None
-* **When to Read**: When modifying grid displays, sparkline visualizations, or sub-score popups.
-* **Estimated Importance**: **6/10**
-
-#### 17. `frontend/src/components/MassBalanceChart.jsx`
-* **Purpose**: Renders the live discrepancy and flow timelines using Recharts.
-* **Dependencies**: None
-* **When to Read**: When updating mass-balance charts or color thresholds.
-* **Estimated Importance**: **6/10**
-
-#### 18. `frontend/src/components/HealthTimeline.jsx`
-* **Purpose**: Visualizes anomaly histories and severity distributions for the currently selected sensor.
-* **Dependencies**: `frontend/src/store.js`
-* **When to Read**: When adjusting the anomaly logs layout or timeline styling.
-* **Estimated Importance**: **5/10**
-
-#### 19. `frontend/src/components/HandoverBrief.jsx`
-* **Purpose**: Form to generate and display operator shift briefs.
-* **Dependencies**: `frontend/src/store.js`
-* **When to Read**: When polishing handover print views or layout cards.
-* **Estimated Importance**: **5/10**
-
-#### 20. `frontend/src/components/StartupBanner.jsx`
-* **Purpose**: Interactive banner to toggle startup mode and acknowledge stale sensor flags.
-* **Dependencies**: None
-* **When to Read**: When adjusting startup alert visuals.
-* **Estimated Importance**: **5/10**
-
-#### 21. `frontend/src/components/FlagBar.jsx` & `QueryPanel.jsx`
-* **Purpose**: `FlagBar` shows bottom screen alert banners; `QueryPanel` provides the control-room query input box.
-* **Dependencies**: `frontend/src/store.js`
-* **When to Read**: When tweaking bottom banner alerts or chat interfaces.
-* **Estimated Importance**: **5/10**
+* `frontend/src/components/SensorCard.jsx`: Multi-score cell displaying NAMUR NE107 diagnostic states. (Importance: **7/10**)
+* `frontend/src/components/ConfidenceDebtPanel.jsx`: Dynamic prioritization list tracking cumulative plant confidence debt. (Importance: **7/10**)
+* `frontend/src/components/TrustDependencyGraph.jsx`: Topology flow displaying dependencies and node rankings. (Importance: **7/10**)
+* `frontend/src/components/HandoverBrief.jsx`: Interactive shift-change card featuring a SAP PM / IBM Maximo ERP work order exporter. (Importance: **6/10**)
+* `frontend/src/components/MassBalanceChart.jsx`: Renders the live discrepancy and flow timelines using Recharts. (Importance: **6/10**)
+* `frontend/src/components/HealthTimeline.jsx`: Visualizes anomaly histories and severity distributions for the currently selected sensor. (Importance: **5/10**)
+* `frontend/src/components/StartupBanner.jsx`: Interactive banner to toggle startup mode and acknowledge stale sensor flags. (Importance: **5/10**)
+* `frontend/src/components/FlagBar.jsx` & `QueryPanel.jsx`: Banners and natural language search boxes. (Importance: **5/10**)
 
 ---
 
@@ -155,8 +139,8 @@ These files implement specific business features or UI panels. Open them only wh
 These files are configuration settings, static visual assets, or test files that require no reading during general development unless writing test assertions or updating dev ops.
 
 * **Tests** (`backend/test_*.py`): Contains localized validation assertions. Read only when writing features that alter math engines or endpoint schemas. (Importance: **3/10**)
-* **Stitch Files** (`stitch_confidenceos_industrial_hmi/...`): Contains design files, mockup pages, and preview templates. Helpful for layout reference but unused by the runtime server. (Importance: **2/10**)
-* **Scenarios** (`backend/scenario*.json`): JSON specifications of mock sensor values during failure sequences. Read only when injecting new scenarios. (Importance: **2/10**)
-* **Docker & Server Configs** (`backend/Dockerfile`, `frontend/Dockerfile`, `frontend/nginx.conf`, `docker-compose.yml`): Setup scripts for containers. (Importance: **2/10**)
-* **Frontend Configs** (`eslint.config.js`, `vite.config.js`, `package.json`, `package-lock.json`): Build setups. (Importance: **1/10**)
-* **Static Assets** (`hero.png`, `*.svg`, `App.css`, `index.css`): Visual styles and images. (Importance: **1/10**)
+* **Stitch Files** (`stitch_confidenceos_industrial_hmi/...`): Mockup pages and reference preview templates. (Importance: **2/10**)
+* **Scenarios** (`backend/scenario*.json`): JSON specifications of mock sensor values during failure sequences. (Importance: **2/10**)
+* **Docker & Server Configs** (`backend/Dockerfile`, `frontend/Dockerfile`, `frontend/nginx.conf`, `docker-compose.yml`): Container deployments. (Importance: **2/10**)
+* **Frontend Configs** (`eslint.config.js`, `vite.config.js`, `package.json`): Build setups. (Importance: **1/10**)
+* **Static Assets** (`hero.png`, `index.css`): Stylesheets. (Importance: **1/10**)

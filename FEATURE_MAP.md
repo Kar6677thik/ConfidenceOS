@@ -19,7 +19,7 @@ This document catalogs every functional feature (modules V1 and V2) of Confidenc
 ### Module 2: Confidence Scoring Engine
 * **Purpose**: Evaluates real-time sensor measurements against calibration, stability, and plausibility rules to output a 0-100% composite trust score.
 * **Backend Files**: `backend/confidence.py`
-* **Frontend Files**: `frontend/src/components/SensorCard.jsx` (displays sub-scores and gauges)
+* **Frontend Files**: `frontend/src/components/SensorCard.jsx` (displays sub-scores and NAMUR NE107 Diagnostic status badges)
 * **API Endpoints**: Broadcasts real-time updates via `ws://.../ws/sensors`
 * **Dependencies**: None
 * **Implementation Status**: **Completed**
@@ -62,9 +62,9 @@ This document catalogs every functional feature (modules V1 and V2) of Confidenc
 * **Implementation Status**: **Completed**
 
 ### Module 7: Operator HMI Dashboard
-* **Purpose**: Primary control room grid layouts consolidating real-time sparklines, timelines, charts, and startup banner modules.
+* **Purpose**: Primary control room HMI layout consolidating real-time sparklines, timelines, charts, and startup banner modules.
 * **Backend Files**: `backend/main.py`
-* **Frontend Files**: `frontend/src/App.jsx` (OperatorDashboard view component)
+* **Frontend Files**: `frontend/src/views/OperatorDashboard.jsx`
 * **API Endpoints**: Unified WebSocket subscription `/ws/sensors`
 * **Dependencies**: All V1 core engines
 * **Implementation Status**: **Completed**
@@ -80,7 +80,7 @@ This document catalogs every functional feature (modules V1 and V2) of Confidenc
 ### Module 9: Fleet Manager
 * **Purpose**: Aggregates risk summaries and operational indicators for all virtual plants.
 * **Backend Files**: `backend/plants.py`
-* **Frontend Files**: `frontend/src/App.jsx` (FleetOverviewPage component)
+* **Frontend Files**: `frontend/src/views/FleetOverview.jsx`
 * **API Endpoints**: `GET /api/fleet`, `GET /api/fleet/history`
 * **Dependencies**: `backend/plants.py` PlantManager
 * **Implementation Status**: **Completed**
@@ -88,7 +88,7 @@ This document catalogs every functional feature (modules V1 and V2) of Confidenc
 ### Module 10: Predictive Failure Dashboard
 * **Purpose**: Renders predicted degradation timelines before confidence drops below acceptable levels.
 * **Backend Files**: `backend/prediction.py`
-* **Frontend Files**: `frontend/src/App.jsx` (PredictiveTimelinePage component & PredictionCard)
+* **Frontend Files**: `frontend/src/views/PredictiveTimeline.jsx`, `frontend/src/components/ConfidenceDebtPanel.jsx`
 * **API Endpoints**:
   * `GET /api/predictions/{plant_id}` (all sensors)
   * `GET /api/predictions/{plant_id}/{sensor_id}` (single sensor)
@@ -98,7 +98,7 @@ This document catalogs every functional feature (modules V1 and V2) of Confidenc
 ### Module 11: Incident Forensics & Replay
 * **Purpose**: Play, pause, and scrub back through historical data logs to dissect plant disturbances.
 * **Backend Files**: `backend/main.py` (replay endpoints)
-* **Frontend Files**: `frontend/src/App.jsx` (ForensicsPage component)
+* **Frontend Files**: `frontend/src/views/ForensicsReplay.jsx`
 * **API Endpoints**:
   * `GET /api/forensics/presets` (Texas City etc. scenarios)
   * `GET /api/forensics/{plant_id}` (historical telemetry timeline)
@@ -108,7 +108,7 @@ This document catalogs every functional feature (modules V1 and V2) of Confidenc
 ### Module 12: Causal Graph Explorer
 * **Purpose**: Shows physical causal node trees, highlighting anomaly propagations downstream.
 * **Backend Files**: `backend/causal_graph.py`
-* **Frontend Files**: `frontend/src/App.jsx` (CausalGraphPage component)
+* **Frontend Files**: `frontend/src/views/CausalGraph.jsx`, `frontend/src/components/TrustDependencyGraph.jsx`
 * **API Endpoints**: `GET /api/graph/{plant_id}`
 * **Dependencies**: Directed topology maps
 * **Implementation Status**: **Completed**
@@ -116,7 +116,7 @@ This document catalogs every functional feature (modules V1 and V2) of Confidenc
 ### Module 13: Compliance Audits Panel
 * **Purpose**: Compiles alarm records, sensor stats, and shift logs into audit sheets.
 * **Backend Files**: `backend/main.py` (compliance endpoint)
-* **Frontend Files**: `frontend/src/App.jsx` (CompliancePage component)
+* **Frontend Files**: `frontend/src/views/CompliancePortal.jsx`
 * **API Endpoints**: `POST /api/compliance/generate`
 * **Dependencies**: Shift briefs database logs
 * **Implementation Status**: **Completed**
@@ -124,24 +124,39 @@ This document catalogs every functional feature (modules V1 and V2) of Confidenc
 ### Module 14: Simulation Sandbox
 * **Purpose**: Isolated sandbox testing of simulated scenarios without modifying production databases.
 * **Backend Files**: `backend/main.py` (sandbox run endpoint)
-* **Frontend Files**: `frontend/src/App.jsx` (SandboxPage component)
+* **Frontend Files**: `frontend/src/views/SandboxSimulator.jsx`
 * **API Endpoints**: `POST /api/sandbox/run`
 * **Dependencies**: Isolated instances of simulator and analytics engines
 * **Implementation Status**: **Completed**
 
-### Module 15: Adaptive Plausibility Envelopes (New V2 addition)
+### Module 15: Adaptive Plausibility Envelopes
 * **Purpose**: Computes operating envelopes dynamically by calculating mean and standard deviation (3-sigma) over recent anomaly-free historical readings.
 * **Backend Files**: `backend/adaptive_thresholds.py`
-* **Frontend Files**: `frontend/src/App.jsx` (EngineerDeepDive info section renders envelope details)
+* **Frontend Files**: `frontend/src/views/EngineerDeepDive.jsx` (Engineer Deep-Dive page)
 * **API Endpoints**: `GET /api/adaptive-thresholds/{plant_id}`
 * **Dependencies**: SQLite database tables (`SensorReading`, `AnomalyLog`, `AdaptiveEnvelopeLog`)
+* **Implementation Status**: **Completed**
+
+### Module 16: OPC UA Server Adapter Integration (New)
+* **Purpose**: Template client showing how the system consumes live process data tags from an external OPC UA server.
+* **Backend Files**: `backend/opc_ua_adapter.py`, `backend/tag_provider.py`
+* **Frontend Files**: None (operates as a database tag service feed)
+* **API Endpoints**: None (direct connection via `opc.tcp://`)
+* **Dependencies**: `asyncua` (optional, falls back gracefully to shadow mode)
+* **Implementation Status**: **Completed**
+
+### Module 17: ERP Work Order Integration (New)
+* **Purpose**: Structured exporter that parses handover briefs and active incidents to compile a Maximo / SAP PM compatible work order payload.
+* **Backend Files**: None (executed on-the-fly client-side)
+* **Frontend Files**: `frontend/src/components/HandoverBrief.jsx`
+* **API Endpoints**: None (direct JSON download link)
+* **Dependencies**: Handover brief data structure
 * **Implementation Status**: **Completed**
 
 ---
 
 ## 2. Future Enhancements & Recommendations
 
-Since all baseline V1 and V2 modules have been completed, development focuses on stability and UX:
-1. **Dynamic Graph Layout Styling**: Upgrade CausalGraphPage node layouts from static SVG positioning to dynamic network physics (e.g. via D3 or React Flow).
+1. **Dynamic Graph Layout Physics**: Upgrade Causal Graph node layouts from static SVG positioning to dynamic force-directed layouts (e.g. via D3 or React Flow).
 2. **Offline Replay Scrubbing**: Allow playing back live-saved database chunks beyond the pre-configured Texas City preset.
 3. **Database Migration Pipeline**: Integrate Alembic for schema migrations as databases scale.

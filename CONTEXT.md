@@ -361,13 +361,14 @@ Current routes:
 
 | Route | Page | Purpose |
 |---|---|---|
-| `/` | `FleetOverviewPage` | Fleet risk overview and plant cards. |
-| `/operator` | `OperatorDashboard` | Live HMI dashboard for selected plant. |
-| `/predictions` | `PredictiveTimelinePage` | Forecast view and action queue. |
-| `/forensics` | `ForensicsPage` | Replay preset or recent plant replay. |
-| `/graph` | `CausalGraphPage` | Causal graph visualization. |
-| `/compliance` | `CompliancePage` | Generate/download compliance reports. |
-| `/sandbox` | `SandboxPage` | Run simulated failure modes. |
+| `/` / `/integrity` | `FleetOverview` | Fleet risk overview and plant cards. |
+| `/operator` | `OperatorDashboard` | Live HMI dashboard for selected plant with NAMUR statuses. |
+| `/predictions` | `PredictiveTimeline` | Forecast view, action queue, and Confidence Debt priorities. |
+| `/forensics` | `ForensicsReplay` | Replay preset or recent plant replay. |
+| `/graph` | `CausalGraph` | Causal graph visualization and trust dependencies graph. |
+| `/compliance` | `CompliancePortal` | Generate/download compliance reports. |
+| `/sandbox` | `SandboxSimulator` | Run simulated failure modes. |
+| `/engineer` | `EngineerDeepDive` | Engineer deep-dive envelope visualizer. |
 
 ### Global State
 
