@@ -11,6 +11,13 @@ from __future__ import annotations
 import time
 from datetime import datetime, timezone
 
+from asset_model import (
+    affected_decision_by_contract,
+    criticality_weight,
+    load_asset_model,
+    mass_balance_validation,
+)
+
 
 CONFIDENCE_WEIGHTS = {
     "calibration": 0.30,
@@ -157,7 +164,7 @@ def update_confidence_debt(
         tier = item.get("tier", "HIGH")
         tier_weight = TIER_WEIGHTS.get(tier, 0.0)
         sensor_type = reading_type.get(sid)
-        criticality = SENSOR_CRITICALITY_BY_TYPE.get(sensor_type, 1.0)
+        criticality = criticality_weight(sid, sensor_type)
         increment = (elapsed_seconds / 3600.0) * tier_weight * criticality * context_weight
         if tier_weight > 0:
             state["seconds_below_high"] = float(state.get("seconds_below_high", 0.0)) + elapsed_seconds
@@ -279,42 +286,56 @@ def build_trust_dependency_graph(
     mass_balance: dict | None,
     incidents: list[dict],
 ) -> dict:
+    asset_model = load_asset_model()
+    relationship = mass_balance_validation(asset_model)
+    level_tag = relationship.get("validated_tag", "LT-5100")
+    flow_tags = relationship.get("source_tags", ["FI-2010", "FO-2020"])
+    inferred_variable = relationship.get("inferred_variable", "implied_level")
+    feed_decision = affected_decision_by_contract("increase_feed", asset_model)
+    feed_decision_id = feed_decision.get("id", "feed_increase_decision")
+    feed_decision_label = feed_decision.get("label", "Feed increase decision")
     confidence_by_id = {item.get("sensor_id"): item for item in confidence or []}
     readings_by_id = {item.get("sensor_id"): item for item in readings or []}
-    level = confidence_by_id.get("LT-5100", {})
-    flow_in = confidence_by_id.get("FI-2010", {})
-    flow_out = confidence_by_id.get("FO-2020", {})
+    level = confidence_by_id.get(level_tag, {})
+    flow_in = confidence_by_id.get(flow_tags[0], {}) if flow_tags else {}
+    flow_out = confidence_by_id.get(flow_tags[1], {}) if len(flow_tags) > 1 else {}
     mb_flags = (mass_balance or {}).get("flags", [])
     lead_incident = (incidents or [{}])[0] if incidents else {}
     contract = lead_incident.get("action_contract") or {}
     blocked = contract.get("blocked_decisions", [])
 
     nodes = [
-        _sensor_node("LT-5100", "measured_level", confidence_by_id, readings_by_id),
-        _sensor_node("FI-2010", "inflow_evidence", confidence_by_id, readings_by_id),
-        _sensor_node("FO-2020", "outflow_evidence", confidence_by_id, readings_by_id),
+        _sensor_node(level_tag, "measured_level", confidence_by_id, readings_by_id),
+        *[
+            _sensor_node(tag, "flow_evidence", confidence_by_id, readings_by_id)
+            for tag in flow_tags
+        ],
         {
-            "id": "implied_level",
+            "id": inferred_variable,
             "type": "inferred_variable",
             "label": "Flow-implied level",
             "trusted": not mb_flags and _is_high(flow_in) and _is_high(flow_out),
-            "evidence": "FI-2010 and FO-2020 mass-balance relationship",
+            "evidence": relationship.get("description", "Mass-balance validation relationship"),
             "value": (mass_balance or {}).get("implied_level"),
+            "asset_relationship": relationship.get("id"),
         },
         {
-            "id": "feed_increase_decision",
+            "id": feed_decision_id,
             "type": "affected_decision",
-            "label": "Feed increase decision",
+            "label": feed_decision_label,
             "status": "blocked_until_verified" if "increase_feed" in blocked else "allowed_with_monitoring",
             "handover_required": "increase_feed" in blocked,
+            "depends_on": feed_decision.get("depends_on", []),
         },
     ]
 
     edges = [
-        {"source": "LT-5100", "target": "implied_level", "relationship": "contradicts_or_validates"},
-        {"source": "FI-2010", "target": "implied_level", "relationship": "supports"},
-        {"source": "FO-2020", "target": "implied_level", "relationship": "supports"},
-        {"source": "implied_level", "target": "feed_increase_decision", "relationship": "affects_decision"},
+        {"source": level_tag, "target": inferred_variable, "relationship": "contradicts_or_validates"},
+        *[
+            {"source": tag, "target": inferred_variable, "relationship": "supports"}
+            for tag in flow_tags
+        ],
+        {"source": inferred_variable, "target": feed_decision_id, "relationship": "affects_decision"},
     ]
 
     return {
@@ -323,6 +344,9 @@ def build_trust_dependency_graph(
         "nodes": nodes,
         "edges": edges,
         "summary": _trust_graph_summary(level, flow_in, flow_out, mb_flags, blocked),
+        "asset_model_id": asset_model.get("model_id"),
+        "equipment_id": asset_model.get("equipment", {}).get("equipment_id"),
+        "read_only_trust_layer": asset_model.get("read_only_trust_layer", True),
         "deterministic": True,
     }
 

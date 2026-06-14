@@ -12,6 +12,7 @@ Plants:
 
 from pathlib import Path
 from simulator import SensorSimulator
+from tag_provider import SimulatorProvider
 from confidence import ConfidenceEngine
 from mass_balance import MassBalanceEngine, DEFAULT_TOLERANCE
 from startup import StartupManager
@@ -79,6 +80,7 @@ class PlantInstance:
 
         # Create independent instances
         self.simulator = SensorSimulator()
+        self.tag_provider = SimulatorProvider(self.simulator)
         self.confidence_engine = ConfidenceEngine()
         self.mass_balance_engine = MassBalanceEngine()
         self.startup_manager = StartupManager()
@@ -116,6 +118,7 @@ class PlantInstance:
             "name": self.name,
             "type": self.plant_type,
             "location": self.location,
+            "tag_provider": self.tag_provider.to_dict(),
         }
 
 

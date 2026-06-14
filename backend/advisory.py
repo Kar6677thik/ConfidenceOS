@@ -9,6 +9,7 @@ it never changes simulator or control state.
 import time
 from typing import Any
 
+from asset_model import action_contract_decisions, trusted_substitute_tags
 
 SEVERITY_RANK = {"CRITICAL": 0, "WARNING": 1, "LOW": 1, "MEDIUM": 2, "INFO": 3}
 
@@ -385,7 +386,11 @@ def _action_contract(
     for item in extra_substitutes or []:
         substitutes.append(item)
     if kind in ("inventory_accumulation", "level_integrity"):
-        blocked = ["increase_feed", "increase_load", "accept_handover_without_verification"]
+        blocked = action_contract_decisions() or [
+            "increase_feed",
+            "increase_load",
+            "accept_handover_without_verification",
+        ]
         exits = ["affected level confidence restored above 80%", "manual level verification token active"]
     elif kind == "manual_verification":
         blocked = ["accept_startup_conditions", "accept_handover_without_verification"]
@@ -404,7 +409,7 @@ def _action_contract(
 
 
 def _trusted_substitutes(readings: list[dict]) -> list[str]:
-    substitutes = []
+    substitutes = trusted_substitute_tags(readings)
     for reading in readings:
         sid = reading.get("sensor_id")
         stype = reading.get("sensor_type")

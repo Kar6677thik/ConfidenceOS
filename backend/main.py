@@ -53,6 +53,7 @@ from causal_graph import get_graph_state
 from adaptive_thresholds import compute_adaptive_envelopes
 from advisory import detect_plant_context, build_incidents, build_timeline_events
 from assumptions import build_confidence_explanation, load_assumptions
+from asset_model import load_asset_model
 from decision_integrity import (
     active_verification_tokens,
     annotate_incidents_for_handover,
@@ -61,6 +62,7 @@ from decision_integrity import (
     build_trust_dependency_graph,
     update_confidence_debt,
 )
+from tag_provider import provider_catalog
 import nlquery
 
 
@@ -166,8 +168,9 @@ async def _plant_tick_loop(plant_id: str, plant):
                 plant.confidence_engine.clear_tier_thresholds()
                 plant.mass_balance_engine.tolerance = BASE_MB_TOLERANCE
 
-            # Generate readings
-            readings = plant.simulator.tick()
+            # Read tags through the read-only provider abstraction. ConfidenceOS
+            # observes plant state only; it does not write control commands.
+            readings = plant.tag_provider.read_tags()
             plant.latest_readings = readings
 
             # Compute confidence scores
@@ -333,7 +336,7 @@ async def _plant_tick_loop(plant_id: str, plant):
             _plant_loop_status[plant_id] = {
                 "status": "ok",
                 "last_tick": now,
-                "tick_count": plant.simulator.tick_count,
+                "tick_count": plant.tag_provider.tick_count,
                 "last_error": None,
             }
             await asyncio.sleep(1.0)
@@ -344,7 +347,7 @@ async def _plant_tick_loop(plant_id: str, plant):
         _plant_loop_status[plant_id] = {
             "status": "error",
             "last_tick": time.time(),
-            "tick_count": getattr(plant.simulator, "tick_count", 0),
+            "tick_count": getattr(plant.tag_provider, "tick_count", 0),
             "last_error": str(e),
         }
         db.close()
@@ -569,6 +572,39 @@ def get_assumptions():
         "assumptions": assumptions,
         "count": len(assumptions),
         "source": "backend/assumptions.json",
+    }
+
+
+@app.get("/api/asset-model")
+def get_asset_model():
+    """Return the demo vessel asset model used for trust/evidence metadata."""
+    return {
+        "asset_model": load_asset_model(),
+        "source": "backend/asset_model.json",
+        "read_only_trust_layer": True,
+    }
+
+
+@app.get("/api/integration/read-only-layer")
+def get_read_only_integration_layer():
+    """Describe how ConfidenceOS sits beside control systems as a read-only trust layer."""
+    asset_model = load_asset_model()
+    return {
+        "read_only": True,
+        "control_writes_enabled": False,
+        "writes_supported": False,
+        "positioning": (
+            "ConfidenceOS subscribes to tag data and publishes trust, evidence, "
+            "handover, and decision-freeze metadata. It does not replace DCS/PLC/HMI "
+            "control layers or write commands to ABB-class systems."
+        ),
+        "active_providers": {
+            plant_id: plant.tag_provider.to_dict()
+            for plant_id, plant in plant_manager.get_all().items()
+        },
+        "available_providers": provider_catalog(),
+        "asset_model_id": asset_model.get("model_id"),
+        "equipment_id": asset_model.get("equipment", {}).get("equipment_id"),
     }
 
 
@@ -884,8 +920,8 @@ def load_scenario(scenario_path: Optional[str] = None, plant_id: str = Query(def
     path = Path(scenario_path) if scenario_path else DEFAULT_SCENARIO
     if not path.exists():
         raise HTTPException(status_code=404, detail=f"Scenario file not found: {path}")
-    plant.simulator.load_scenario(path)
-    plant.simulator.reset()
+    plant.tag_provider.load_scenario(path)
+    plant.tag_provider.reset()
     plant.mass_balance_engine.reset()
     return {"status": "loaded", "scenario": str(path)}
 
@@ -894,7 +930,7 @@ def load_scenario(scenario_path: Optional[str] = None, plant_id: str = Query(def
 def reset_scenario(plant_id: str = Query(default="plant-a")):
     """Reset the simulator clock and state."""
     plant = plant_manager.get(plant_id)
-    plant.simulator.reset()
+    plant.tag_provider.reset()
     plant.mass_balance_engine.reset()
     return {"status": "reset"}
 
@@ -1561,14 +1597,17 @@ def health_check():
     return {
         "status": "ok",
         "version": "2.0.0",
-        "uptime_seconds": round(plant_a.simulator.elapsed(), 1),
-        "tick_count": plant_a.simulator.tick_count,
+        "uptime_seconds": round(plant_a.tag_provider.elapsed(), 1),
+        "tick_count": plant_a.tag_provider.tick_count,
         "active_connections": len(active_connections),
         "plants": len(plant_manager.plants),
         "plant_loops": _plant_loop_status,
         "db_status": "writing" if any(s.get("status") == "ok" for s in _plant_loop_status.values()) else "warming_up",
         "modules": {
             "sensor_simulator": "active",
+            "tag_provider": "active",
+            "read_only_trust_layer": "active",
+            "asset_model": "active",
             "confidence_engine": "active",
             "confidence_explainability": "active",
             "assumption_register": "active",

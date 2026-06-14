@@ -242,6 +242,16 @@ check("GET /api/assumptions returns 200", code == 200)
 check("Assumptions include confidence_weights", "confidence_weights" in data.get("assumptions", {}))
 check("Assumptions include mass_balance_tolerance", "mass_balance_tolerance" in data.get("assumptions", {}))
 
+code, data = GET("/api/asset-model")
+check("GET /api/asset-model returns 200", code == 200)
+check("Asset model is read-only trust layer", data.get("read_only_trust_layer") is True)
+check("Asset model equipment id V-5100", data.get("asset_model", {}).get("equipment", {}).get("equipment_id") == "V-5100")
+
+code, data = GET("/api/integration/read-only-layer")
+check("GET /api/integration/read-only-layer returns 200", code == 200)
+check("Integration layer disables control writes", data.get("control_writes_enabled") is False)
+check("Integration layer lists SimulatorProvider", any(p.get("provider_id") == "simulator" for p in data.get("available_providers", [])))
+
 code, data = GET("/api/confidence/explain/LT-5100")
 check("GET /api/confidence/explain/LT-5100 returns 200", code == 200)
 for key in ("formula", "sub_scores", "dominant_factor", "strongest_evidence",

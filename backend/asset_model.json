@@ -1,0 +1,95 @@
+{
+  "model_id": "confidenceos_demo_vessel_v1",
+  "read_only_trust_layer": true,
+  "integration_posture": "ConfidenceOS subscribes to process tags and emits trust/evidence metadata only. It does not write control commands, setpoints, or controller modes.",
+  "equipment": {
+    "equipment_id": "V-5100",
+    "name": "Raffinate splitter demo vessel",
+    "type": "process_vessel",
+    "criticality": "high",
+    "sensor_tags": [
+      {
+        "tag": "LT-5100",
+        "sensor_type": "level",
+        "role": "primary_level",
+        "unit": "ft",
+        "criticality": "safety_critical"
+      },
+      {
+        "tag": "FI-2010",
+        "sensor_type": "flow_in",
+        "role": "mass_balance_input",
+        "unit": "gpm",
+        "criticality": "high"
+      },
+      {
+        "tag": "FO-2020",
+        "sensor_type": "flow_out",
+        "role": "mass_balance_output",
+        "unit": "gpm",
+        "criticality": "high"
+      },
+      {
+        "tag": "PT-3100",
+        "sensor_type": "pressure",
+        "role": "independent_process_reference",
+        "unit": "psi",
+        "criticality": "medium"
+      },
+      {
+        "tag": "TT-4100",
+        "sensor_type": "temperature",
+        "role": "process_context",
+        "unit": "degF",
+        "criticality": "medium"
+      },
+      {
+        "tag": "ZT-6100",
+        "sensor_type": "valve",
+        "role": "final_element_position",
+        "unit": "%",
+        "criticality": "high"
+      }
+    ],
+    "relationships": [
+      {
+        "id": "mass_balance_level_validation",
+        "type": "mass_balance_validation",
+        "source_tags": ["FI-2010", "FO-2020"],
+        "validated_tag": "LT-5100",
+        "inferred_variable": "implied_level",
+        "description": "Inflow and outflow are integrated to validate whether indicated vessel level is physically plausible."
+      },
+      {
+        "id": "pressure_context_for_inventory",
+        "type": "process_context",
+        "source_tags": ["PT-3100"],
+        "validated_tag": "LT-5100",
+        "description": "Pressure is not a level substitute, but it is useful context when inventory accumulation is suspected."
+      }
+    ],
+    "affected_decisions": [
+      {
+        "id": "feed_increase_decision",
+        "label": "Feed increase decision",
+        "contract_decision": "increase_feed",
+        "depends_on": ["LT-5100", "implied_level"],
+        "blocked_when": ["level_confidence_low", "mass_balance_divergence"]
+      },
+      {
+        "id": "load_increase_decision",
+        "label": "Load increase decision",
+        "contract_decision": "increase_load",
+        "depends_on": ["LT-5100", "FI-2010", "FO-2020"],
+        "blocked_when": ["inventory_accumulation_unreliable_level"]
+      },
+      {
+        "id": "handover_acceptance_decision",
+        "label": "Accept handover without verification",
+        "contract_decision": "accept_handover_without_verification",
+        "depends_on": ["LT-5100", "manual_level_check"],
+        "blocked_when": ["unresolved_decision_freeze", "active_handover_debt"]
+      }
+    ]
+  }
+}
