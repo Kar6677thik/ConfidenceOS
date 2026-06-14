@@ -74,6 +74,32 @@ export default function HandoverBrief({ apiBase = '/api' }) {
     setTimeout(() => setCopied(false), 2000);
   }, [brief]);
 
+  const handleExportWorkOrder = useCallback(() => {
+    if (!brief) return;
+    const summary = brief.system_state_summary || {};
+    const leadIncident = summary.incidents?.[0] || {};
+    
+    const workOrder = {
+      equipment_id: leadIncident.affected_sensors?.[0] || "V-5100",
+      priority: summary.mode === "STARTUP" || leadIncident.severity === "CRITICAL" ? "1-HIGH" : "2-MEDIUM",
+      problem_description: leadIncident.summary || "Instrument integrity drift/abnormal situation detected by ConfidenceOS.",
+      suggested_action: leadIncident.first_action || "Perform physical loop check and field recalibration.",
+      system_metadata: {
+        exported_at: new Date().toISOString(),
+        plant_id: plantId,
+        source_incident_id: leadIncident.incident_id || "N/A"
+      }
+    };
+
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(workOrder, null, 2));
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute("href", dataStr);
+    downloadAnchor.setAttribute("download", `work_order_${plantId}_${Date.now()}.json`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+  }, [brief, plantId]);
+
   return (
     <section className="industrial-panel w-full">
       <div className="industrial-panel-header">
@@ -82,6 +108,9 @@ export default function HandoverBrief({ apiBase = '/api' }) {
           <div className="flex gap-2">
             <button onClick={handleCopy} className="industrial-control text-[var(--data-mono)]">
               {copied ? 'Copied' : 'Copy'}
+            </button>
+            <button onClick={handleExportWorkOrder} className="industrial-control text-[var(--safe-text)]">
+              Export Work Order
             </button>
             <button onClick={() => window.print()} className="industrial-control text-[var(--data-mono)]">
               Print

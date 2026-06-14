@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>Operator Dashboard - ConfidenceOS V2</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap"
+        rel="stylesheet" />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&amp;family=Geist:wght@400;500;600;700&amp;display=swap"
+        rel="stylesheet" />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap"
+        rel="stylesheet" />
+    <script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-container": "#1d2023",
+                        "inverse-primary": "#00668a",
+                        "surface-container-low": "#191c1f",
+                        "surface-variant": "#323538",
+                        "on-primary-fixed": "#001e2c",
+                        "on-primary-container": "#004a65",
+                        "on-background": "#e1e2e7",
+                        "secondary-fixed-dim": "#c3c6cd",
+                        "tertiary-container": "#acb2bc",
+                        "surface-bright": "#37393d",
+                        "on-surface": "#e1e2e7",
+                        "error-container": "#93000a",
+                        "on-secondary-container": "#b2b5bc",
+                        "background": "#111417",
+                        "secondary-fixed": "#e0e2ea",
+                        "on-error-container": "#ffdad6",
+                        "tertiary-fixed": "#dde3ed",
+                        "outline-variant": "#3d4850",
+                        "inverse-on-surface": "#2e3134",
+                        "on-error": "#690005",
+                        "on-primary": "#003549",
+                        "tertiary-fixed-dim": "#c1c7d1",
+                        "secondary": "#c3c6cd",
+                        "on-secondary-fixed-variant": "#43474d",
+                        "surface-container-lowest": "#0b0e11",
+                        "outline": "#87929b",
+                        "primary-fixed": "#c3e8ff",
+                        "on-tertiary-fixed-variant": "#414750",
+                        "tertiary": "#c8ced8",
+                        "surface-container-high": "#272a2e",
+                        "surface": "#111417",
+                        "on-tertiary-fixed": "#161c23",
+                        "on-tertiary": "#2b3139",
+                        "on-secondary-fixed": "#181c21",
+                        "error": "#ffb4ab",
+                        "primary": "#8fd6ff",
+                        "primary-fixed-dim": "#7ad0ff",
+                        "on-secondary": "#2d3136",
+                        "inverse-surface": "#e1e2e7",
+                        "surface-tint": "#7ad0ff",
+                        "on-primary-fixed-variant": "#004c69",
+                        "secondary-container": "#43474d",
+                        "surface-container-highest": "#323538",
+                        "on-tertiary-container": "#3f454d",
+                        "on-surface-variant": "#bcc8d1",
+                        "primary-container": "#00bfff",
+                        "surface-dim": "#111417"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "spacing": {
+                        "xs": "4px",
+                        "lg": "24px",
+                        "margin": "20px",
+                        "sm": "8px",
+                        "gutter": "12px",
+                        "unit": "4px",
+                        "xl": "32px",
+                        "md": "16px"
+                    },
+                    "fontFamily": {
+                        "body-sm": ["Inter"],
+                        "label-caps": ["Inter"],
+                        "data-md": ["Geist"],
+                        "headline-md": ["Inter"],
+                        "data-lg": ["Geist"],
+                        "display-lg": ["Inter"],
+                        "body-md": ["Inter"],
+                        "headline-sm": ["Inter"]
+                    },
+                    "fontSize": {
+                        "body-sm": ["12px", { "lineHeight": "16px", "fontWeight": "400" }],
+                        "label-caps": ["11px", { "lineHeight": "14px", "letterSpacing": "0.05em", "fontWeight": "700" }],
+                        "data-md": ["14px", { "lineHeight": "18px", "fontWeight": "500" }],
+                        "headline-md": ["24px", { "lineHeight": "32px", "fontWeight": "600" }],
+                        "data-lg": ["20px", { "lineHeight": "24px", "letterSpacing": "0.02em", "fontWeight": "600" }],
+                        "display-lg": ["48px", { "lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "headline-sm": ["18px", { "lineHeight": "24px", "fontWeight": "600" }]
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            background-color: #0B0E11;
+            color: #e1e2e7;
+            overflow-x: hidden;
+        }
+
+        /* Layer 1 Surface */
+        .surface-card {
+            background-color: #15191E;
+            border: 1px solid #2D333B;
+        }
+
+        /* Confidence Glow */
+        .confidence-glow {
+            box-shadow: 0 0 12px rgba(0, 191, 255, 0.2);
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #3d4850;
+            border-radius: 3px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #87929b;
+        }
+
+        /* Status Pip */
+        .status-pip {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .status-success {
+            background-color: #00BFFF;
+            box-shadow: 0 0 8px rgba(0, 191, 255, 0.4);
+        }
+
+        .status-critical {
+            background-color: #ffb4ab;
+            box-shadow: 0 0 8px rgba(255, 180, 171, 0.4);
+        }
+
+        .status-warning {
+            background-color: #ffda66;
+            box-shadow: 0 0 8px rgba(255, 218, 102, 0.4);
+        }
+
+        /* Confidence Bar Gradient */
+        .confidence-gradient {
+            background: linear-gradient(90deg, #2D333B 0%, #00BFFF 100%);
+        }
+
+        /* Sparkline Path Animation */
+        .sparkline-path {
+            stroke-dasharray: 1000;
+            stroke-dashoffset: 1000;
+            animation: dash 2s ease-out forwards;
+        }
+
+        @keyframes dash {
+            to {
+                stroke-dashoffset: 0;
+            }
+        }
+    </style>
+</head>
+
+<body class="flex flex-col h-screen font-body-md text-body-md antialiased">
+    <!-- TopNavBar -->
+    <header
+        class="flex justify-between items-center w-full px-lg h-16 bg-surface-container-low border-b border-outline-variant/30 flex-shrink-0 z-50 relative shadow-none">
+        <div class="flex items-center gap-lg">
+            <div class="font-headline-md text-headline-md font-bold text-primary tracking-tight">ConfidenceOS V2</div>
+            <nav class="hidden md:flex gap-md h-16 items-center pt-1">
+                <a class="text-on-surface-variant font-medium pb-1 hover:text-primary transition-colors duration-200"
+                    href="#">Fleet</a>
+                <a class="text-primary font-bold border-b-2 border-primary pb-1 opacity-80 transition-opacity"
+                    href="#">Operator</a>
+                <a class="text-on-surface-variant font-medium pb-1 hover:text-primary transition-colors duration-200"
+                    href="#">Engineer</a>
+                <a class="text-on-surface-variant font-medium pb-1 hover:text-primary transition-colors duration-200"
+                    href="#">Predict</a>
+                <a class="text-on-surface-variant font-medium pb-1 hover:text-primary transition-colors duration-200"
+                    href="#">Forensics</a>
+                <a class="text-on-surface-variant font-medium pb-1 hover:text-primary transition-colors duration-200"
+                    href="#">Compliance</a>
+                <a class="text-on-surface-variant font-medium pb-1 hover:text-primary transition-colors duration-200"
+                    href="#">Graph</a>
+                <a class="text-on-surface-variant font-medium pb-1 hover:text-primary transition-colors duration-200"
+                    href="#">Sandbox</a>
+            </nav>
+        </div>
+        <div class="flex items-center gap-sm">
+            <div
+                class="hidden md:flex items-center border border-outline-variant/50 rounded-full bg-background px-md py-sm focus-within:border-primary focus-within:shadow-[inset_0_0_2px_rgba(0,191,255,0.5)] transition-all">
+                <input
+                    class="bg-transparent border-none outline-none text-body-sm font-body-sm w-48 text-on-surface placeholder:text-outline focus:ring-0 p-0 h-4"
+                    placeholder="Search..." type="text" />
+                <span class="material-symbols-outlined text-outline text-[16px] ml-sm">search</span>
+            </div>
+            <button class="p-sm text-on-surface-variant hover:text-primary transition-colors">
+                <span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">notifications</span>
+            </button>
+            <button class="p-sm text-on-surface-variant hover:text-primary transition-colors">
+                <span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">settings</span>
+            </button>
+            <button class="p-sm text-on-surface-variant hover:text-primary transition-colors">
+                <span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">account_circle</span>
+            </button>
+            <button
+                class="ml-sm px-md py-sm bg-primary-container text-on-primary-fixed font-data-md text-data-md rounded font-semibold hover:bg-primary transition-colors">
+                Operator
+            </button>
+        </div>
+    </header>
+    <!-- STARTUP MODE BANNER -->
+    <div
+        class="w-full bg-error-container/20 border-b border-error/20 py-sm px-lg flex items-center justify-center gap-sm flex-shrink-0">
+        <span class="material-symbols-outlined text-error text-[18px]">warning</span>
+        <span class="font-label-caps text-label-caps text-error tracking-widest">STARTUP MODE ACTIVE - ELEVATED
+            MONITORING REQUIRED</span>
+    </div>
+    <!-- Main Content Area -->
+    <div class="flex flex-1 overflow-hidden">
+        <!-- Center/Left Canvas: Sensor Grid & Chart -->
+        <main class="flex-1 flex flex-col p-md gap-md overflow-y-auto">
+            <div class="flex justify-between items-end mb-sm">
+                <div>
+                    <h1 class="font-headline-sm text-headline-sm text-on-surface">Unit 3 - Distillation</h1>
+                    <p class="font-body-sm text-body-sm text-on-surface-variant mt-1">Operator Dashboard - Live Data</p>
+                </div>
+                <div class="flex gap-sm">
+                    <span class="font-data-md text-data-md text-outline">Last Update: <span
+                            class="text-primary font-mono">10:42:15 AM</span></span>
+                </div>
+            </div>
+            <!-- Dashboard Bento Grid -->
+            <div class="grid grid-cols-12 gap-md flex-1">
+                <!-- Sensor Grid (Left Column) -->
+                <div class="col-span-12 xl:col-span-4 flex flex-col gap-sm">
+                    <div class="font-label-caps text-label-caps text-on-surface-variant mb-xs">Critical Sensors</div>
+                    <!-- Sensor Tile 1 -->
+                    <div
+                        class="surface-card p-sm rounded-lg relative overflow-hidden group hover:bg-[#1C2128] transition-colors cursor-pointer">
+                        <div class="flex justify-between items-start mb-xs">
+                            <span class="font-data-md text-data-md text-on-surface">LT-5100</span>
+                            <div class="status-pip status-success"></div>
+                        </div>
+                        <div class="font-display-lg text-display-lg text-primary mb-2">42.8<span
+                                class="text-data-md text-outline ml-1">%</span></div>
+                        <div class="w-full h-[4px] bg-surface-container-high rounded-full overflow-hidden mb-1">
+                            <div class="h-full confidence-gradient w-[92%]"></div>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="font-body-sm text-body-sm text-outline text-[10px]">Confidence: 92%</span>
+                            <span class="font-body-sm text-body-sm text-primary text-[10px]">Nominal variance</span>
+                        </div>
+                    </div>
+                    <!-- Sensor Tile 2 -->
+                    <div
+                        class="surface-card p-sm rounded-lg relative overflow-hidden group hover:bg-[#1C2128] transition-colors cursor-pointer confidence-glow border-primary/30">
+                        <div class="flex justify-between items-start mb-xs">
+                            <span class="font-data-md text-data-md text-on-surface">PT-201</span>
+                            <div class="status-pip status-warning"></div>
+                        </div>
+                        <div class="font-display-lg text-display-lg text-error mb-2">145.2<span
+                                class="text-data-md text-outline ml-1">PSI</span></div>
+                        <div class="w-full h-[4px] bg-surface-container-high rounded-full overflow-hidden mb-1">
+                            <div class="h-full bg-error w-[68%]"></div>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="font-body-sm text-body-sm text-outline text-[10px]">Confidence: 68%</span>
+                            <span class="font-body-sm text-body-sm text-error text-[10px]">Mass-balance
+                                divergence</span>
+                        </div>
+                    </div>
+                    <!-- Sensor Tile 3 -->
+                    <div
+                        class="surface-card p-sm rounded-lg relative overflow-hidden group hover:bg-[#1C2128] transition-colors cursor-pointer">
+                        <div class="flex justify-between items-start mb-xs">
+                            <span class="font-data-md text-data-md text-on-surface">FI-101</span>
+                            <div class="status-pip status-success"></div>
+                        </div>
+                        <div class="font-display-lg text-display-lg text-on-surface mb-2">12,400<span
+                                class="text-data-md text-outline ml-1">BPD</span></div>
+                        <div class="w-full h-[4px] bg-surface-container-high rounded-full overflow-hidden mb-1">
+                            <div class="h-full confidence-gradient w-[98%]"></div>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="font-body-sm text-body-sm text-outline text-[10px]">Confidence: 98%</span>
+                            <span class="font-body-sm text-body-sm text-primary text-[10px]">Stable flow</span>
+                        </div>
+                    </div>
+                    <!-- Sensor Tile 4 -->
+                    <div
+                        class="surface-card p-sm rounded-lg relative overflow-hidden group hover:bg-[#1C2128] transition-colors cursor-pointer">
+                        <div class="flex justify-between items-start mb-xs">
+                            <span class="font-data-md text-data-md text-on-surface">TI-305</span>
+                            <div class="status-pip status-success"></div>
+                        </div>
+                        <div class="font-display-lg text-display-lg text-on-surface mb-2">350.1<span
+                                class="text-data-md text-outline ml-1">°F</span></div>
+                        <div class="w-full h-[4px] bg-surface-container-high rounded-full overflow-hidden mb-1">
+                            <div class="h-full confidence-gradient w-[85%]"></div>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="font-body-sm text-body-sm text-outline text-[10px]">Confidence: 85%</span>
+                            <span class="font-body-sm text-body-sm text-primary text-[10px]">Historical alignment</span>
+                        </div>
+                    </div>
+                </div>
+                <!-- Center Chart (Right Column) -->
+                <div class="col-span-12 xl:col-span-8 flex flex-col gap-sm h-full min-h-[400px]">
+                    <div
+                        class="font-label-caps text-label-caps text-on-surface-variant mb-xs flex justify-between items-center">
+                        <span>Mass-Balance Cross-Check</span>
+                        <div class="flex gap-2">
+                            <div class="flex items-center gap-1">
+                                <div class="w-2 h-2 rounded-full bg-primary"></div><span
+                                    class="text-[10px]">Measured</span>
+                            </div>
+                            <div class="flex items-center gap-1">
+                                <div class="w-2 h-2 rounded-full border border-outline border-dashed"></div><span
+                                    class="text-[10px]">Implied</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="surface-card flex-1 rounded-lg p-md relative overflow-hidden flex flex-col">
+                        <!-- Chart Header / Stats -->
+                        <div class="flex gap-lg mb-md">
+                            <div>
+                                <div class="font-body-sm text-body-sm text-outline">Current Gap</div>
+                                <div class="font-data-lg text-data-lg text-error">12.4%</div>
+                            </div>
+                            <div>
+                                <div class="font-body-sm text-body-sm text-outline">Trend (1h)</div>
+                                <div class="font-data-lg text-data-lg text-warning flex items-center">
+                                    <span class="material-symbols-outlined text-[16px] mr-1">trending_up</span>
+                                    Diverging
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Mock Chart Area using SVG -->
+                        <div class="flex-1 relative w-full h-full border-b border-l border-outline-variant/30">
+                            <!-- Y-axis labels -->
+                            <div
+                                class="absolute -left-6 top-0 bottom-0 flex flex-col justify-between font-data-md text-data-md text-outline text-[10px]">
+                                <span>100</span><span>75</span><span>50</span><span>25</span><span>0</span>
+                            </div>
+                            <!-- X-axis labels -->
+                            <div
+                                class="absolute -bottom-6 left-0 right-0 flex justify-between font-data-md text-data-md text-outline text-[10px]">
+                                <span>08:00</span><span>09:00</span><span>10:00</span><span>11:00 (Now)</span>
+                            </div>
+                            <!-- Grid Lines -->
+                            <div class="absolute inset-0 flex flex-col justify-between pointer-events-none">
+                                <div class="w-full border-t border-outline-variant/10"></div>
+                                <div class="w-full border-t border-outline-variant/10"></div>
+                                <div class="w-full border-t border-outline-variant/10"></div>
+                                <div class="w-full border-t border-outline-variant/10"></div>
+                                <div class="w-full border-t border-outline-variant/10"></div>
+                            </div>
+                            <!-- SVG Chart -->
+                            <svg class="w-full h-full absolute inset-0" preserveaspectratio="none"
+                                viewbox="0 0 1000 300">
+                                <!-- Shaded Gap Area (Error Corridor) -->
+                                <path
+                                    d="M0,150 C200,160 400,140 600,180 C800,220 900,100 1000,80 L1000,120 C900,140 800,260 600,220 C400,180 200,200 0,190 Z"
+                                    fill="rgba(255, 180, 171, 0.1)"></path>
+                                <!-- Implied Line (Dashed) -->
+                                <path d="M0,190 C200,200 400,180 600,220 C800,260 900,140 1000,120" fill="none"
+                                    stroke="#87929b" stroke-dasharray="8,4" stroke-width="2"></path>
+                                <!-- Measured Line (Solid Primary) -->
+                                <path class="sparkline-path"
+                                    d="M0,150 C200,160 400,140 600,180 C800,220 900,100 1000,80" fill="none"
+                                    stroke="#00BFFF" stroke-width="3"
+                                    style="filter: drop-shadow(0px 4px 6px rgba(0, 191, 255, 0.3));"></path>
+                                <!-- Current Point Indicator -->
+                                <circle cx="1000" cy="80" fill="#15191E" r="6" stroke="#00BFFF" stroke-width="2">
+                                </circle>
+                                <circle cx="1000" cy="120" fill="#87929b" r="4"></circle>
+                            </svg>
+                            <!-- Future Prediction Area -->
+                            <div
+                                class="absolute right-0 top-0 bottom-0 w-[15%] bg-surface-container/30 border-l border-outline-variant/50 border-dashed z-0 flex items-center justify-center">
+                                <span
+                                    class="font-label-caps text-label-caps text-outline rotate-90 opacity-50">PREDICTED</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+        <!-- Right SideNavBar (Active Flags / Assistant) -->
+        <aside
+            class="w-80 bg-surface-container border-l border-outline-variant/20 flex flex-col flex-shrink-0 z-40 transition-all duration-300 relative">
+            <!-- Side Nav Tabs -->
+            <div class="flex border-b border-outline-variant/20 p-xs gap-xs">
+                <button
+                    class="flex-1 py-sm font-label-caps text-label-caps bg-secondary-container text-on-secondary-container rounded flex flex-col items-center gap-1 transition-transform scale-95 opacity-80">
+                    <span class="material-symbols-outlined text-[20px]">psychology</span>
+                    Assistant
+                </button>
+                <button
+                    class="flex-1 py-sm font-label-caps text-label-caps text-on-surface-variant hover:bg-surface-variant/50 rounded flex flex-col items-center gap-1 transition-all duration-150">
+                    <span class="material-symbols-outlined text-[20px]">hub</span>
+                    Graph
+                </button>
+                <button
+                    class="flex-1 py-sm font-label-caps text-label-caps text-on-surface-variant hover:bg-surface-variant/50 rounded flex flex-col items-center gap-1 transition-all duration-150 relative">
+                    <span class="material-symbols-outlined text-[20px]">flag</span>
+                    Flags
+                    <div class="absolute top-2 right-4 w-2 h-2 bg-error rounded-full"></div>
+                </button>
+            </div>
+            <!-- Assistant Content Panel -->
+            <div class="flex-1 flex flex-col p-md overflow-hidden">
+                <div class="font-headline-sm text-headline-sm font-black text-on-surface mb-xs">Query Assistant</div>
+                <div class="font-body-sm text-body-sm text-outline mb-md pb-md border-b border-outline-variant/20">Ask
+                    the plant anything. AI models contextually aware of current startup mode.</div>
+                <!-- Chat History -->
+                <div class="flex-1 overflow-y-auto flex flex-col gap-md pr-sm mb-md">
+                    <!-- AI Message -->
+                    <div class="flex gap-sm">
+                        <div
+                            class="w-6 h-6 rounded bg-primary-container/20 flex items-center justify-center flex-shrink-0 mt-1">
+                            <span class="material-symbols-outlined text-[14px] text-primary">psychology</span>
+                        </div>
+                        <div
+                            class="surface-card p-sm rounded-lg rounded-tl-none border-primary/20 text-body-sm font-body-sm">
+                            I noticed a growing divergence between implied and measured level on LT-5100 over the last
+                            45 minutes. Would you like me to run a root cause analysis?
+                        </div>
+                    </div>
+                    <!-- User Message -->
+                    <div class="flex gap-sm flex-row-reverse">
+                        <div
+                            class="w-6 h-6 rounded bg-surface-variant flex items-center justify-center flex-shrink-0 mt-1">
+                            <span class="material-symbols-outlined text-[14px] text-on-surface">person</span>
+                        </div>
+                        <div
+                            class="bg-surface-variant p-sm rounded-lg rounded-tr-none text-body-sm font-body-sm text-on-surface">
+                            Yes, prioritize checking the feed flow meter calibration status.
+                        </div>
+                    </div>
+                    <!-- AI Message Loading -->
+                    <div class="flex gap-sm">
+                        <div
+                            class="w-6 h-6 rounded bg-primary-container/20 flex items-center justify-center flex-shrink-0 mt-1">
+                            <span class="material-symbols-outlined text-[14px] text-primary">psychology</span>
+                        </div>
+                        <div
+                            class="surface-card p-sm rounded-lg rounded-tl-none border-primary/20 text-body-sm font-body-sm flex items-center gap-2">
+                            <div class="w-1.5 h-1.5 bg-primary rounded-full animate-bounce"></div>
+                            <div class="w-1.5 h-1.5 bg-primary rounded-full animate-bounce"
+                                style="animation-delay: 0.1s"></div>
+                            <div class="w-1.5 h-1.5 bg-primary rounded-full animate-bounce"
+                                style="animation-delay: 0.2s"></div>
+                        </div>
+                    </div>
+                </div>
+                <!-- Input Box -->
+                <div class="mt-auto relative">
+                    <input
+                        class="w-full bg-[#0B0E11] border border-outline-variant/50 rounded p-sm pr-10 text-body-sm font-body-sm focus:border-primary focus:shadow-[inset_0_0_2px_rgba(0,191,255,0.5)] outline-none transition-all text-on-surface placeholder:text-outline"
+                        placeholder="Ask the plant anything..." type="text" />
+                    <button
+                        class="absolute right-2 top-1/2 -translate-y-1/2 text-primary hover:text-primary-fixed transition-colors">
+                        <span class="material-symbols-outlined text-[18px]">send</span>
+                    </button>
+                </div>
+            </div>
+            <!-- Side Nav Footer -->
+            <div class="flex border-t border-outline-variant/20 p-xs gap-xs mt-auto">
+                <button
+                    class="flex-1 py-xs font-label-caps text-label-caps text-on-surface-variant hover:bg-surface-variant/50 rounded flex items-center justify-center gap-1 transition-all duration-150">
+                    <span class="material-symbols-outlined text-[16px]">help</span> Help
+                </button>
+                <button
+                    class="flex-1 py-xs font-label-caps text-label-caps text-on-surface-variant hover:bg-surface-variant/50 rounded flex items-center justify-center gap-1 transition-all duration-150">
+                    <span class="material-symbols-outlined text-[16px]">terminal</span> Logs
+                </button>
+            </div>
+        </aside>
+    </div>
+</body>
+
+</html>

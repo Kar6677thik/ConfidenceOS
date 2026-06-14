@@ -4,16 +4,17 @@ import useStore from '../store';
 const ROLES = ['Operator', 'Maintenance', 'Engineer', 'Manager', 'Auditor'];
 
 const NAV_ITEMS = [
-  { path: '/runtime', label: 'Runtime', roles: ['Operator', 'Maintenance', 'Engineer', 'Manager', 'Auditor'] },
-  { path: '/studio', label: 'Studio', roles: ['Engineer', 'Manager'] },
-  { path: '/handover', label: 'Shift Channel', roles: ['Operator', 'Maintenance', 'Engineer', 'Manager', 'Auditor'] },
-  { path: '/integrity', label: 'Integrity Overview', roles: ['Operator', 'Maintenance', 'Engineer', 'Manager', 'Auditor'] },
-  { path: '/operator', label: 'Support View', roles: ['Operator', 'Maintenance', 'Engineer', 'Manager'] },
-  { path: '/predictions', label: 'Confidence Debt', roles: ['Operator', 'Maintenance', 'Engineer', 'Manager'] },
-  { path: '/forensics', label: 'Incident Timeline', roles: ['Engineer', 'Manager', 'Auditor'] },
-  { path: '/graph', label: 'Trust Graph', roles: ['Engineer', 'Manager'] },
-  { path: '/compliance', label: 'Compliance', roles: ['Manager', 'Auditor'] },
-  { path: '/sandbox', label: 'Sandbox', roles: ['Engineer'] },
+  { path: '/runtime',    label: 'Runtime',       roles: ['Operator', 'Maintenance', 'Engineer', 'Manager', 'Auditor'] },
+  { path: '/studio',     label: 'Studio',        roles: ['Engineer', 'Manager'] },
+  { path: '/handover',   label: 'Shift Channel', roles: ['Operator', 'Maintenance', 'Engineer', 'Manager', 'Auditor'] },
+  { path: '/integrity',  label: 'Fleet',         roles: ['Operator', 'Maintenance', 'Engineer', 'Manager', 'Auditor'] },
+  { path: '/operator',   label: 'Operator',      roles: ['Operator', 'Maintenance', 'Engineer', 'Manager'] },
+  { path: '/predictions',label: 'Predict',       roles: ['Operator', 'Maintenance', 'Engineer', 'Manager'] },
+  { path: '/forensics',  label: 'Forensics',     roles: ['Engineer', 'Manager', 'Auditor'] },
+  { path: '/graph',      label: 'Graph',         roles: ['Engineer', 'Manager'] },
+  { path: '/engineer',   label: 'Engineer',      roles: ['Engineer', 'Manager'] },
+  { path: '/compliance', label: 'Compliance',    roles: ['Manager', 'Auditor'] },
+  { path: '/sandbox',    label: 'Sandbox',       roles: ['Engineer'] },
 ];
 
 function countActiveAlerts(confidence, massBalance, staleFlags) {

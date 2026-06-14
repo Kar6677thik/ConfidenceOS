@@ -1847,6 +1847,7 @@ def health_check():
         "plants": len(plant_manager.plants),
         "plant_loops": _plant_loop_status,
         "db_status": "writing" if any(s.get("status") == "ok" for s in _plant_loop_status.values()) else "warming_up",
+        "mode": plant_a.startup_manager.mode_name,
         "modules": {
             "sensor_simulator": "active",
             "tag_provider": "active",

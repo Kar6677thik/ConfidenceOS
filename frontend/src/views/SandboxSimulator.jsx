@@ -1,0 +1,242 @@
+/**
+ * views/SandboxSimulator.jsx — Failure Scenario Sandbox
+ *
+ * Endpoints:
+ *   POST /api/sandbox/run — inject failure, returns simulated sensor trajectory
+ *
+ * Stitch mockup: (no dedicated HTML — uses App.jsx logic)
+ */
+
+import { useState } from 'react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import useStore from '../store';
+
+const SENSOR_IDS    = ['LT-5100', 'FI-2010', 'FO-2020', 'PT-3100', 'TT-4100', 'ZT-6100'];
+const FAILURE_MODES = [
+  { value: 'calibration_drift',       label: 'Calibration Drift' },
+  { value: 'stuck_reading',            label: 'Stuck Reading' },
+  { value: 'sg_mismatch',              label: 'Specific Gravity Mismatch' },
+  { value: 'command_state_decoupling', label: 'Command-State Decoupling' },
+];
+const SEVERITIES = ['mild', 'moderate', 'severe'];
+
+function IndustrialTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="chart-tooltip">
+      <p className="label-caps text-[var(--text-muted)] mb-2">T+{label}h</p>
+      {payload.map((entry) => (
+        <div key={entry.dataKey} className="flex items-center gap-2 mt-1">
+          <span className="led-square" style={{ color: entry.color }} />
+          <span className="text-[var(--text)]">{entry.name}</span>
+          <span className="ml-auto" style={{ color: entry.color }}>
+            {typeof entry.value === 'number' ? entry.value.toFixed(1) : entry.value}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export default function SandboxSimulator() {
+  const { plantId } = useStore();
+  const [form, setForm] = useState({
+    sensor_id:    'LT-5100',
+    failure_mode: 'calibration_drift',
+    severity:     'moderate',
+    duration_hours: 6,
+  });
+  const [result,  setResult]  = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState(null);
+
+  const run = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/sandbox/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          plant_id: plantId,
+          ...form,
+          duration_hours: Number(form.duration_hours),
+        }),
+      });
+      if (!res.ok) throw new Error(`Server error ${res.status}`);
+      setResult(await res.json());
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const chartData = result?.results?.map((item) => ({
+    time:        item.time_hours,
+    confidence:  item.confidence_pct,
+    discrepancy: item.mass_balance?.discrepancy,
+  })) || [];
+
+  const minConf = chartData.length
+    ? Math.min(...chartData.map((d) => d.confidence ?? 100))
+    : null;
+
+  return (
+    <div className="industrial-page flex overflow-hidden">
+
+      {/* ── Left controls sidebar ── */}
+      <aside className="w-80 flex flex-col bg-[var(--bg-low)] border-r border-[var(--border)]">
+        <div className="stitch-card-header px-5 py-4 border-b border-[var(--border)]">
+          <h1 className="text-[18px] font-semibold text-[var(--text)]">Sandbox Simulator</h1>
+          <span className="industrial-badge text-[var(--warning)] border-[var(--warning)]/60">Isolated</span>
+        </div>
+
+        <div className="p-5 space-y-4 flex-1 overflow-y-auto scrollbar-thin">
+          <p className="caption-mono text-[var(--text-muted)] leading-relaxed">
+            Inject a synthetic failure into an isolated sensor model.
+            Live plant data is never affected.
+          </p>
+
+          {/* Sensor */}
+          <div>
+            <label className="label-caps text-[var(--text-muted)] block mb-2">Sensor</label>
+            <select value={form.sensor_id}
+              onChange={(e) => setForm({ ...form, sensor_id: e.target.value })}
+              className="industrial-select">
+              {SENSOR_IDS.map((id) => <option key={id} value={id}>{id}</option>)}
+            </select>
+          </div>
+
+          {/* Failure mode */}
+          <div>
+            <label className="label-caps text-[var(--text-muted)] block mb-2">Failure Mode</label>
+            <select value={form.failure_mode}
+              onChange={(e) => setForm({ ...form, failure_mode: e.target.value })}
+              className="industrial-select">
+              {FAILURE_MODES.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+            </select>
+          </div>
+
+          {/* Severity */}
+          <div>
+            <label className="label-caps text-[var(--text-muted)] block mb-2">Severity</label>
+            <div className="flex gap-1">
+              {SEVERITIES.map((s) => (
+                <button key={s} onClick={() => setForm({ ...form, severity: s })}
+                  className={`flex-1 py-2 label-caps capitalize rounded border transition-colors
+                    ${form.severity === s
+                      ? 'bg-[var(--bg-elevated)] text-[var(--warning)] border-[var(--warning)]/60'
+                      : 'text-[var(--text-muted)] border-[var(--border)] hover:bg-[var(--bg-elevated)]'}`}>
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Duration */}
+          <div>
+            <label className="label-caps text-[var(--text-muted)] block mb-2">
+              Duration (hours)
+            </label>
+            <input type="number" value={form.duration_hours}
+              onChange={(e) => setForm({ ...form, duration_hours: e.target.value })}
+              className="industrial-input" min="1" max="72" />
+          </div>
+
+          <button onClick={run} disabled={loading}
+            className="w-full industrial-control text-[var(--warning)] border-[var(--warning)]/60 disabled:opacity-40">
+            {loading ? 'Simulating…' : '⚡ Run Sandbox'}
+          </button>
+
+          {error && (
+            <p className="caption-mono text-[var(--critical)] bg-[rgba(147,0,10,0.1)] px-3 py-2 rounded">
+              {error}
+            </p>
+          )}
+        </div>
+      </aside>
+
+      {/* ── Main — results canvas ── */}
+      <main className="flex-1 min-w-0 flex flex-col overflow-hidden bg-[var(--bg-base)]">
+        <div className="stitch-card-header px-5 py-3 border-b border-[var(--border)] bg-[var(--bg-surface)]">
+          <span className="text-[18px] font-semibold text-[var(--text)]">Sandbox Results</span>
+          {result && (
+            <span className="caption-mono text-[var(--text-muted)]">
+              {result.sample_count} samples · {form.sensor_id} · {form.failure_mode.replace(/_/g, ' ')}
+            </span>
+          )}
+        </div>
+
+        <div className="flex-1 overflow-y-auto scrollbar-thin p-6 space-y-6">
+          {!result ? (
+            <div className="h-full flex flex-col items-center justify-center gap-4 text-center">
+              <span className="material-symbols-outlined text-[64px] text-[var(--border)]">science</span>
+              <p className="text-[18px] font-semibold text-[var(--text-muted)]">No simulation run yet</p>
+              <p className="caption-mono text-[var(--text-dim)] max-w-sm">
+                Configure a failure scenario on the left and click Run Sandbox to see how ConfidenceOS responds.
+              </p>
+            </div>
+          ) : (
+            <>
+              {/* Summary chips */}
+              {minConf != null && (
+                <div className="flex gap-3">
+                  <div className="stitch-card px-4 py-3">
+                    <p className="label-caps text-[var(--text-muted)] mb-1">Min Confidence</p>
+                    <p className={`text-[24px] font-bold font-data ${
+                      minConf < 20 ? 'text-[var(--critical)]' : minConf < 50 ? 'text-[var(--warning)]' : 'text-[var(--primary)]'
+                    }`}>{minConf.toFixed(1)}%</p>
+                  </div>
+                  <div className="stitch-card px-4 py-3">
+                    <p className="label-caps text-[var(--text-muted)] mb-1">Samples</p>
+                    <p className="text-[24px] font-bold font-data text-[var(--text)]">{result.sample_count}</p>
+                  </div>
+                  <div className="stitch-card px-4 py-3">
+                    <p className="label-caps text-[var(--text-muted)] mb-1">Duration</p>
+                    <p className="text-[24px] font-bold font-data text-[var(--text)]">{form.duration_hours}h</p>
+                  </div>
+                </div>
+              )}
+
+              {/* Chart */}
+              <div className="stitch-card p-4">
+                <p className="label-caps text-[var(--text-muted)] mb-4">Confidence & Mass-Balance Trajectory</p>
+                <div className="h-80">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={chartData} margin={{ top: 8, right: 24, left: 0, bottom: 8 }}>
+                      <CartesianGrid stroke="#2d333b" strokeDasharray="4 2" vertical={false} />
+                      <XAxis dataKey="time"
+                        tick={{ fontSize: 10, fill: '#87929b', fontFamily: 'Geist, monospace' }}
+                        axisLine={{ stroke: '#3d4850' }} tickLine={false} />
+                      <YAxis tick={{ fontSize: 10, fill: '#87929b', fontFamily: 'Geist, monospace' }}
+                        axisLine={false} tickLine={false} />
+                      <Tooltip content={<IndustrialTooltip />} />
+                      <Legend wrapperStyle={{ paddingTop: '8px', fontSize: '11px', color: '#bcc8d1' }} />
+                      <Line dataKey="confidence" name="Confidence %" stroke="#8fd6ff"
+                        strokeWidth={2} dot={false} isAnimationActive={false} />
+                      <Line dataKey="discrepancy" name="Mass-Balance Δ" stroke="#ffda66"
+                        strokeWidth={2} dot={false} isAnimationActive={false} strokeDasharray="4 2" />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+
+              {/* Advisory note */}
+              <div className="stitch-card p-4 border-[var(--warning)]/30">
+                <div className="flex gap-3">
+                  <span className="material-symbols-outlined text-[var(--warning)] shrink-0">science</span>
+                  <p className="caption-mono text-[var(--text-muted)] leading-relaxed">
+                    This simulation ran entirely on isolated data — no live plant tags were affected.
+                    The confidence curve shows how ConfidenceOS would respond to a <strong className="text-[var(--text)]">
+                    {form.severity} {form.failure_mode.replace(/_/g, ' ')}</strong> on sensor <strong className="text-[var(--text)]">{form.sensor_id}</strong>.
+                  </p>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </main>
+    </div>
+  );
+}

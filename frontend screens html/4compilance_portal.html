@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>Compliance Report Generator - ConfidenceOS V2</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap"
+        rel="stylesheet" />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Geist:wght@500;600&amp;display=swap"
+        rel="stylesheet" />
+    <link
+        href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap"
+        rel="stylesheet" />
+    <script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-container": "#1d2023",
+                        "inverse-primary": "#00668a",
+                        "surface-container-low": "#191c1f",
+                        "surface-variant": "#323538",
+                        "on-primary-fixed": "#001e2c",
+                        "on-primary-container": "#004a65",
+                        "on-background": "#e1e2e7",
+                        "secondary-fixed-dim": "#c3c6cd",
+                        "tertiary-container": "#acb2bc",
+                        "surface-bright": "#37393d",
+                        "on-surface": "#e1e2e7",
+                        "error-container": "#93000a",
+                        "on-secondary-container": "#b2b5bc",
+                        "background": "#111417",
+                        "secondary-fixed": "#e0e2ea",
+                        "on-error-container": "#ffdad6",
+                        "tertiary-fixed": "#dde3ed",
+                        "outline-variant": "#3d4850",
+                        "inverse-on-surface": "#2e3134",
+                        "on-error": "#690005",
+                        "on-primary": "#003549",
+                        "tertiary-fixed-dim": "#c1c7d1",
+                        "secondary": "#c3c6cd",
+                        "on-secondary-fixed-variant": "#43474d",
+                        "surface-container-lowest": "#0b0e11",
+                        "outline": "#87929b",
+                        "primary-fixed": "#c3e8ff",
+                        "on-tertiary-fixed-variant": "#414750",
+                        "tertiary": "#c8ced8",
+                        "surface-container-high": "#272a2e",
+                        "surface": "#111417",
+                        "on-tertiary-fixed": "#161c23",
+                        "on-tertiary": "#2b3139",
+                        "on-secondary-fixed": "#181c21",
+                        "error": "#ffb4ab",
+                        "primary": "#8fd6ff",
+                        "primary-fixed-dim": "#7ad0ff",
+                        "on-secondary": "#2d3136",
+                        "inverse-surface": "#e1e2e7",
+                        "surface-tint": "#7ad0ff",
+                        "on-primary-fixed-variant": "#004c69",
+                        "secondary-container": "#43474d",
+                        "surface-container-highest": "#323538",
+                        "on-tertiary-container": "#3f454d",
+                        "on-surface-variant": "#bcc8d1",
+                        "primary-container": "#00bfff",
+                        "surface-dim": "#111417"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.125rem",
+                        "lg": "0.25rem",
+                        "xl": "0.5rem",
+                        "full": "0.75rem"
+                    },
+                    "spacing": {
+                        "xs": "4px",
+                        "lg": "24px",
+                        "margin": "20px",
+                        "sm": "8px",
+                        "gutter": "12px",
+                        "unit": "4px",
+                        "xl": "32px",
+                        "md": "16px"
+                    },
+                    "fontFamily": {
+                        "body-sm": [
+                            "Inter"
+                        ],
+                        "label-caps": [
+                            "Inter"
+                        ],
+                        "data-md": [
+                            "Geist"
+                        ],
+                        "headline-md": [
+                            "Inter"
+                        ],
+                        "data-lg": [
+                            "Geist"
+                        ],
+                        "display-lg": [
+                            "Inter"
+                        ],
+                        "body-md": [
+                            "Inter"
+                        ],
+                        "headline-sm": [
+                            "Inter"
+                        ]
+                    },
+                    "fontSize": {
+                        "body-sm": [
+                            "12px",
+                            {
+                                "lineHeight": "16px",
+                                "fontWeight": "400"
+                            }
+                        ],
+                        "label-caps": [
+                            "11px",
+                            {
+                                "lineHeight": "14px",
+                                "letterSpacing": "0.05em",
+                                "fontWeight": "700"
+                            }
+                        ],
+                        "data-md": [
+                            "14px",
+                            {
+                                "lineHeight": "18px",
+                                "fontWeight": "500"
+                            }
+                        ],
+                        "headline-md": [
+                            "24px",
+                            {
+                                "lineHeight": "32px",
+                                "fontWeight": "600"
+                            }
+                        ],
+                        "data-lg": [
+                            "20px",
+                            {
+                                "lineHeight": "24px",
+                                "letterSpacing": "0.02em",
+                                "fontWeight": "600"
+                            }
+                        ],
+                        "display-lg": [
+                            "48px",
+                            {
+                                "lineHeight": "56px",
+                                "letterSpacing": "-0.02em",
+                                "fontWeight": "700"
+                            }
+                        ],
+                        "body-md": [
+                            "14px",
+                            {
+                                "lineHeight": "20px",
+                                "fontWeight": "400"
+                            }
+                        ],
+                        "headline-sm": [
+                            "18px",
+                            {
+                                "lineHeight": "24px",
+                                "fontWeight": "600"
+                            }
+                        ]
+                    }
+                },
+            },
+        }
+    </script>
+    <style>
+        /* Custom scrollbar for data dense areas */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #111417;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #323538;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #43474d;
+        }
+
+        /* Glassmorphism effects */
+        .glass-panel {
+            background: rgba(28, 33, 40, 0.85);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+        }
+
+        /* Form inputs */
+        .industrial-input {
+            background-color: #0b0e11;
+            border: 1px solid #3d4850;
+            color: #e1e2e7;
+            transition: all 0.2s ease;
+        }
+
+        .industrial-input:focus {
+            border-color: #00bfff;
+            box-shadow: inset 0 0 0 1px #00bfff, 0 0 8px rgba(0, 191, 255, 0.2);
+            outline: none;
+        }
+
+        /* Document Preview */
+        .doc-preview {
+            background-color: #ffffff;
+            color: #111417;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+        }
+    </style>
+</head>
+
+<body class="bg-background text-on-background font-body-md h-screen flex flex-col overflow-hidden">
+    <!-- TopNavBar -->
+    <header
+        class="flex justify-between items-center w-full px-lg h-16 bg-surface-container-low border-b border-outline-variant/30 flex-shrink-0 z-50 relative hidden md:flex">
+        <div class="flex items-center gap-xl h-full">
+            <span
+                class="font-headline-md text-headline-md font-bold text-primary dark:text-primary tracking-tight">ConfidenceOS
+                V2</span>
+            <nav class="flex gap-lg h-full items-center">
+                <a class="text-on-surface-variant font-medium pb-1 hover:text-primary transition-colors duration-200 flex items-center h-full"
+                    href="#">Fleet</a>
+                <a class="text-on-surface-variant font-medium pb-1 hover:text-primary transition-colors duration-200 flex items-center h-full"
+                    href="#">Operator</a>
+                <a class="text-on-surface-variant font-medium pb-1 hover:text-primary transition-colors duration-200 flex items-center h-full"
+                    href="#">Engineer</a>
+                <a class="text-on-surface-variant font-medium pb-1 hover:text-primary transition-colors duration-200 flex items-center h-full"
+                    href="#">Predict</a>
+                <a class="text-on-surface-variant font-medium pb-1 hover:text-primary transition-colors duration-200 flex items-center h-full"
+                    href="#">Forensics</a>
+                <a class="text-primary font-bold border-b-2 border-primary pb-1 hover:text-primary transition-colors duration-200 flex items-center h-full opacity-80 transition-opacity"
+                    href="#">Compliance</a>
+                <a class="text-on-surface-variant font-medium pb-1 hover:text-primary transition-colors duration-200 flex items-center h-full"
+                    href="#">Graph</a>
+                <a class="text-on-surface-variant font-medium pb-1 hover:text-primary transition-colors duration-200 flex items-center h-full"
+                    href="#">Sandbox</a>
+            </nav>
+        </div>
+        <div class="flex items-center gap-md">
+            <!-- Search placeholder aligned to right per JSON -->
+            <div class="relative hidden lg:block">
+                <span
+                    class="material-symbols-outlined absolute left-sm top-1/2 -translate-y-1/2 text-on-surface-variant text-sm">search</span>
+                <input class="industrial-input rounded-DEFAULT py-sm pl-xl pr-md text-body-sm font-body-sm w-48"
+                    placeholder="Search..." type="text" />
+            </div>
+            <button
+                class="bg-primary-container text-on-primary-container font-body-md text-body-md font-medium px-md py-sm rounded-DEFAULT hover:opacity-90 transition-opacity">
+                Operator
+            </button>
+            <div class="flex items-center gap-sm text-on-surface-variant">
+                <button
+                    class="p-sm hover:text-primary transition-colors duration-200 rounded-full hover:bg-surface-variant/50 flex items-center justify-center">
+                    <span class="material-symbols-outlined">notifications</span>
+                </button>
+                <button
+                    class="p-sm hover:text-primary transition-colors duration-200 rounded-full hover:bg-surface-variant/50 flex items-center justify-center">
+                    <span class="material-symbols-outlined">settings</span>
+                </button>
+                <button
+                    class="p-sm hover:text-primary transition-colors duration-200 rounded-full hover:bg-surface-variant/50 flex items-center justify-center">
+                    <span class="material-symbols-outlined">account_circle</span>
+                </button>
+            </div>
+        </div>
+    </header>
+    <!-- Main Content Area -->
+    <main class="flex-1 flex overflow-hidden relative">
+        <!-- Left Panel: Configuration -->
+        <section
+            class="w-[400px] border-r border-outline-variant/30 bg-surface-container flex flex-col h-full flex-shrink-0 z-10">
+            <div class="p-md border-b border-outline-variant/30 flex items-center gap-sm">
+                <span class="material-symbols-outlined text-primary">fact_check</span>
+                <h1 class="font-headline-sm text-headline-sm text-on-surface">Report Configuration</h1>
+            </div>
+            <div class="flex-1 overflow-y-auto p-md space-y-lg">
+                <!-- Report Type -->
+                <div class="space-y-sm">
+                    <label
+                        class="font-label-caps text-label-caps text-on-surface-variant block uppercase tracking-wider">Report
+                        Type</label>
+                    <div class="relative">
+                        <select
+                            class="industrial-input w-full rounded-DEFAULT p-sm text-body-md font-body-md appearance-none">
+                            <option>Full Audit (ISA-18.2)</option>
+                            <option>Sensor Reliability Summary</option>
+                            <option>Monthly Compliance Digest</option>
+                        </select>
+                        <span
+                            class="material-symbols-outlined absolute right-sm top-1/2 -translate-y-1/2 text-on-surface-variant pointer-events-none">arrow_drop_down</span>
+                    </div>
+                </div>
+                <!-- Date Range -->
+                <div class="space-y-sm">
+                    <label
+                        class="font-label-caps text-label-caps text-on-surface-variant block uppercase tracking-wider">Audit
+                        Range</label>
+                    <div class="grid grid-cols-2 gap-sm">
+                        <div class="relative">
+                            <span
+                                class="material-symbols-outlined absolute left-sm top-1/2 -translate-y-1/2 text-on-surface-variant text-[16px]">calendar_today</span>
+                            <input
+                                class="industrial-input w-full rounded-DEFAULT py-sm pl-xl pr-sm text-data-md font-data-md"
+                                type="text" value="2023-10-01" />
+                        </div>
+                        <div class="relative">
+                            <span
+                                class="material-symbols-outlined absolute left-sm top-1/2 -translate-y-1/2 text-on-surface-variant text-[16px]">calendar_today</span>
+                            <input
+                                class="industrial-input w-full rounded-DEFAULT py-sm pl-xl pr-sm text-data-md font-data-md"
+                                type="text" value="2023-10-31" />
+                        </div>
+                    </div>
+                </div>
+                <!-- Frameworks -->
+                <div class="space-y-sm">
+                    <label
+                        class="font-label-caps text-label-caps text-on-surface-variant block uppercase tracking-wider">Regulatory
+                        Frameworks</label>
+                    <div class="space-y-xs">
+                        <label
+                            class="flex items-center gap-sm p-sm bg-surface-container-low border border-outline-variant/30 rounded-DEFAULT cursor-pointer hover:bg-surface-variant/50 transition-colors">
+                            <input checked=""
+                                class="rounded-xs border-outline-variant bg-surface-container-lowest text-primary focus:ring-primary focus:ring-offset-background"
+                                type="checkbox" />
+                            <span class="font-body-sm text-body-sm text-on-surface">IEC 61511 (Functional Safety)</span>
+                        </label>
+                        <label
+                            class="flex items-center gap-sm p-sm bg-surface-container-low border border-outline-variant/30 rounded-DEFAULT cursor-pointer hover:bg-surface-variant/50 transition-colors">
+                            <input checked=""
+                                class="rounded-xs border-outline-variant bg-surface-container-lowest text-primary focus:ring-primary focus:ring-offset-background"
+                                type="checkbox" />
+                            <span class="font-body-sm text-body-sm text-on-surface">ISA-18.2 (Alarm Management)</span>
+                        </label>
+                        <label
+                            class="flex items-center gap-sm p-sm bg-surface-container-low border border-outline-variant/30 rounded-DEFAULT cursor-pointer hover:bg-surface-variant/50 transition-colors">
+                            <input
+                                class="rounded-xs border-outline-variant bg-surface-container-lowest text-primary focus:ring-primary focus:ring-offset-background"
+                                type="checkbox" />
+                            <span class="font-body-sm text-body-sm text-on-surface">OSHA PSM 1910.119</span>
+                        </label>
+                    </div>
+                </div>
+                <!-- Specific Assets -->
+                <div class="space-y-sm">
+                    <label
+                        class="font-label-caps text-label-caps text-on-surface-variant block uppercase tracking-wider">Target
+                        Systems</label>
+                    <div class="relative">
+                        <span
+                            class="material-symbols-outlined absolute left-sm top-1/2 -translate-y-1/2 text-on-surface-variant text-[16px]">search</span>
+                        <input
+                            class="industrial-input w-full rounded-DEFAULT py-sm pl-xl pr-sm text-body-sm font-body-sm mb-sm"
+                            placeholder="Filter by Unit or Node ID..." type="text" />
+                    </div>
+                    <div
+                        class="border border-outline-variant/30 rounded-DEFAULT bg-surface-container-lowest p-sm space-y-xs max-h-32 overflow-y-auto">
+                        <div class="flex items-center justify-between group">
+                            <div class="flex items-center gap-xs">
+                                <span
+                                    class="material-symbols-outlined text-[14px] text-tertiary">precision_manufacturing</span>
+                                <span class="font-data-md text-data-md text-on-surface">Unit 04 - Cracking</span>
+                            </div>
+                            <button
+                                class="text-on-surface-variant hover:text-error opacity-0 group-hover:opacity-100 transition-opacity">
+                                <span class="material-symbols-outlined text-[14px]">close</span>
+                            </button>
+                        </div>
+                        <div class="flex items-center justify-between group">
+                            <div class="flex items-center gap-xs">
+                                <span class="material-symbols-outlined text-[14px] text-tertiary">propane_tank</span>
+                                <span class="font-data-md text-data-md text-on-surface">Storage Tank B2</span>
+                            </div>
+                            <button
+                                class="text-on-surface-variant hover:text-error opacity-0 group-hover:opacity-100 transition-opacity">
+                                <span class="material-symbols-outlined text-[14px]">close</span>
+                            </button>
+                        </div>
+                    </div>
+                    <button
+                        class="text-primary font-body-sm text-body-sm flex items-center gap-xs hover:text-primary-fixed transition-colors mt-xs">
+                        <span class="material-symbols-outlined text-[14px]">add</span> Add System
+                    </button>
+                </div>
+                <!-- Generation Options -->
+                <div class="pt-sm border-t border-outline-variant/30">
+                    <label class="flex items-center gap-sm cursor-pointer mb-xs">
+                        <input checked=""
+                            class="rounded-xs border-outline-variant bg-surface-container-lowest text-primary focus:ring-primary focus:ring-offset-background"
+                            type="checkbox" />
+                        <span class="font-body-sm text-body-sm text-on-surface">Include AI Diagnostic Narrative</span>
+                    </label>
+                    <label class="flex items-center gap-sm cursor-pointer">
+                        <input checked=""
+                            class="rounded-xs border-outline-variant bg-surface-container-lowest text-primary focus:ring-primary focus:ring-offset-background"
+                            type="checkbox" />
+                        <span class="font-body-sm text-body-sm text-on-surface">Append Raw Data Logs (Appendix)</span>
+                    </label>
+                </div>
+            </div>
+            <!-- Actions -->
+            <div class="p-md border-t border-outline-variant/30 bg-surface-container-low flex flex-col gap-sm">
+                <button
+                    class="w-full bg-surface-container border border-primary text-primary font-body-md text-body-md font-medium py-sm rounded-DEFAULT hover:bg-primary/10 transition-colors flex items-center justify-center gap-sm">
+                    <span class="material-symbols-outlined text-[18px]">draw</span>
+                    Generate Digital Signature
+                </button>
+                <button
+                    class="w-full bg-primary-container text-on-primary-container font-body-md text-body-md font-medium py-sm rounded-DEFAULT hover:opacity-90 transition-opacity shadow-[0_0_12px_rgba(0,191,255,0.2)] flex items-center justify-center gap-sm">
+                    <span class="material-symbols-outlined text-[18px]">download</span>
+                    Export PDF
+                </button>
+            </div>
+        </section>
+        <!-- Right Panel: Live PDF Preview Canvas -->
+        <section
+            class="flex-1 bg-surface-container-lowest overflow-y-auto relative p-xl flex justify-center items-start">
+            <!-- Canvas Controls Overlay -->
+            <div
+                class="fixed top-20 right-xl flex items-center gap-sm bg-surface-container border border-outline-variant/30 rounded-DEFAULT p-xs shadow-lg z-20">
+                <button
+                    class="p-xs text-on-surface-variant hover:text-on-surface hover:bg-surface-variant/50 rounded-sm transition-colors"
+                    title="Zoom Out">
+                    <span class="material-symbols-outlined text-[18px]">zoom_out</span>
+                </button>
+                <span class="font-data-md text-data-md text-on-surface px-xs">100%</span>
+                <button
+                    class="p-xs text-on-surface-variant hover:text-on-surface hover:bg-surface-variant/50 rounded-sm transition-colors"
+                    title="Zoom In">
+                    <span class="material-symbols-outlined text-[18px]">zoom_in</span>
+                </button>
+            </div>
+            <!-- The Document Preview -->
+            <div class="doc-preview w-full max-w-[850px] min-h-[1100px] p-xl font-sans text-gray-800 relative mb-xl">
+                <!-- Watermark -->
+                <div class="absolute inset-0 flex items-center justify-center pointer-events-none opacity-[0.03]">
+                    <span class="text-9xl font-bold uppercase tracking-widest transform -rotate-45">Draft Copy</span>
+                </div>
+                <!-- Doc Header -->
+                <div class="border-b-2 border-gray-800 pb-md mb-lg flex justify-between items-end">
+                    <div>
+                        <h2 class="text-2xl font-bold text-gray-900 tracking-tight">Plant Intelligence</h2>
+                        <p class="text-sm text-gray-600 mt-1">Compliance Audit Report • Generated via ConfidenceOS</p>
+                    </div>
+                    <div class="text-right">
+                        <p class="text-sm font-semibold text-gray-800">Date: Oct 31, 2023</p>
+                        <p class="text-xs text-gray-500">Doc ID: AUD-2023-10-842A</p>
+                    </div>
+                </div>
+                <!-- Doc Content -->
+                <div class="space-y-lg">
+                    <div>
+                        <h3
+                            class="text-xl font-bold text-gray-900 border-b border-gray-300 pb-xs mb-sm uppercase tracking-wide text-sm">
+                            1. Executive Summary</h3>
+                        <p class="text-sm leading-relaxed text-gray-700">
+                            This report evaluates compliance against ISA-18.2 and IEC 61511 standards for the defined
+                            operational period. Overall system health indicates a 98% reliability metric across
+                            monitored nodes. Minor deviations were noted in Alarm Flood metrics during transient
+                            operations on Oct 14th, which have been computationally flagged for review.
+                        </p>
+                    </div>
+                    <div>
+                        <h3
+                            class="text-xl font-bold text-gray-900 border-b border-gray-300 pb-xs mb-sm uppercase tracking-wide text-sm">
+                            2. Alarm Management (ISA-18.2)</h3>
+                        <div class="bg-gray-50 p-md rounded-sm border border-gray-200">
+                            <table class="w-full text-sm text-left">
+                                <thead class="text-xs text-gray-700 uppercase bg-gray-100 border-b border-gray-300">
+                                    <tr>
+                                        <th class="px-3 py-2">Metric</th>
+                                        <th class="px-3 py-2">Target</th>
+                                        <th class="px-3 py-2">Actual</th>
+                                        <th class="px-3 py-2">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr class="border-b border-gray-200">
+                                        <td class="px-3 py-2 font-medium">Avg Alarms per Hour</td>
+                                        <td class="px-3 py-2">&lt; 6.0</td>
+                                        <td class="px-3 py-2 font-mono">4.2</td>
+                                        <td class="px-3 py-2 text-emerald-600 font-semibold">Pass</td>
+                                    </tr>
+                                    <tr class="border-b border-gray-200">
+                                        <td class="px-3 py-2 font-medium">% Time in Alarm Flood</td>
+                                        <td class="px-3 py-2">&lt; 1%</td>
+                                        <td class="px-3 py-2 font-mono">1.4%</td>
+                                        <td class="px-3 py-2 text-amber-600 font-semibold">Review</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="px-3 py-2 font-medium">Stale Alarms (&gt;24h)</td>
+                                        <td class="px-3 py-2">&lt; 5</td>
+                                        <td class="px-3 py-2 font-mono">2</td>
+                                        <td class="px-3 py-2 text-emerald-600 font-semibold">Pass</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div>
+                        <h3
+                            class="text-xl font-bold text-gray-900 border-b border-gray-300 pb-xs mb-sm uppercase tracking-wide text-sm">
+                            3. Sensor Reliability Audit (IEC 61511)</h3>
+                        <p class="text-sm leading-relaxed text-gray-700 mb-sm">
+                            AI-driven predictive analysis indicates nominal sensor drift across major units. The
+                            following nodes require attention based on confidence deterioration vectors over the last 30
+                            days.
+                        </p>
+                        <!-- Mini visualization simulation in PDF -->
+                        <div class="border border-gray-300 p-sm mb-sm flex items-center gap-md">
+                            <div class="w-1/3">
+                                <div class="text-xs font-bold text-gray-500 uppercase">Node ID</div>
+                                <div class="font-mono text-sm">PT-4042 (Cracking)</div>
+                            </div>
+                            <div class="flex-1">
+                                <div class="text-xs font-bold text-gray-500 uppercase mb-1">Drift Probability</div>
+                                <div class="w-full bg-gray-200 h-2 rounded-full overflow-hidden">
+                                    <div class="bg-amber-500 h-full w-[78%]"></div>
+                                </div>
+                            </div>
+                            <div class="w-1/6 text-right">
+                                <div class="text-xs font-bold text-gray-500 uppercase">Rec Action</div>
+                                <div class="text-sm font-semibold">Calibrate</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div>
+                        <h3
+                            class="text-xl font-bold text-gray-900 border-b border-gray-300 pb-xs mb-sm uppercase tracking-wide text-sm">
+                            4. AI Diagnostic Narrative</h3>
+                        <div class="bg-blue-50 border-l-4 border-blue-600 p-sm">
+                            <p class="text-sm text-gray-800 italic leading-relaxed">
+                                "Analysis of Unit 04 operational data between Oct 14-16 suggests that the brief alarm
+                                flood was causally linked to a transient pressure spike in Storage Tank B2, originating
+                                from an irregular feed flow. No safety limits were breached. Confidence in this causal
+                                link is 94.2%. Recommending tuning of flow control loop FIC-101 to dampen similar future
+                                transients."
+                            </p>
+                            <p class="text-xs text-blue-800 mt-2 font-mono">- Generated by Causal Graph Engine v2.4</p>
+                        </div>
+                    </div>
+                </div>
+                <!-- Doc Footer -->
+                <div
+                    class="absolute bottom-xl left-xl right-xl border-t border-gray-300 pt-sm flex justify-between items-center text-xs text-gray-500">
+                    <div>ConfidenceOS Compliance Engine - Strictly Confidential</div>
+                    <div>Page 1 of 4</div>
+                </div>
+            </div>
+        </section>
+    </main>
+</body>
+
+</html>

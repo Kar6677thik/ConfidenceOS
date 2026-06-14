@@ -42,6 +42,20 @@ const NAMUR_CLASS = {
   FUNCTION_CHECK: 'status-warning',
 };
 
+function getNamurLabel(pct) {
+  if (pct < 20) return 'Failure (F)';
+  if (pct < 50) return 'Out of Specification (S)';
+  if (pct < 80) return 'Maintenance Required (M)';
+  return 'Function Check (C)';
+}
+
+function getNamurClass(pct) {
+  if (pct < 20) return 'status-critical';
+  if (pct < 50) return 'status-warning';
+  if (pct < 80) return 'status-caution';
+  return 'status-safe';
+}
+
 export default function SensorCard({ reading, confidence, isSelected, onSelect }) {
   if (!reading || !confidence) return null;
 
@@ -52,8 +66,8 @@ export default function SensorCard({ reading, confidence, isSelected, onSelect }
   const primaryReason = primaryEvidence?.message || confidence.reasons?.[0] || 'Operating within design threshold.';
   const value = typeof reading.value === 'number' ? reading.value.toFixed(1) : '--';
   const sensorType = SENSOR_LABELS[reading.sensor_type] || reading.sensor_type || 'Sensor';
-  const namurState = confidence.namur_state || 'NORMAL';
-  const namurClass = NAMUR_CLASS[namurState] || 'text-[var(--data-mono)]';
+  const namurLabel = getNamurLabel(pct);
+  const namurClass = getNamurClass(pct);
 
   return (
     <button
@@ -78,7 +92,7 @@ export default function SensorCard({ reading, confidence, isSelected, onSelect }
       </div>
 
       <div className="flex items-center justify-between gap-2">
-        <span className={`industrial-badge ${namurClass}`}>{namurState}</span>
+        <span className={`industrial-badge ${namurClass}`}>{namurLabel}</span>
         <span className="caption-mono text-[var(--data-mono)]">{confidence.dominant_factor || 'none'}</span>
       </div>
 
