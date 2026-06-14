@@ -67,12 +67,17 @@ from decision_integrity import (
 from studio_service import (
     assign_template as studio_assign_template,
     auto_map as studio_auto_map,
+    current_build as studio_current_build,
     diff as studio_diff,
     generate_preview as studio_generate_preview,
     imported_signals as studio_imported_signals,
+    mapping_court_detail as studio_mapping_court_detail,
+    mapping_court_items as studio_mapping_court,
     publish as studio_publish,
     reset as studio_reset,
+    run_compiler_build as studio_run_compiler_build,
     studio_overview,
+    template_tests as studio_template_tests,
     validation as studio_validation,
 )
 from template_library import get_template_catalog
@@ -738,6 +743,36 @@ def get_studio_imported_signals():
     return studio_imported_signals()
 
 
+@app.get("/api/studio/build")
+def get_studio_build():
+    """Return the latest HMI Compiler build artifact without mutating Studio state."""
+    return studio_current_build()
+
+
+@app.post("/api/studio/build/run")
+def post_studio_build_run():
+    """Run the read-only HMI Compiler pipeline and store the build artifact."""
+    return studio_run_compiler_build()
+
+
+@app.get("/api/studio/template-tests")
+def get_studio_template_tests():
+    """Return deterministic template smoke-test results for Studio."""
+    return studio_template_tests()
+
+
+@app.get("/api/studio/mapping-court")
+def get_studio_mapping_court():
+    """Return evidence-ledger rows for imported tag mapping suggestions."""
+    return studio_mapping_court()
+
+
+@app.get("/api/studio/mapping-court/{raw_tag:path}")
+def get_studio_mapping_court_detail(raw_tag: str):
+    """Return one evidence-ledger row for an imported raw tag."""
+    return studio_mapping_court_detail(raw_tag)
+
+
 @app.post("/api/studio/auto-map")
 def post_studio_auto_map():
     """Generate deterministic mapping suggestions. Approval is still required."""
@@ -760,7 +795,10 @@ def post_studio_generate(request: StudioGenerateRequest | None = None):
 @app.post("/api/studio/publish")
 def post_studio_publish():
     """Publish generated metadata to Runtime manifest state. This remains read-only to controls."""
-    return studio_publish()
+    result = studio_publish()
+    if result.get("status") == "blocked":
+        raise HTTPException(status_code=409, detail=result)
+    return result
 
 
 @app.post("/api/studio/reset")
@@ -1815,6 +1853,7 @@ def health_check():
             "read_only_trust_layer": "active",
             "asset_model": "active",
             "model_graph": "active",
+            "hmi_compiler": "active",
             "template_library": "active",
             "generated_runtime": "active",
             "studio": "active",

@@ -2,6 +2,10 @@
   "revision": 1,
   "published_revision": 1,
   "last_published_at": null,
+  "published_build_id": null,
+  "build_counter": 0,
+  "last_build_id": null,
+  "last_build": null,
   "assignments": [
     {
       "asset_id": "V-5100",
@@ -23,5 +27,7 @@
     }
   ],
   "suggestions": [],
+  "approved_bindings": [],
+  "ignored_raw_tags": {},
   "notes": []
 }

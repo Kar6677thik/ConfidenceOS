@@ -15,31 +15,39 @@ def generate_screen_manifest(
     context: str = "auto",
     live_state: dict | None = None,
     assignments: list[dict] | None = None,
+    build_context: dict | None = None,
 ) -> dict:
     live_state = live_state or {}
+    build_context = build_context or {}
     context_state = _resolve_context(context, live_state)
     role_policy = load_role_policies().get("policies", {}).get(role) or load_role_policies().get("policies", {}).get("Operator", {})
     context_policy = load_context_policies().get("policies", {}).get(context_state, {})
     validation = validate_assignments(assignments or [])
     assets = get_assets()
     faceplates = [
-        _faceplate_for_asset(asset, live_state, role, context_state, assignments or [])
+        _faceplate_for_asset(asset, live_state, role, context_state, assignments or [], build_context)
         for asset in assets
         if asset.get("asset_type") in ("process_vessel", "valve", "flow_pair")
     ]
     faceplates = [item for item in faceplates if item]
     situations = _situations(live_state)
     stress = _is_stress(live_state, context_state)
+    build_id = build_context.get("build_id", "runtime-ad-hoc")
+    validation_status = build_context.get("validation_status") or ("PASS_WITH_WARNINGS" if validation.get("warnings") else "PASS")
+    receipts = build_context.get("receipts", [])
 
     return {
         "manifest_id": f"runtime:{role}:{context_state}",
+        "build_id": build_id,
         "route": "/runtime",
         "generated_at": time.time(),
         "role": role,
         "context": context_state,
+        "validation_status": validation_status,
         "stress_mode": stress,
         "source": "asset_model_and_template_library",
         "read_only_trust_layer": True,
+        "compiler_pipeline": "Raw Tags -> Asset Graph -> Template Binding -> Validation -> Screen Generation -> Publish Readiness -> Runtime",
         "navigation": get_navigation(),
         "role_policy": role_policy,
         "context_policy": context_policy,
@@ -47,25 +55,34 @@ def generate_screen_manifest(
         "semantic_zoom": ["plant", "area", "unit", "module", "equipment", "signal"],
         "provenance": {
             "asset_model_id": get_model_graph().get("model_id"),
+            "build_id": build_id,
+            "validation_status": validation_status,
             "role_policy": role,
             "context_policy": context_state,
             "template_assignments": assignments or [],
+            "source_tags": build_context.get("source_tags", []),
+            "receipts": receipts,
         },
         "screens": [
             {
                 "screen_id": "plant-overview",
+                "generated_id": f"{build_id}:plant-overview",
                 "screen_type": "plant_overview",
                 "title": "Instrument Integrity Overview",
                 "sections": ["semantic_navigation", "trust_hotspots", "unresolved_situations"],
+                "receipt": _generation_receipt(build_id, "plant-overview", validation_status),
             },
             {
                 "screen_id": "unit-15-runtime",
+                "generated_id": f"{build_id}:unit-15-runtime",
                 "screen_type": "unit_overview",
                 "title": "Unit 15 ISOM Runtime",
                 "sections": ["situation_workspace", "generated_faceplates", "shift_channel"],
+                "receipt": _generation_receipt(build_id, "unit-15-runtime", validation_status),
             },
         ],
         "faceplates": faceplates,
+        "receipts": receipts,
         "situations": situations,
         "operating_basis": _operating_basis(live_state, situations),
         "role_sections": _role_sections(role, live_state),
@@ -76,10 +93,18 @@ def equipment_manifest(equipment_id: str, role: str, live_state: dict | None = N
     asset = next((item for item in get_assets() if item.get("asset_id") == equipment_id), None)
     if not asset:
         return {}
-    return _faceplate_for_asset(asset, live_state or {}, role, "auto", assignments or [])
+    return _faceplate_for_asset(asset, live_state or {}, role, "auto", assignments or [], {})
 
 
-def _faceplate_for_asset(asset: dict, live_state: dict, role: str, context_state: str, assignments: list[dict]) -> dict:
+def _faceplate_for_asset(
+    asset: dict,
+    live_state: dict,
+    role: str,
+    context_state: str,
+    assignments: list[dict],
+    build_context: dict | None = None,
+) -> dict:
+    build_context = build_context or {}
     asset_id = asset.get("asset_id")
     assignment = next((item for item in assignments if item.get("asset_id") == asset_id), {})
     template_id = assignment.get("template_id") or asset.get("template_id")
@@ -99,20 +124,40 @@ def _faceplate_for_asset(asset: dict, live_state: dict, role: str, context_state
         })
     return {
         "equipment_id": asset_id,
+        "generated_id": f"{build_context.get('build_id', 'runtime-ad-hoc')}:{asset_id}",
         "title": asset.get("name", asset_id),
         "asset_type": asset.get("asset_type"),
         "template_id": template_id,
         "template_label": template.get("label"),
+        "template_version": template.get("version", "1.0"),
         "role": role,
         "context": context_state,
+        "build_id": build_context.get("build_id", "runtime-ad-hoc"),
+        "validation_status": build_context.get("validation_status", "PASS"),
+        "source_tags": build_context.get("source_tags", []),
         "sections": template.get("role_visibility", {}).get(role, template.get("generated_ui_sections", [])),
         "signals": signal_rows,
+        "receipt": _generation_receipt(build_context.get("build_id", "runtime-ad-hoc"), asset_id, build_context.get("validation_status", "PASS")),
         "provenance": {
             "generated_from": ["asset_model.json", "equipment_templates.json", "role_policies.json", "context_policies.json"],
+            "build_id": build_context.get("build_id", "runtime-ad-hoc"),
+            "validation_status": build_context.get("validation_status", "PASS"),
             "template_id": template_id,
             "asset_id": asset_id,
+            "source_tags": build_context.get("source_tags", []),
             "approved": assignment.get("approved", False),
         },
+    }
+
+
+def _generation_receipt(build_id: str, generated_item_id: str, validation_status: str) -> dict:
+    return {
+        "stage": "screen_generation",
+        "severity": "INFO",
+        "build_id": build_id,
+        "generated_item_id": generated_item_id,
+        "validation_status": validation_status,
+        "message": "Generated from asset model, approved template binding, role policy, and context policy.",
     }
 
 

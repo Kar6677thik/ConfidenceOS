@@ -55,7 +55,9 @@ def template_by_id(template_id: str) -> dict:
 
 
 def validate_assignments(assignments: list[dict]) -> dict:
+    info = []
     warnings = []
+    blocking = []
     valid = []
     assignment_by_asset = {
         item.get("asset_id"): item.get("template_id")
@@ -95,10 +97,12 @@ def validate_assignments(assignments: list[dict]) -> dict:
             })
 
     return {
-        "status": "valid" if not warnings else "warnings",
+        "status": "blocking" if blocking else ("warnings" if warnings else "valid"),
+        "info": info,
         "warnings": warnings,
+        "blocking": blocking,
         "items": valid,
-        "count": len(warnings),
+        "count": len(info) + len(warnings) + len(blocking),
     }
 
 
