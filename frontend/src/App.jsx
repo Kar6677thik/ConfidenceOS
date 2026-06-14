@@ -185,9 +185,13 @@ function LeftRail() {
   );
 }
 
-function ContextStrip({ context }) {
+function ContextStrip({ context, incidents = [], incidentTimeline = [] }) {
   if (!context) return null;
   const cls = statusClass(context.severity);
+  const inference = context.inferred_mode || context.mode_inference;
+  const leadIncident = incidents?.[0];
+  const collapse = leadIncident?.alarm_collapse;
+  const collapsedCount = collapse?.raw_signal_count ?? leadIncident?.source_flags?.length;
   return (
     <div className="industrial-panel mb-[1px]">
       <div className="industrial-panel-header py-3">
@@ -195,8 +199,16 @@ function ContextStrip({ context }) {
           <div className="flex items-center gap-3 mb-2">
             <span className={`industrial-badge ${cls}`}>{context.state || 'STEADY_STATE'}</span>
             <span className="caption-mono text-[var(--data-mono)]">{context.layout_hint || 'standard_monitoring'}</span>
+            {inference?.rule_id && <span className="caption-mono text-[var(--data-mono)]">{inference.rule_id}</span>}
           </div>
           <p className="caption-mono text-[var(--text)] truncate">{context.operator_focus || 'No active operator focus.'}</p>
+          {leadIncident && (
+            <div className="mt-2 flex flex-wrap items-center gap-2 caption-mono">
+              <span className="status-warning">{leadIncident.title}</span>
+              {collapsedCount != null && <span className="text-[var(--data-mono)]">collapsed from {collapsedCount} signals</span>}
+              {!!incidentTimeline.length && <span className="text-[var(--data-mono)]">{incidentTimeline.length} timeline events</span>}
+            </div>
+          )}
         </div>
         {!!context.priority_sensors?.length && (
           <div className="flex flex-wrap justify-end gap-2 max-w-[320px]">
@@ -231,6 +243,7 @@ function OperatorDashboard() {
     role,
     plantContext,
     incidents,
+    incidentTimeline,
   } = useStore();
 
   useEffect(() => {
@@ -262,7 +275,7 @@ function OperatorDashboard() {
               </div>
             </div>
 
-            <ContextStrip context={plantContext} />
+            <ContextStrip context={plantContext} incidents={incidents} incidentTimeline={incidentTimeline} />
 
             <div className="mb-[1px]">
               <StartupBanner

@@ -49,6 +49,7 @@ const useStore = create((set, get) => ({
   newAnomalies: [],       // anomalies detected this tick
   plantContext: null,     // advisory context inferred by backend
   incidents: [],          // fused advisory incidents
+  incidentTimeline: [],    // lightweight decision-integrity events
   timestamp: null,        // last update timestamp
 
   // ── Derived / computed ────────────────────────────────────────────────
@@ -80,6 +81,7 @@ const useStore = create((set, get) => ({
       predictions: {},
       plantContext: null,
       incidents: [],
+      incidentTimeline: [],
     });
 
     // Reconnect after state update
@@ -149,6 +151,7 @@ const useStore = create((set, get) => ({
             newAnomalies: data.new_anomalies || [],
             plantContext: data.plant_context || null,
             incidents: data.incidents || [],
+            incidentTimeline: data.incident_timeline || [],
             timestamp: data.timestamp,
             averageConfidence: avgConf,
             chartHistory: newHistory,
