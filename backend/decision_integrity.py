@@ -64,11 +64,98 @@ def active_verification_tokens(tokens: list[dict], now: float | None = None) -> 
     current = now or time.time()
     active = []
     for token in tokens or []:
-        item = dict(token)
-        item["active"] = float(item.get("valid_until", 0)) > current
-        item["expired"] = not item["active"]
+        item = normalize_verification_task(token, current)
         active.append(item)
     return [item for item in active if item["active"]]
+
+
+def normalize_verification_task(token: dict, now: float | None = None) -> dict:
+    """Return old verification-token records as field verification tasks."""
+    current = now or time.time()
+    item = dict(token or {})
+    sensor_id = item.get("sensor_id", "UNKNOWN")
+    valid_until = _timestamp_value(item.get("valid_until") or item.get("valid_until_iso"), current)
+    expired = valid_until <= current
+    state = item.get("state") or "REQUESTED"
+    if expired and state not in ("ACCEPTED", "EXPIRED"):
+        state = "EXPIRED"
+    task_id = item.get("task_id") or item.get("token_id") or f"verification:{sensor_id}:{int(item.get('created_at', current))}"
+    token_id = item.get("token_id") or task_id
+    return {
+        **item,
+        "task_id": task_id,
+        "token_id": token_id,
+        "sensor_id": sensor_id,
+        "state": state,
+        "assigned_role": item.get("assigned_role", "Maintenance"),
+        "verification_method": item.get("verification_method") or item.get("verification_type", "local_field_check"),
+        "verification_type": item.get("verification_type") or item.get("verification_method", "local_field_check"),
+        "evidence_required": item.get("evidence_required", ["local level indication", "field operator note"]),
+        "valid_until": valid_until,
+        "accepted_by": item.get("accepted_by"),
+        "handover_required": state not in ("ACCEPTED", "EXPIRED"),
+        "active": not expired and state not in ("ACCEPTED", "EXPIRED"),
+        "expired": expired or state == "EXPIRED",
+        "confidence_override": False,
+        "usable_as_reference": item.get("usable_as_reference", False),
+    }
+
+
+def ensure_verification_tasks(
+    existing_tasks: list[dict],
+    incidents: list[dict],
+    confidence: list[dict],
+    plant_context: dict | None,
+    now: float | None = None,
+) -> list[dict]:
+    """Generate requested verification tasks when trust quarantine blocks handover."""
+    current = now or time.time()
+    tasks_by_id = {
+        normalize_verification_task(task, current)["task_id"]: normalize_verification_task(task, current)
+        for task in existing_tasks or []
+    }
+    context_state = (plant_context or {}).get("state")
+    handover_blocked = any(
+        "accept_handover_without_verification" in (incident.get("action_contract") or {}).get("blocked_decisions", [])
+        for incident in incidents or []
+    )
+    requested_sensors = set()
+    for item in confidence or []:
+        if item.get("trust_state") == "QUARANTINED" or (
+            item.get("tier") in ("LOW", "CRITICAL") and item.get("decision_basis_allowed") is False
+        ):
+            requested_sensors.add(item.get("sensor_id"))
+    if context_state == "MANUAL_VERIFICATION_REQUIRED" or handover_blocked:
+        for incident in incidents or []:
+            for sensor_id in incident.get("affected_sensors", []):
+                if sensor_id:
+                    requested_sensors.add(sensor_id)
+
+    for sensor_id in sorted(sid for sid in requested_sensors if sid):
+        task_id = f"verification-task:{sensor_id}"
+        existing = tasks_by_id.get(task_id)
+        if existing and existing.get("state") not in ("ACCEPTED", "EXPIRED"):
+            continue
+        valid_until = current + 30 * 60
+        tasks_by_id[task_id] = normalize_verification_task({
+            "task_id": task_id,
+            "token_id": task_id,
+            "plant_id": "plant-a",
+            "sensor_id": sensor_id,
+            "state": "REQUESTED",
+            "assigned_role": "Maintenance",
+            "verification_method": "local_field_check",
+            "verification_type": "field_check",
+            "evidence_required": ["local indication", "field photo or operator note", "time-stamped confirmation"],
+            "created_at": current,
+            "created_at_iso": datetime.fromtimestamp(current, timezone.utc).isoformat(),
+            "valid_until": valid_until,
+            "valid_until_iso": datetime.fromtimestamp(valid_until, timezone.utc).isoformat(),
+            "note": "Generated because trust quarantine or handover block requires field verification.",
+            "handover_required": True,
+        }, current)
+
+    return sorted(tasks_by_id.values(), key=lambda item: (item.get("state") == "ACCEPTED", item.get("sensor_id", "")))
 
 
 def build_score_sensitivity(sensor_id: str, confidence: dict, role: str = "Engineer") -> dict:
@@ -253,13 +340,15 @@ def build_handover_debt(
 
     for token in active_verification_tokens(verification_tokens, now=current):
         entries.append({
-            "id": f"verification_token:{token.get('token_id')}",
+            "id": f"verification_task:{token.get('task_id')}",
             "type": "active_verification_token",
+            "task_type": "active_verification_task",
             "severity": "WARNING",
             "sensor_id": token.get("sensor_id"),
-            "title": f"Field verification token active for {token.get('sensor_id')}",
+            "title": f"Field verification task {token.get('state')} for {token.get('sensor_id')}",
             "valid_until": token.get("valid_until_iso"),
-            "required_action": "Confirm token status before relying on temporary field verification.",
+            "state": token.get("state"),
+            "required_action": "Complete and accept field verification before handover acceptance.",
             "handover_required": True,
         })
 
@@ -274,6 +363,8 @@ def build_handover_debt(
         "plant_id": plant_id,
         "generated_at": datetime.fromtimestamp(current, timezone.utc).isoformat(),
         "handover_required": bool(entries),
+        "handover_acceptance": "blocked" if entries else "unblocked",
+        "handover_acceptance_blocked": bool(entries),
         "count": len(entries),
         "entries": entries,
     }
@@ -364,6 +455,22 @@ def _renormalized_score(sub_scores: dict, ignored_factor: str) -> float:
             continue
         total += (weight / remaining_weight) * float(sub_scores.get(factor, 1.0))
     return round(max(0.0, min(100.0, total * 100.0)), 1)
+
+
+def _timestamp_value(value, fallback: float) -> float:
+    if value is None:
+        return 0.0
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        pass
+    try:
+        text = str(value).replace("Z", "+00:00")
+        return datetime.fromisoformat(text).timestamp()
+    except ValueError:
+        return fallback + 30 * 60
 
 
 def _maintenance_priority_language(sensor_id: str, debt: float, tier: str, context_weight: float) -> str:

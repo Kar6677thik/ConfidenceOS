@@ -6,6 +6,8 @@ from __future__ import annotations
 
 import time
 
+from assumptions import load_assumptions
+from decision_integrity import build_score_sensitivity
 from model_graph import equipment_signals, get_assets, get_model_graph, get_navigation
 from template_library import load_context_policies, load_role_policies, template_by_id, validate_assignments
 
@@ -318,22 +320,70 @@ def _role_sections(
 ) -> list[dict]:
     build_context = build_context or {}
     if role == "Maintenance":
+        tasks = live_state.get("verification_tasks") or live_state.get("verification_tokens", [])
+        confidence = live_state.get("confidence", [])
+        confidence_by_id = {item.get("sensor_id"): item for item in confidence or []}
         rows = [
-            {"section": "verification_tokens", "items": live_state.get("verification_tokens", [])},
+            {"section": "verification_task", "items": tasks},
+            {"section": "calibration_context", "items": _calibration_context(confidence)},
+            {"section": "device_health", "items": _device_health(confidence)},
             {"section": "confidence_debt", "items": live_state.get("confidence_debt", [])},
+            {"section": "field_check_status", "items": [
+                {
+                    "sensor_id": task.get("sensor_id"),
+                    "state": task.get("state"),
+                    "verification_method": task.get("verification_method"),
+                    "confidence_tier": confidence_by_id.get(task.get("sensor_id"), {}).get("tier"),
+                }
+                for task in tasks
+            ]},
         ]
     elif role == "Engineer":
+        confidence = live_state.get("confidence", [])
+        lead_confidence = next((item for item in confidence if item.get("sensor_id") == "LT-5100"), confidence[0] if confidence else {})
+        build_id = build_context.get("build_id", "runtime-ad-hoc")
         rows = [
             {"section": "signal_mapping", "items": get_model_graph().get("signals", [])},
-            {"section": "validation", "items": []},
+            {"section": "template_receipt", "items": build_context.get("receipts", [])},
+            {"section": "assumptions_used", "items": _assumptions_used()},
+            {"section": "score_sensitivity", "items": [build_score_sensitivity(lead_confidence.get("sensor_id", "LT-5100"), lead_confidence, role="Engineer")] if lead_confidence else []},
+            {"section": "validation_warnings", "items": (build_context.get("validation") or {}).get("warnings", []) + (build_context.get("validation") or {}).get("blocking", [])},
+            {"section": "build_publish_provenance", "items": [{
+                "build_id": build_id,
+                "published_build_id": build_context.get("published_build_id"),
+                "runtime_source": build_context.get("runtime_source"),
+                "validation_status": build_context.get("validation_status"),
+                "source_tags": build_context.get("source_tags", []),
+            }]},
         ]
     elif role in ("Manager", "Auditor"):
+        debt = live_state.get("handover_debt") or {}
+        freezes = [
+            freeze
+            for incident in live_state.get("incidents", []) or []
+            for freeze in incident.get("decision_freezes", [])
+        ]
         rows = [
-            {"section": "handover_debt", "items": (live_state.get("handover_debt") or {}).get("entries", [])},
-            {"section": "timeline", "items": live_state.get("incident_timeline", [])},
+            {"section": "unresolved_handover_debt", "items": debt.get("entries", [])},
+            {"section": "decision_freeze_state", "items": freezes},
+            {"section": "handover_acceptance", "items": [{
+                "state": debt.get("handover_acceptance", "unblocked"),
+                "blocked": debt.get("handover_acceptance_blocked", False),
+                "blocking_items": debt.get("count", 0),
+            }]},
+            {"section": "timeline_evidence", "items": live_state.get("incident_timeline", [])},
+            {"section": "published_build_id", "items": [{"build_id": build_context.get("published_build_id") or build_context.get("build_id")}]},
         ]
     else:
-        rows = [{"section": "operator_basis", "items": [_operating_basis(live_state, _situations(live_state, build_context, role, context_state, validation_status))]}]
+        basis = _operating_basis(live_state, _situations(live_state, build_context, role, context_state, validation_status))
+        rows = [
+            {"section": "single_safe_move", "items": [basis.get("operator_single_safe_move")]},
+            {"section": "operating_basis", "items": [basis]},
+            {"section": "do_not_trust", "items": basis.get("do_not_trust", [])},
+            {"section": "trusted_substitute", "items": basis.get("trusted_substitutes", [])},
+            {"section": "decision_freeze", "items": basis.get("decision_freeze", [])},
+            {"section": "exit_condition", "items": basis.get("exit_condition", [])},
+        ]
 
     return [
         {
@@ -427,6 +477,59 @@ def _situation_source_tags(incident: dict, build_context: dict) -> list[str]:
             tags.extend(values)
     tags.extend(build_context.get("source_tags", []))
     return sorted({tag for tag in tags if isinstance(tag, str)})
+
+
+def _calibration_context(confidence: list[dict]) -> list[dict]:
+    rows = []
+    for item in confidence or []:
+        calibration = None
+        for evidence in item.get("evidence", []) or []:
+            if evidence.get("category") == "calibration":
+                calibration = evidence
+                break
+        rows.append({
+            "sensor_id": item.get("sensor_id"),
+            "tier": item.get("tier"),
+            "confidence_pct": item.get("confidence_pct"),
+            "calibration_status": calibration.get("status") if calibration else "UNKNOWN",
+            "calibration_message": calibration.get("message") if calibration else "Calibration evidence not available.",
+        })
+    return rows
+
+
+def _device_health(confidence: list[dict]) -> list[dict]:
+    return [
+        {
+            "sensor_id": item.get("sensor_id"),
+            "trust_state": item.get("trust_state", "TRUSTED"),
+            "tier": item.get("tier"),
+            "confidence_pct": item.get("confidence_pct"),
+            "decision_basis_allowed": item.get("decision_basis_allowed", True),
+            "trust_reason": item.get("trust_reason"),
+        }
+        for item in confidence or []
+    ]
+
+
+def _assumptions_used() -> list[dict]:
+    assumptions = load_assumptions()
+    keys = [
+        "confidence_weights",
+        "calibration_interval",
+        "mass_balance_tolerance",
+        "flow_to_level_conversion_factor",
+        "startup_thresholds",
+        "stale_reading_threshold",
+        "operating_envelopes",
+    ]
+    return [
+        {
+            "assumption_id": key,
+            **assumptions.get(key, {}),
+        }
+        for key in keys
+        if key in assumptions
+    ]
 
 
 def _signal_trust_state(confidence: dict | None, reading: dict | None) -> str:

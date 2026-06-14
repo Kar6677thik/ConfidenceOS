@@ -9,6 +9,8 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+from decision_integrity import active_verification_tokens, normalize_verification_task
+
 
 STATE_PATH = Path(__file__).with_name("shift_channel_state.json")
 
@@ -17,7 +19,8 @@ def build_shift_channel(plant_id: str, plant) -> dict:
     notes = _load_notes()
     debt = plant.latest_handover_debt or {}
     incidents = plant.latest_incidents or []
-    tokens = plant.verification_tokens or []
+    tasks = [normalize_verification_task(token) for token in plant.verification_tokens or []]
+    active_tasks = active_verification_tokens(plant.verification_tokens or [])
     timeline = plant.latest_incident_timeline or []
     confidence_debt = plant.latest_confidence_debt or []
 
@@ -39,6 +42,16 @@ def build_shift_channel(plant_id: str, plant) -> dict:
             "title": entry.get("title"),
             "severity": entry.get("severity", "WARNING"),
             "required_action": entry.get("required_action"),
+        })
+    for task in active_tasks:
+        pinned.append({
+            "id": f"verification_task:{task.get('task_id')}",
+            "type": "active_verification_task",
+            "title": f"Field verification {task.get('state')} for {task.get('sensor_id')}",
+            "severity": "WARNING",
+            "required_action": "Advance field check to ACCEPTED before handover acceptance.",
+            "state": task.get("state"),
+            "valid_until": task.get("valid_until_iso"),
         })
 
     thread = []
@@ -62,9 +75,12 @@ def build_shift_channel(plant_id: str, plant) -> dict:
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "pinned": pinned,
         "thread": thread[:30],
-        "summary": _summary(pinned, tokens, confidence_debt),
+        "summary": _summary(pinned, active_tasks, confidence_debt, debt),
         "handover_debt": debt,
-        "verification_tokens": tokens,
+        "verification_tokens": tasks,
+        "verification_tasks": tasks,
+        "handover_acceptance": debt.get("handover_acceptance", "unblocked"),
+        "handover_acceptance_blocked": debt.get("handover_acceptance_blocked", False),
         "confidence_debt": confidence_debt,
     }
 
@@ -92,11 +108,13 @@ def reset_notes() -> dict:
     return state
 
 
-def _summary(pinned: list[dict], tokens: list[dict], confidence_debt: list[dict]) -> str:
+def _summary(pinned: list[dict], tokens: list[dict], confidence_debt: list[dict], debt: dict | None = None) -> str:
+    if (debt or {}).get("handover_acceptance_blocked"):
+        return f"Handover acceptance blocked by {(debt or {}).get('count', len(pinned))} unresolved item(s)."
     if pinned:
         return f"{len(pinned)} unresolved operating-basis item(s) pinned for handover."
     if tokens:
-        return f"{len(tokens)} verification token(s) active or recently created."
+        return f"{len(tokens)} verification task(s) active or recently created."
     if confidence_debt:
         return "Confidence debt is being tracked for maintenance priority."
     return "No unresolved handover debt currently pinned."

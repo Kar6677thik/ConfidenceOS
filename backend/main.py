@@ -62,6 +62,8 @@ from decision_integrity import (
     build_handover_debt,
     build_score_sensitivity,
     build_trust_dependency_graph,
+    ensure_verification_tasks,
+    normalize_verification_task,
     update_confidence_debt,
 )
 from studio_service import (
@@ -132,6 +134,12 @@ class VerificationTokenRequest(BaseModel):
     sensor_id: str
     verification_type: str = "field_check"
     valid_minutes: float = 30.0
+    note: str = ""
+
+class VerificationTaskUpdateRequest(BaseModel):
+    task_id: str
+    state: str
+    accepted_by: Optional[str] = None
     note: str = ""
 
 class StudioTemplateAssignmentRequest(BaseModel):
@@ -315,6 +323,13 @@ async def _plant_tick_loop(plant_id: str, plant):
                 plant_context=plant.latest_context,
             )
             plant.latest_incidents = annotate_incidents_for_handover(plant.latest_incidents)
+            plant.verification_tokens = ensure_verification_tasks(
+                plant.verification_tokens,
+                plant.latest_incidents,
+                confidence_data,
+                plant.latest_context,
+                now,
+            )
             plant.latest_confidence_debt = update_confidence_debt(
                 plant.confidence_debt_state,
                 confidence_data,
@@ -503,6 +518,7 @@ def _runtime_live_state(plant_id: str, plant) -> dict:
     confidence = list(plant.latest_confidence.values())
     if confidence and any("trust_state" not in item for item in confidence):
         confidence = _derive_trust_states(confidence, plant.latest_readings, plant.latest_mb_state)
+    verification_tasks = active_verification_tokens(plant.verification_tokens, time.time())
     return {
         "plant_id": plant_id,
         "readings": plant.latest_readings,
@@ -512,7 +528,8 @@ def _runtime_live_state(plant_id: str, plant) -> dict:
         "plant_context": plant.latest_context,
         "incidents": plant.latest_incidents,
         "incident_timeline": plant.latest_incident_timeline,
-        "verification_tokens": active_verification_tokens(plant.verification_tokens, time.time()),
+        "verification_tokens": verification_tasks,
+        "verification_tasks": verification_tasks,
         "handover_debt": plant.latest_handover_debt,
         "confidence_debt": plant.latest_confidence_debt,
     }
@@ -539,6 +556,7 @@ async def sensor_stream(
             if confidence_data and any("trust_state" not in item for item in confidence_data):
                 confidence_data = _derive_trust_states(confidence_data, readings, plant.latest_mb_state)
             stale_flags = plant.startup_manager.check_stale_readings(readings, now) if readings else []
+            verification_tasks = active_verification_tokens(plant.verification_tokens, now)
 
             await websocket.send_json({
                 "type": "sensor_update",
@@ -558,7 +576,8 @@ async def sensor_stream(
                 "plant_context": plant.latest_context,
                 "incidents": plant.latest_incidents,
                 "incident_timeline": plant.latest_incident_timeline,
-                "verification_tokens": active_verification_tokens(plant.verification_tokens, now),
+                "verification_tokens": verification_tasks,
+                "verification_tasks": verification_tasks,
                 "handover_debt": plant.latest_handover_debt,
                 "confidence_debt": plant.latest_confidence_debt,
             })
@@ -1103,9 +1122,14 @@ def create_verification_token(
     valid_minutes = max(1.0, min(float(request.valid_minutes), 240.0))
     valid_until = now + valid_minutes * 60.0
     token = {
+        "task_id": f"verification-task:{request.sensor_id}:{int(now)}",
         "token_id": f"{plant_id}:{request.sensor_id}:{int(now)}",
         "plant_id": plant_id,
         "sensor_id": request.sensor_id,
+        "state": "REQUESTED",
+        "assigned_role": "Maintenance",
+        "verification_method": request.verification_type,
+        "evidence_required": ["local indication", "field note", "time-stamped confirmation"],
         "verification_type": request.verification_type,
         "created_at": now,
         "created_at_iso": datetime.utcfromtimestamp(now).isoformat() + "Z",
@@ -1113,11 +1137,12 @@ def create_verification_token(
         "valid_until_iso": datetime.utcfromtimestamp(valid_until).isoformat() + "Z",
         "note": request.note,
         "confidence_override": False,
-        "usable_as_reference": True,
+        "accepted_by": None,
+        "usable_as_reference": False,
         "handover_required": True,
         "active": True,
     }
-    plant.verification_tokens.append(token)
+    plant.verification_tokens.append(normalize_verification_task(token, now))
     plant.latest_handover_debt = build_handover_debt(
         plant_id=plant_id,
         incidents=plant.latest_incidents,
@@ -1130,7 +1155,48 @@ def create_verification_token(
         plant.latest_incident_timeline,
         _handover_debt_events(plant_id, plant.latest_handover_debt, now),
     )
-    return token
+    return normalize_verification_task(token, now)
+
+
+@app.post("/api/verification-tasks/state")
+def update_verification_task_state(
+    request: VerificationTaskUpdateRequest,
+    plant_id: str = Query(default="plant-a"),
+):
+    """Advance a field verification task lifecycle without changing confidence."""
+    allowed = {"REQUESTED", "ASSIGNED", "FIELD_CHECK_DONE", "ACCEPTED", "EXPIRED"}
+    state = request.state.upper()
+    if state not in allowed:
+        raise HTTPException(status_code=400, detail=f"state must be one of {sorted(allowed)}")
+    plant = plant_manager.get(plant_id)
+    now = time.time()
+    updated = None
+    tasks = []
+    for token in plant.verification_tokens:
+        task = normalize_verification_task(token, now)
+        if task.get("task_id") == request.task_id or task.get("token_id") == request.task_id:
+            task["state"] = state
+            task["accepted_by"] = request.accepted_by if state == "ACCEPTED" else task.get("accepted_by")
+            task["note"] = request.note or task.get("note")
+            task["handover_required"] = state not in ("ACCEPTED", "EXPIRED")
+            task["active"] = float(task.get("valid_until", 0)) > now and state not in ("ACCEPTED", "EXPIRED")
+            task["expired"] = state == "EXPIRED" or float(task.get("valid_until", 0)) <= now
+            task["updated_at"] = now
+            task["updated_at_iso"] = datetime.utcfromtimestamp(now).isoformat() + "Z"
+            updated = task
+        tasks.append(task)
+    if not updated:
+        raise HTTPException(status_code=404, detail=f"No verification task '{request.task_id}'")
+    plant.verification_tokens = tasks
+    plant.latest_handover_debt = build_handover_debt(
+        plant_id=plant_id,
+        incidents=plant.latest_incidents,
+        confidence=list(plant.latest_confidence.values()),
+        verification_tokens=plant.verification_tokens,
+        confidence_debt=plant.latest_confidence_debt,
+        now=now,
+    )
+    return {"status": "updated", "task": updated, "handover_debt": plant.latest_handover_debt}
 
 
 @app.get("/api/verification-tokens")
@@ -1143,10 +1209,7 @@ def get_verification_tokens(
     now = time.time()
     tokens = []
     for token in plant.verification_tokens:
-        item = dict(token)
-        item["active"] = float(item.get("valid_until", 0)) > now
-        item["expired"] = not item["active"]
-        tokens.append(item)
+        tokens.append(normalize_verification_task(token, now))
     if active_only:
         tokens = [item for item in tokens if item["active"]]
     return {

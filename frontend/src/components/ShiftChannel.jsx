@@ -59,6 +59,30 @@ export default function ShiftChannel() {
           </div>
           <div className="industrial-body">
             <p className="caption-mono text-[var(--text)]">{channel?.summary || 'Loading shift channel.'}</p>
+            <p className={`caption-mono mt-3 ${channel?.handover_acceptance_blocked ? 'status-critical' : 'status-safe'}`}>
+              Handover acceptance: {channel?.handover_acceptance || 'unblocked'}
+            </p>
+          </div>
+        </section>
+        <section className="industrial-panel border-t-0">
+          <div className="industrial-panel-header">
+            <h2 className="industrial-panel-title text-base">Active Verification Tasks</h2>
+            <span className="industrial-badge text-[var(--data-mono)]">{(channel?.verification_tasks || []).filter((item) => item.active).length}</span>
+          </div>
+          <div className="industrial-body space-y-[1px] bg-[var(--border-strong)]">
+            {(channel?.verification_tasks || []).filter((item) => item.active).map((task) => (
+              <div key={task.task_id || task.token_id} className="bg-[var(--surface-panel)] p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="label-caps status-warning">{task.sensor_id}</p>
+                  <span className="industrial-badge status-warning">{task.state}</span>
+                </div>
+                <p className="caption-mono text-[var(--data-mono)] mt-1">{task.verification_method}</p>
+                <p className="caption-mono text-[var(--text)] mt-1">{(task.evidence_required || []).join(' / ')}</p>
+              </div>
+            ))}
+            {!(channel?.verification_tasks || []).some((item) => item.active) && (
+              <p className="bg-[var(--surface-panel)] p-3 caption-mono text-[var(--data-mono)]">No active field verification tasks.</p>
+            )}
           </div>
         </section>
         <section className="industrial-panel border-t-0">

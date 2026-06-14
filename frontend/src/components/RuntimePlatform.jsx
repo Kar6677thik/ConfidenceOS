@@ -499,32 +499,159 @@ function ScreenReceipts({ manifest, selectedFaceplate }) {
   );
 }
 
-function RolePanel({ manifest, confidenceDebt }) {
-  const rows = manifest?.role_sections || [];
+function sectionItems(sections, name) {
+  return (sections || []).find((row) => row.section === name)?.items || [];
+}
+
+function ValueList({ values, empty = 'Not active', status = 'text-[var(--data-mono)]' }) {
+  const rows = asList(values);
+  if (!rows.length) return <p className="caption-mono text-[var(--data-mono)] mt-2">{empty}</p>;
+  return rows.slice(0, 6).map((item, index) => (
+    <p key={`${typeof item === 'string' ? item : item?.id || item?.sensor_id || item?.task_id || index}`} className={`caption-mono mt-2 ${status}`}>
+      {typeof item === 'string'
+        ? formatText(item)
+        : formatText(item?.title || item?.required_action || item?.message || item?.sensor_id || item?.state || item?.assumption_id)}
+    </p>
+  ));
+}
+
+function WorkspacePanel({ title, children, badge }) {
+  return (
+    <div className="bg-[var(--surface-panel)] p-3">
+      <div className="flex items-center justify-between gap-3">
+        <p className="label-caps text-[var(--text)]">{title}</p>
+        {badge && <span className="industrial-badge text-[var(--data-mono)]">{badge}</span>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function RoleWorkspace({ manifest, confidenceDebt, handoverDebt }) {
+  const sections = manifest?.role_sections || [];
+  const role = manifest?.role || 'Operator';
+  const basis = manifest?.operating_basis || {};
+
+  let content;
+  if (role === 'Maintenance') {
+    const tasks = sectionItems(sections, 'verification_task');
+    content = (
+      <>
+        <WorkspacePanel title="Verification Task" badge={`${tasks.length} task(s)`}>
+          {tasks.length ? tasks.slice(0, 4).map((task) => (
+            <div key={task.task_id || task.token_id} className="border border-[var(--border-strong)] bg-[var(--surface-base)] p-3 mt-2">
+              <div className="flex items-center justify-between gap-3">
+                <p className="caption-mono status-warning">{task.sensor_id}</p>
+                <span className="industrial-badge status-warning">{task.state}</span>
+              </div>
+              <p className="caption-mono text-[var(--data-mono)] mt-1">{formatText(task.verification_method)}</p>
+              <p className="caption-mono text-[var(--text)] mt-1">{asList(task.evidence_required).join(' / ')}</p>
+            </div>
+          )) : <ValueList values={[]} empty="No active field verification task." />}
+        </WorkspacePanel>
+        <WorkspacePanel title="Calibration Context">
+          <ValueList values={sectionItems(sections, 'calibration_context').map((item) => `${item.sensor_id}: ${item.calibration_status} - ${item.calibration_message}`)} />
+        </WorkspacePanel>
+        <WorkspacePanel title="Device Health">
+          <ValueList values={sectionItems(sections, 'device_health').map((item) => `${item.sensor_id}: ${item.trust_state} / ${item.confidence_pct ?? '--'}%`)} />
+        </WorkspacePanel>
+        <WorkspacePanel title="Confidence Debt">
+          <ValueList values={(confidenceDebt || sectionItems(sections, 'confidence_debt')).map((item) => item.maintenance_priority || item.priority_language || `${item.sensor_id}: confidence debt ${item.confidence_debt ?? 0}`)} />
+        </WorkspacePanel>
+        <WorkspacePanel title="Field Check Status">
+          <ValueList values={sectionItems(sections, 'field_check_status').map((item) => `${item.sensor_id}: ${item.state || 'not requested'} / ${item.confidence_tier || 'unknown confidence'}`)} />
+        </WorkspacePanel>
+      </>
+    );
+  } else if (role === 'Engineer') {
+    const provenance = sectionItems(sections, 'build_publish_provenance')[0] || {};
+    content = (
+      <>
+        <WorkspacePanel title="Signal Binding" badge={`${sectionItems(sections, 'signal_mapping').length} signal(s)`}>
+          <ValueList values={sectionItems(sections, 'signal_mapping').map((item) => `${item.tag}: ${item.role || item.sensor_type} -> ${item.equipment_id}`)} />
+        </WorkspacePanel>
+        <WorkspacePanel title="Template Receipt">
+          <ValueList values={sectionItems(sections, 'template_receipt').map((item) => item.message || item.receipt || item.generated_id || item.rule || item.status)} empty="No compiler receipt rows attached." />
+        </WorkspacePanel>
+        <WorkspacePanel title="Assumptions Used">
+          <ValueList values={sectionItems(sections, 'assumptions_used').map((item) => `${item.assumption_id}: ${item.value?.value ?? item.value} ${item.unit || ''}`)} />
+        </WorkspacePanel>
+        <WorkspacePanel title="Score Sensitivity">
+          <ValueList values={sectionItems(sections, 'score_sensitivity').flatMap((item) => item.scenarios || []).map((item) => `${item.label}: ${item.confidence_pct}% (${item.delta_pct >= 0 ? '+' : ''}${item.delta_pct})`)} />
+        </WorkspacePanel>
+        <WorkspacePanel title="Validation Warnings">
+          <ValueList values={sectionItems(sections, 'validation_warnings').map((item) => item.message || item.rule)} empty="No validation warnings on current build." status="status-warning" />
+        </WorkspacePanel>
+        <WorkspacePanel title="Build / Publish Provenance" badge={provenance.validation_status}>
+          <ValueList values={[
+            `build id: ${provenance.build_id || manifest.build_id}`,
+            `published build id: ${provenance.published_build_id || manifest.published_build_id || 'not published'}`,
+            `runtime source: ${provenance.runtime_source || manifest.runtime_source}`,
+          ]} />
+        </WorkspacePanel>
+      </>
+    );
+  } else if (role === 'Manager' || role === 'Auditor') {
+    const acceptance = sectionItems(sections, 'handover_acceptance')[0] || {
+      state: handoverDebt?.handover_acceptance || 'unblocked',
+      blocking_items: handoverDebt?.count || 0,
+    };
+    content = (
+      <>
+        <WorkspacePanel title="Unresolved Handover Debt" badge={`${sectionItems(sections, 'unresolved_handover_debt').length || handoverDebt?.count || 0}`}>
+          <ValueList values={sectionItems(sections, 'unresolved_handover_debt').length ? sectionItems(sections, 'unresolved_handover_debt') : handoverDebt?.entries || []} empty="No unresolved handover debt." />
+        </WorkspacePanel>
+        <WorkspacePanel title="Decision Freeze State">
+          <ValueList values={sectionItems(sections, 'decision_freeze_state').map((item) => `${item.decision}: ${item.status}`)} />
+        </WorkspacePanel>
+        <WorkspacePanel title="Handover Acceptance" badge={acceptance.state}>
+          <p className={`caption-mono mt-2 ${acceptance.blocked ? 'status-critical' : 'status-safe'}`}>
+            {acceptance.blocked ? `Blocked by ${acceptance.blocking_items} item(s).` : 'Unblocked.'}
+          </p>
+        </WorkspacePanel>
+        <WorkspacePanel title="Timeline Evidence">
+          <ValueList values={sectionItems(sections, 'timeline_evidence').map((item) => item.message)} />
+        </WorkspacePanel>
+        <WorkspacePanel title="Published Build ID">
+          <ValueList values={sectionItems(sections, 'published_build_id').map((item) => item.build_id)} />
+        </WorkspacePanel>
+      </>
+    );
+  } else {
+    content = (
+      <>
+        <WorkspacePanel title="Single Safe Move">
+          <ValueList values={sectionItems(sections, 'single_safe_move').length ? sectionItems(sections, 'single_safe_move') : basis.operator_single_safe_move} status="status-safe" />
+        </WorkspacePanel>
+        <WorkspacePanel title="Operating Basis">
+          <ValueList values={[basis.abnormal_situation]} />
+        </WorkspacePanel>
+        <WorkspacePanel title="Do-Not-Trust">
+          <ValueList values={sectionItems(sections, 'do_not_trust').length ? sectionItems(sections, 'do_not_trust') : basis.do_not_trust} status="status-critical" />
+        </WorkspacePanel>
+        <WorkspacePanel title="Trusted Substitute">
+          <ValueList values={sectionItems(sections, 'trusted_substitute').length ? sectionItems(sections, 'trusted_substitute') : basis.trusted_substitutes} status="status-safe" />
+        </WorkspacePanel>
+        <WorkspacePanel title="Decision Freeze">
+          <ValueList values={sectionItems(sections, 'decision_freeze').length ? sectionItems(sections, 'decision_freeze') : basis.decision_freeze} status="status-warning" />
+        </WorkspacePanel>
+        <WorkspacePanel title="Exit Condition">
+          <ValueList values={sectionItems(sections, 'exit_condition').length ? sectionItems(sections, 'exit_condition') : basis.exit_condition} />
+        </WorkspacePanel>
+      </>
+    );
+  }
+
   return (
     <section className="industrial-panel border-t-0">
       <div className="industrial-panel-header">
         <div>
-          <p className="label-caps text-[var(--text-muted)]">{manifest?.role}</p>
-          <h2 className="industrial-panel-title text-base">Role View</h2>
+          <p className="label-caps text-[var(--text-muted)]">{role}</p>
+          <h2 className="industrial-panel-title text-base">Operational Role Workspace</h2>
         </div>
       </div>
       <div className="industrial-body space-y-[1px] bg-[var(--border-strong)]">
-        {rows.map((row) => (
-          <div key={row.section} className="bg-[var(--surface-panel)] p-3">
-            <div className="flex items-center justify-between gap-3">
-              <p className="label-caps text-[var(--text)]">{formatText(row.section)}</p>
-              <span className="industrial-badge text-[var(--data-mono)]">{(row.items || []).length} item(s)</span>
-            </div>
-            {row.section === 'confidence_debt' && confidenceDebt?.length ? confidenceDebt.slice(0, 3).map((item) => (
-              <p key={item.sensor_id} className="caption-mono text-[var(--data-mono)] mt-1">
-                {item.sensor_id}: {item.priority_language || item.priority || 'confidence debt tracked'}
-              </p>
-            )) : (
-              <p className="caption-mono text-[var(--data-mono)] mt-1">Generated from {manifest?.role} role policy.</p>
-            )}
-          </div>
-        ))}
+        {content}
       </div>
     </section>
   );
@@ -563,6 +690,7 @@ export default function RuntimePlatform() {
     incidents,
     handoverDebt,
     confidenceDebt,
+    verificationTasks,
   } = storeState;
   const [manifest, setManifest] = useState(null);
   const [selected, setSelected] = useState('V-5100');
@@ -605,8 +733,10 @@ export default function RuntimePlatform() {
     () => computeTrustMap(manifest, { ...storeState, incidents, handoverDebt }),
     [manifest, storeState, incidents, handoverDebt],
   );
-  const stressMode = manifest?.stress_mode || ['WARNING', 'CRITICAL'].includes(String(plantContext?.severity || '').toUpperCase())
+  const pressureContext = manifest?.stress_mode
+    || ['WARNING', 'CRITICAL'].includes(String(plantContext?.severity || '').toUpperCase())
     || ['WARNING', 'CRITICAL', 'MASS_BALANCE_DIVERGENCE', 'MANUAL_VERIFICATION_REQUIRED'].includes(String(manifest?.context || '').toUpperCase());
+  const stressMode = role === 'Operator' && pressureContext;
 
   if (!manifest) {
     return (
@@ -672,7 +802,7 @@ export default function RuntimePlatform() {
             )}
           </div>
         </section>
-        <RolePanel manifest={manifest} confidenceDebt={confidenceDebt} />
+        <RoleWorkspace manifest={manifest} confidenceDebt={confidenceDebt} handoverDebt={handoverDebt} verificationTasks={verificationTasks} />
         <section className="industrial-panel border-t-0">
           <div className="industrial-panel-header">
             <h2 className="industrial-panel-title text-base">Unresolved Handover Debt</h2>

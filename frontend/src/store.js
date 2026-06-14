@@ -51,6 +51,7 @@ const useStore = create((set, get) => ({
   incidents: [],          // fused advisory incidents
   incidentTimeline: [],    // lightweight decision-integrity events
   verificationTokens: [],  // active manual field verification tokens
+  verificationTasks: [],   // field verification task lifecycle records
   handoverDebt: null,      // unresolved operational debt ledger
   confidenceDebt: [],      // confidence-hours maintenance priority data
   timestamp: null,        // last update timestamp
@@ -86,6 +87,7 @@ const useStore = create((set, get) => ({
       incidents: [],
       incidentTimeline: [],
       verificationTokens: [],
+      verificationTasks: [],
       handoverDebt: null,
       confidenceDebt: [],
     });
@@ -159,6 +161,7 @@ const useStore = create((set, get) => ({
             incidents: data.incidents || [],
             incidentTimeline: data.incident_timeline || [],
             verificationTokens: data.verification_tokens || [],
+            verificationTasks: data.verification_tasks || data.verification_tokens || [],
             handoverDebt: data.handover_debt || null,
             confidenceDebt: data.confidence_debt || [],
             timestamp: data.timestamp,
