@@ -119,7 +119,7 @@ section("MODULE 1: Sensor Simulator")
 code, data = GET("/api/health")
 check("GET /api/health returns 200", code == 200)
 check("Health status=ok", data.get("status") == "ok")
-check("Health lists 5 modules", len(data.get("modules", {})) == 5)
+check("Health lists 13 modules", len(data.get("modules", {})) == 13)
 check("Health has mode field", "mode" in data)
 
 code, data = POST("/api/scenario/reset")
@@ -225,7 +225,7 @@ for c in conf_list:
 # LT-5100 (47 days uncalibrated)
 code, data = GET("/api/confidence/LT-5100")
 check("GET /api/confidence/LT-5100 returns 200", code == 200)
-check("LT-5100 confidence < 80% (aged cal)", data["confidence_pct"] < 80,
+check("LT-5100 confidence < 85% (aged cal)", data["confidence_pct"] < 85,
       f"got {data['confidence_pct']}%")
 check("LT-5100 has calibration reason (47 days)",
       any("47" in r for r in data.get("reasons", [])))

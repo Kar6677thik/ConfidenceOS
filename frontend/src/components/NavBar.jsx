@@ -4,13 +4,14 @@ import useStore from '../store';
 const ROLES = ['Operator', 'Engineer', 'Manager', 'Auditor'];
 
 const NAV_ITEMS = [
-  { path: '/', label: 'Fleet', roles: ['Operator', 'Engineer', 'Manager', 'Auditor'] },
-  { path: '/operator', label: 'Plant A', roles: ['Operator', 'Engineer', 'Manager'] },
-  { path: '/predictions', label: 'Predictions', roles: ['Operator', 'Engineer', 'Manager'] },
-  { path: '/forensics', label: 'Forensics', roles: ['Engineer', 'Manager', 'Auditor'] },
-  { path: '/graph', label: 'Graph', roles: ['Engineer', 'Manager'] },
+  { path: '/',           label: 'Fleet',      roles: ['Operator', 'Engineer', 'Manager', 'Auditor'] },
+  { path: '/operator',   label: 'Operator',   roles: ['Operator', 'Engineer', 'Manager'] },
+  { path: '/predictions',label: 'Predict',    roles: ['Operator', 'Engineer', 'Manager'] },
+  { path: '/forensics',  label: 'Forensics',  roles: ['Engineer', 'Manager', 'Auditor'] },
+  { path: '/graph',      label: 'Graph',      roles: ['Engineer', 'Manager'] },
+  { path: '/engineer',   label: 'Engineer',   roles: ['Engineer', 'Manager'] },
   { path: '/compliance', label: 'Compliance', roles: ['Manager', 'Auditor'] },
-  { path: '/sandbox', label: 'Sandbox', roles: ['Engineer'] },
+  { path: '/sandbox',    label: 'Sandbox',    roles: ['Engineer'] },
 ];
 
 function countActiveAlerts(confidence, massBalance, staleFlags) {

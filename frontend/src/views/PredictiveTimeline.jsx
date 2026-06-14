@@ -1,0 +1,220 @@
+/**
+ * views/PredictiveTimeline.jsx — Predictive Maintenance Timeline
+ *
+ * Endpoints:
+ *   GET /api/predictions/:plant_id — degradation forecasts for all sensors
+ *
+ * Stitch mockup: 3predictive_maintanance.html
+ */
+
+import { useEffect } from 'react';
+import useStore from '../store';
+
+const WINDOW_HOURS = 12;
+
+function ttcColor(hours, type) {
+  if (hours == null) return 'var(--text-dim)';
+  if (type === 'critical') return hours < 4 ? 'var(--critical)' : 'var(--warning)';
+  return 'var(--primary-dim)';
+}
+
+function ConfidenceBadge({ conf }) {
+  if (conf == null) return null;
+  const color = conf >= 80 ? 'var(--safe-text)' : conf >= 50 ? 'var(--caution)' : conf >= 20 ? 'var(--warning)' : 'var(--critical)';
+  return (
+    <span className="label-caps" style={{ color }}>{conf}% conf</span>
+  );
+}
+
+export default function PredictiveTimeline() {
+  const { plantId, predictions, predictionsLoading, fetchPredictions } = useStore();
+
+  useEffect(() => { fetchPredictions(plantId); }, [fetchPredictions, plantId]);
+
+  const rows = Object.values(predictions || {});
+  const actionQueue = rows
+    .filter((p) => p.time_to_low_hours != null || p.time_to_critical_hours != null)
+    .sort((a, b) =>
+      (a.time_to_critical_hours ?? a.time_to_low_hours ?? 99) -
+      (b.time_to_critical_hours ?? b.time_to_low_hours ?? 99)
+    );
+
+  const avgPLT = rows.filter((r) => r.time_to_low_hours != null).length
+    ? (rows.reduce((s, r) => s + (r.time_to_low_hours ?? 0), 0) /
+        rows.filter((r) => r.time_to_low_hours != null).length).toFixed(1)
+    : null;
+
+  return (
+    <div className="industrial-page flex flex-col overflow-hidden">
+
+      {/* ── Context header ── */}
+      <header className="px-6 py-4 border-b border-[var(--border)] flex items-center justify-between flex-shrink-0 bg-[var(--bg-low)]">
+        <div>
+          <h1 className="text-[24px] font-semibold text-[var(--text)]">Predictive Maintenance Timeline</h1>
+          <p className="label-caps text-[var(--text-muted)] mt-1">12-Hour Forecast Window · Sorted by Criticality</p>
+        </div>
+        <div className="flex gap-3 items-center">
+          {avgPLT && (
+            <div className="stitch-card px-4 py-2 flex items-center gap-3">
+              <div>
+                <p className="label-caps text-[var(--text-muted)] mb-1">Avg Predicted Lead Time</p>
+                <p className="text-[20px] font-bold font-data text-[var(--primary)]">{avgPLT}<span className="text-[12px] text-[var(--text-muted)] ml-1">hrs</span></p>
+              </div>
+              <span className="material-symbols-outlined text-[var(--primary)]">update</span>
+            </div>
+          )}
+          <button onClick={() => fetchPredictions(plantId)} className="industrial-control text-[var(--safe-text)]">
+            {predictionsLoading ? 'Refreshing…' : '↻ Refresh'}
+          </button>
+        </div>
+      </header>
+
+      {/* ── Main body split ── */}
+      <div className="flex flex-1 overflow-hidden">
+
+        {/* Timeline canvas */}
+        <div className="flex-1 flex flex-col min-w-0 border-r border-[var(--border)] overflow-hidden">
+          {/* Time axis */}
+          <div className="h-10 border-b border-[var(--border)] flex flex-shrink-0 bg-[var(--bg-surface)]">
+            <div className="w-48 shrink-0 border-r border-[var(--border)] px-4 flex items-center">
+              <span className="label-caps text-[var(--text-muted)]">Sensor ID</span>
+            </div>
+            <div className="flex-1 flex items-end pb-1.5 px-2 justify-between">
+              {['Now', '+2h', '+4h', '+6h', '+8h', '+10h', '+12h'].map((t) => (
+                <span key={t} className="caption-mono text-[10px] text-[var(--text-dim)]">{t}</span>
+              ))}
+            </div>
+          </div>
+
+          {/* Timeline rows */}
+          <div className="flex-1 overflow-y-auto scrollbar-thin relative">
+            {/* Background grid */}
+            <div className="absolute inset-0 left-48 timeline-grid opacity-30 pointer-events-none" />
+
+            {rows.length === 0 && (
+              <div className="p-8 text-center">
+                <p className="caption-mono text-[var(--text-muted)]">
+                  {predictionsLoading ? 'Loading predictions…' : 'Waiting for confidence history data.'}
+                </p>
+              </div>
+            )}
+
+            {rows.map((pred) => {
+              const low  = Math.min(WINDOW_HOURS, pred.time_to_low_hours ?? WINDOW_HOURS);
+              const crit = Math.min(WINDOW_HOURS, pred.time_to_critical_hours ?? WINDOW_HOURS);
+              const isCrit = pred.time_to_critical_hours != null && pred.time_to_critical_hours < 4;
+              const color = isCrit ? 'var(--critical)' : pred.time_to_low_hours != null ? 'var(--primary-dim)' : 'var(--text-dim)';
+
+              return (
+                <div key={pred.sensor_id}
+                  className="flex h-16 border-b border-[var(--border-subtle)]/30 hover:bg-[var(--bg-surface)]/50 transition-colors group relative">
+                  {/* Sensor label */}
+                  <div className="w-48 shrink-0 border-r border-[var(--border)] px-4 flex items-center bg-[var(--bg-low)] z-10">
+                    <div className="flex items-center gap-2">
+                      <div className="status-pip" style={{ background: color }} />
+                      <div>
+                        <p className="font-data text-[14px] text-[var(--text)] group-hover:text-[var(--primary)] transition-colors">
+                          {pred.sensor_id}
+                        </p>
+                        <p className="caption-mono text-[10px] text-[var(--text-muted)]">
+                          {pred.model_type || '—'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Track */}
+                  <div className="flex-1 relative py-3 px-2 flex items-center">
+                    <div className="absolute left-2 right-2 h-2 bg-[var(--bg-elevated)]/30 rounded-full top-1/2 -translate-y-1/2" />
+                    {/* Stable portion */}
+                    <div className="absolute left-0 h-2 rounded-l-full top-1/2 -translate-y-1/2 transition-all"
+                      style={{ width: `${(low / WINDOW_HOURS) * 100}%`, background: color }}
+                    />
+                    {/* Probability corridor */}
+                    {pred.time_to_low_hours != null && (
+                      <div className="absolute h-7 rounded top-1/2 -translate-y-1/2 opacity-10"
+                        style={{
+                          left: `${(low / WINDOW_HOURS) * 100}%`,
+                          width: `${Math.max(0, (crit - low) / WINDOW_HOURS) * 100}%`,
+                          background: color,
+                        }} />
+                    )}
+                    {/* TTC marker */}
+                    {pred.time_to_critical_hours != null && (
+                      <div className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 flex flex-col items-center z-10"
+                        style={{ left: `${(crit / WINDOW_HOURS) * 100}%` }}>
+                        <div className="w-3.5 h-3.5 rounded border-2 flex items-center justify-center rotate-45"
+                          style={{ borderColor: color, background: 'var(--bg-card)' }}>
+                          <div className="w-1 h-1 rounded-full" style={{ background: color }} />
+                        </div>
+                        <div className="absolute top-5 caption-mono text-[10px] whitespace-nowrap px-1 border rounded"
+                          style={{ color, borderColor: `${color}50`, background: 'var(--bg-low)' }}>
+                          TTC: {pred.time_to_critical_hours}h
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ── Action queue sidebar ── */}
+        <aside className="w-80 flex flex-col bg-[var(--bg-low)] shrink-0">
+          <div className="p-4 border-b border-[var(--border)] bg-[var(--bg-surface)]/50 sticky top-0 z-10">
+            <h2 className="text-[18px] font-semibold text-[var(--text)] flex items-center gap-2">
+              <span className="material-symbols-outlined text-[18px] text-[var(--primary)]">dynamic_form</span>
+              Action Queue
+            </h2>
+          </div>
+          <div className="flex-1 overflow-y-auto scrollbar-thin p-4 space-y-3">
+            {actionQueue.map((pred) => {
+              const hours = pred.time_to_critical_hours ?? pred.time_to_low_hours;
+              const isCrit = pred.time_to_critical_hours != null && pred.time_to_critical_hours < 4;
+              const borderColor = isCrit ? 'var(--critical)' : 'var(--primary-dim)';
+              const confColor   = isCrit ? 'var(--critical)' : 'var(--primary-dim)';
+              return (
+                <div key={pred.sensor_id}
+                  className="stitch-card relative overflow-hidden"
+                  style={{ borderColor: `${borderColor}50` }}>
+                  <div className="absolute top-0 left-0 w-1 h-full" style={{ background: borderColor }} />
+                  <div className="pl-3 p-3">
+                    <div className="flex justify-between items-start mb-1">
+                      <span className="label-caps px-1.5 py-0.5 rounded"
+                        style={{ color: confColor, background: `${confColor}1a` }}>
+                        TTC: {hours != null ? `${isCrit ? '< 4h' : `~${hours}h`}` : '—'}
+                      </span>
+                      <ConfidenceBadge conf={pred.current_confidence} />
+                    </div>
+                    <h3 className="font-data text-[14px] text-[var(--text)] mt-2">
+                      {isCrit ? 'Calibrate' : 'Inspect'} {pred.sensor_id}
+                    </h3>
+                    <p className="caption-mono text-[var(--text-muted)] mt-1 leading-snug">
+                      {pred.recommended_action || pred.action || 'Confidence degradation forecast.'}
+                    </p>
+                    <div className="flex gap-2 mt-3">
+                      <button className="flex-1 industrial-control text-[var(--text)] text-[12px] py-1.5">
+                        Acknowledge
+                      </button>
+                      {isCrit && (
+                        <button className="flex-1 industrial-control text-[var(--primary)] border-[var(--primary)] text-[12px] py-1.5">
+                          Dispatch
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+            {actionQueue.length === 0 && (
+              <p className="caption-mono text-[var(--text-muted)]">
+                No sensors forecast to cross a lower trust tier.
+              </p>
+            )}
+          </div>
+        </aside>
+      </div>
+    </div>
+  );
+}
