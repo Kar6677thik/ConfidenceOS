@@ -104,6 +104,10 @@ class PlantInstance:
         self.latest_incidents: list = []
         self.latest_incident_timeline: list = []
         self.latest_new_anomalies: list = []
+        self.verification_tokens: list = []
+        self.confidence_debt_state: dict = {}
+        self.latest_confidence_debt: list = []
+        self.latest_handover_debt: dict = {}
 
     def info(self) -> dict:
         """Return plant metadata."""

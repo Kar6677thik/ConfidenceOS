@@ -240,6 +240,16 @@ class HandoverBriefGenerator:
                     f"{sf['duration_seconds']:.0f}s"
                 )
 
+        debt = (state.get("handover_debt") or {}).get("entries", [])
+        if debt:
+            lines.append("")
+            lines.append(f"HANDOVER DEBT LEDGER ({len(debt)} unresolved items):")
+            for item in debt[:10]:
+                lines.append(
+                    f"  - [{item.get('severity', 'INFO')}] "
+                    f"{item.get('title', item.get('type', 'handover debt'))}"
+                )
+
         return "\n".join(lines)
 
     def _fallback_brief(self, state: dict) -> dict:
@@ -348,7 +358,24 @@ class HandoverBriefGenerator:
                 incident_lines.append(f"- First action: {incident.get('first_action', 'Review evidence stack.')}")
             sections.append("\n".join(incident_lines))
 
-        actions = ["## 6. RECOMMENDED ACTIONS" if incidents else "## 5. RECOMMENDED ACTIONS"]
+        debt_entries = (state.get("handover_debt") or {}).get("entries", [])
+        if debt_entries:
+            debt_lines = ["## 6. HANDOVER DEBT LEDGER" if incidents else "## 5. HANDOVER DEBT LEDGER"]
+            for item in debt_entries[:12]:
+                debt_lines.append(
+                    f"- [{item.get('severity', 'INFO')}] "
+                    f"{item.get('title', item.get('type', 'handover debt'))}: "
+                    f"{item.get('required_action', 'Carry into next shift.')}"
+                )
+            sections.append("\n".join(debt_lines))
+
+        actions = [
+            "## 7. RECOMMENDED ACTIONS"
+            if incidents and debt_entries else
+            "## 6. RECOMMENDED ACTIONS"
+            if incidents or debt_entries else
+            "## 5. RECOMMENDED ACTIONS"
+        ]
         has_actions = False
 
         for incident in incidents:
@@ -420,6 +447,9 @@ class HandoverBriefGenerator:
             "mass_balance_flags": len(state["mass_balance"]["flags"]),
             "plant_context": state.get("plant_context") or {},
             "incidents": state.get("incidents") or [],
+            "handover_debt": state.get("handover_debt") or {},
+            "verification_tokens": state.get("verification_tokens") or [],
+            "confidence_debt": state.get("confidence_debt") or [],
         }
 
     @property

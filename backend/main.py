@@ -53,6 +53,14 @@ from causal_graph import get_graph_state
 from adaptive_thresholds import compute_adaptive_envelopes
 from advisory import detect_plant_context, build_incidents, build_timeline_events
 from assumptions import build_confidence_explanation, load_assumptions
+from decision_integrity import (
+    active_verification_tokens,
+    annotate_incidents_for_handover,
+    build_handover_debt,
+    build_score_sensitivity,
+    build_trust_dependency_graph,
+    update_confidence_debt,
+)
 import nlquery
 
 
@@ -93,6 +101,12 @@ class SandboxRequest(BaseModel):
     failure_mode: str
     severity: str = "moderate"
     duration_hours: float = 6.0
+
+class VerificationTokenRequest(BaseModel):
+    sensor_id: str
+    verification_type: str = "field_check"
+    valid_minutes: float = 30.0
+    note: str = ""
 
 
 # ─── App lifecycle ───────────────────────────────────────────────────────────
@@ -159,10 +173,14 @@ async def _plant_tick_loop(plant_id: str, plant):
             # Compute confidence scores
             confidence_results = plant.confidence_engine.score_readings(readings)
             confidence_data = [r.to_dict() for r in confidence_results]
+            for item in confidence_data:
+                item["handover_required"] = item.get("tier") in ("LOW", "CRITICAL")
 
             # Update cached confidence
             for cr in confidence_results:
-                plant.latest_confidence[cr.sensor_id] = cr.to_dict()
+                payload = cr.to_dict()
+                payload["handover_required"] = payload.get("tier") in ("LOW", "CRITICAL")
+                plant.latest_confidence[cr.sensor_id] = payload
 
             # Update mass-balance
             mb_state = plant.mass_balance_engine.update(readings)
@@ -252,6 +270,22 @@ async def _plant_tick_loop(plant_id: str, plant):
                 stale_flags=stale_payload,
                 plant_context=plant.latest_context,
             )
+            plant.latest_incidents = annotate_incidents_for_handover(plant.latest_incidents)
+            plant.latest_confidence_debt = update_confidence_debt(
+                plant.confidence_debt_state,
+                confidence_data,
+                readings,
+                plant.latest_context,
+                now,
+            )
+            plant.latest_handover_debt = build_handover_debt(
+                plant_id=plant_id,
+                incidents=plant.latest_incidents,
+                confidence=confidence_data,
+                verification_tokens=plant.verification_tokens,
+                confidence_debt=plant.latest_confidence_debt,
+                now=now,
+            )
             tick_events = build_timeline_events(
                 plant_id=plant_id,
                 inferred_mode=inferred_mode,
@@ -260,6 +294,7 @@ async def _plant_tick_loop(plant_id: str, plant):
                 incidents=plant.latest_incidents,
                 timestamp=now,
             )
+            tick_events.extend(_handover_debt_events(plant_id, plant.latest_handover_debt, now))
             plant.latest_incident_timeline = _merge_incident_timeline(
                 plant.latest_incident_timeline,
                 tick_events,
@@ -339,6 +374,27 @@ def _merge_incident_timeline(existing: list[dict], current_events: list[dict]) -
     return merged[-INCIDENT_TIMELINE_MAX:]
 
 
+def _handover_debt_events(plant_id: str, debt: dict, timestamp: float) -> list[dict]:
+    """Create stable timeline events for handover debt entries."""
+    events = []
+    for entry in (debt or {}).get("entries", []):
+        events.append({
+            "event_id": f"{plant_id}:handover_debt:{entry.get('id')}",
+            "plant_id": plant_id,
+            "event_type": "handover_debt_created",
+            "subject": entry.get("id"),
+            "severity": entry.get("severity", "WARNING"),
+            "message": entry.get("title", "Handover debt created."),
+            "timestamp": timestamp,
+            "details": {
+                "type": entry.get("type"),
+                "required_action": entry.get("required_action"),
+                "handover_required": True,
+            },
+        })
+    return events
+
+
 @app.websocket("/ws/sensors")
 async def sensor_stream(
     websocket: WebSocket,
@@ -377,6 +433,9 @@ async def sensor_stream(
                 "plant_context": plant.latest_context,
                 "incidents": plant.latest_incidents,
                 "incident_timeline": plant.latest_incident_timeline,
+                "verification_tokens": active_verification_tokens(plant.verification_tokens, now),
+                "handover_debt": plant.latest_handover_debt,
+                "confidence_debt": plant.latest_confidence_debt,
             })
 
             await asyncio.sleep(1.0)
@@ -469,6 +528,37 @@ def explain_confidence(sensor_id: str, plant_id: str = Query(default="plant-a"))
 def explain_confidence_alias(sensor_id: str, plant_id: str = Query(default="plant-a")):
     """Alias for clients that prefer sensor-scoped explain URLs."""
     return explain_confidence(sensor_id=sensor_id, plant_id=plant_id)
+
+
+@app.get("/api/confidence/sensitivity/{sensor_id}")
+def get_score_sensitivity(
+    sensor_id: str,
+    plant_id: str = Query(default="plant-a"),
+    role: str = Query(default="Engineer"),
+):
+    """Engineer-only deterministic score sensitivity view data."""
+    if role != "Engineer":
+        raise HTTPException(status_code=403, detail="Score sensitivity requires Engineer role.")
+    plant = plant_manager.get(plant_id)
+    result = plant.latest_confidence.get(sensor_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"No confidence data for sensor '{sensor_id}'.")
+    return build_score_sensitivity(sensor_id, result, role=role)
+
+
+@app.get("/api/confidence/debt/{plant_id}")
+def get_confidence_debt(plant_id: str):
+    """Return confidence debt for maintenance prioritization, not failure prediction."""
+    plant = plant_manager.get(plant_id)
+    return {
+        "plant_id": plant_id,
+        "metric": "confidence_debt",
+        "definition": "time below HIGH confidence tier x criticality x active context weight",
+        "not_predictive_failure": True,
+        "items": plant.latest_confidence_debt,
+        "count": len(plant.latest_confidence_debt),
+        "timestamp": time.time(),
+    }
 
 
 @app.get("/api/assumptions")
@@ -631,6 +721,71 @@ def acknowledge_stale_reading(sensor_id: str, plant_id: str = Query(default="pla
     return {"status": "acknowledged", "sensor_id": sensor_id}
 
 
+@app.post("/api/verification-tokens")
+def create_verification_token(
+    request: VerificationTokenRequest,
+    plant_id: str = Query(default="plant-a"),
+):
+    """Create a temporary field verification token without overriding confidence."""
+    plant = plant_manager.get(plant_id)
+    now = time.time()
+    valid_minutes = max(1.0, min(float(request.valid_minutes), 240.0))
+    valid_until = now + valid_minutes * 60.0
+    token = {
+        "token_id": f"{plant_id}:{request.sensor_id}:{int(now)}",
+        "plant_id": plant_id,
+        "sensor_id": request.sensor_id,
+        "verification_type": request.verification_type,
+        "created_at": now,
+        "created_at_iso": datetime.utcfromtimestamp(now).isoformat() + "Z",
+        "valid_until": valid_until,
+        "valid_until_iso": datetime.utcfromtimestamp(valid_until).isoformat() + "Z",
+        "note": request.note,
+        "confidence_override": False,
+        "usable_as_reference": True,
+        "handover_required": True,
+        "active": True,
+    }
+    plant.verification_tokens.append(token)
+    plant.latest_handover_debt = build_handover_debt(
+        plant_id=plant_id,
+        incidents=plant.latest_incidents,
+        confidence=list(plant.latest_confidence.values()),
+        verification_tokens=plant.verification_tokens,
+        confidence_debt=plant.latest_confidence_debt,
+        now=now,
+    )
+    plant.latest_incident_timeline = _merge_incident_timeline(
+        plant.latest_incident_timeline,
+        _handover_debt_events(plant_id, plant.latest_handover_debt, now),
+    )
+    return token
+
+
+@app.get("/api/verification-tokens")
+def get_verification_tokens(
+    plant_id: str = Query(default="plant-a"),
+    active_only: bool = Query(default=False),
+):
+    """Return manual verification tokens. Tokens never override confidence."""
+    plant = plant_manager.get(plant_id)
+    now = time.time()
+    tokens = []
+    for token in plant.verification_tokens:
+        item = dict(token)
+        item["active"] = float(item.get("valid_until", 0)) > now
+        item["expired"] = not item["active"]
+        tokens.append(item)
+    if active_only:
+        tokens = [item for item in tokens if item["active"]]
+    return {
+        "plant_id": plant_id,
+        "tokens": tokens,
+        "active_count": sum(1 for item in tokens if item.get("active")),
+        "confidence_override": False,
+    }
+
+
 # ─── REST: Shift Handover Brief (Module 6) ──────────────────────────────────
 
 @app.post("/api/handover/generate")
@@ -667,6 +822,9 @@ async def generate_handover_brief(plant_id: str = Query(default="plant-a"), db: 
         incidents=plant.latest_incidents,
     )
     system_state["incident_timeline"] = plant.latest_incident_timeline
+    system_state["handover_debt"] = plant.latest_handover_debt
+    system_state["verification_tokens"] = active_verification_tokens(plant.verification_tokens, time.time())
+    system_state["confidence_debt"] = plant.latest_confidence_debt
 
     # Add predictions to state for V2 enhanced briefs
     if predictions:
@@ -702,6 +860,21 @@ def get_latest_handover(plant_id: str = Query(default="plant-a")):
 
 
 # ─── REST: scenario control ─────────────────────────────────────────────────
+
+@app.get("/api/handover/debt")
+def get_handover_debt(plant_id: str = Query(default="plant-a")):
+    """Return unresolved operational debt that must survive shift handover."""
+    plant = plant_manager.get(plant_id)
+    plant.latest_handover_debt = build_handover_debt(
+        plant_id=plant_id,
+        incidents=plant.latest_incidents,
+        confidence=list(plant.latest_confidence.values()),
+        verification_tokens=plant.verification_tokens,
+        confidence_debt=plant.latest_confidence_debt,
+        now=time.time(),
+    )
+    return plant.latest_handover_debt
+
 
 @app.post("/api/scenario/load")
 def load_scenario(scenario_path: Optional[str] = None, plant_id: str = Query(default="plant-a")):
@@ -863,6 +1036,19 @@ def get_causal_graph(plant_id: str):
     """Return the causal graph state with anomaly propagation chains."""
     plant = plant_manager.get(plant_id)
     return get_graph_state(plant_id, plant.latest_confidence)
+
+
+@app.get("/api/trust-dependency/{plant_id}")
+def get_trust_dependency_graph(plant_id: str):
+    """Return simple trust dependency graph data for operator decisions."""
+    plant = plant_manager.get(plant_id)
+    return build_trust_dependency_graph(
+        plant_id=plant_id,
+        readings=plant.latest_readings,
+        confidence=list(plant.latest_confidence.values()),
+        mass_balance=plant.latest_mb_state,
+        incidents=plant.latest_incidents,
+    )
 
 
 # ─── Incident Forensics & Replay (Module 10) ─────────────────────────────────
@@ -1396,6 +1582,11 @@ def health_check():
             "adaptive_thresholds": "active",
             "advisory_engine": "active",
             "incident_timeline": "active",
+            "score_sensitivity": "active",
+            "verification_tokens": "active",
+            "handover_debt": "active",
+            "confidence_debt": "active",
+            "trust_dependency_graph": "active",
             "compliance_pdf": "active",
             "forensics_replay": "active",
             "sandbox": "active",
