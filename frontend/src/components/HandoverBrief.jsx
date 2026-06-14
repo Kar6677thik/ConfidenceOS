@@ -28,7 +28,7 @@ function SourceBadge({ source }) {
 }
 
 export default function HandoverBrief({ apiBase = '/api' }) {
-  const { plantId } = useStore();
+  const { plantId, handoverDebt } = useStore();
   const [brief, setBrief] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -98,6 +98,18 @@ export default function HandoverBrief({ apiBase = '/api' }) {
         )}
 
         {loading && <div className="py-10 caption-mono text-[var(--data-mono)]">Generating handover brief...</div>}
+
+        {!!handoverDebt?.entries?.length && (
+          <div className="mb-4 border border-[var(--border-strong)] bg-[var(--surface-base)] p-3">
+            <div className="flex items-center justify-between gap-3">
+              <p className="label-caps status-warning">Handover Debt</p>
+              <span className="industrial-badge status-warning">{handoverDebt.entries.length}</span>
+            </div>
+            <p className="caption-mono text-[var(--data-mono)] mt-2">
+              Unresolved operational debt will be carried into the generated brief.
+            </p>
+          </div>
+        )}
 
         {error && (
           <div className="py-6 text-center">

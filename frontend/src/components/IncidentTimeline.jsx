@@ -84,6 +84,7 @@ export default function IncidentTimeline({ events = [], compact = false }) {
             <p className="caption-mono text-[var(--text)] mt-1">{event.message || event.subject}</p>
             {!!details.rule_id && <p className="caption-mono text-[var(--data-mono)] mt-1">Rule: {details.rule_id}</p>}
             {!!details.decision && <p className="caption-mono text-[var(--data-mono)] mt-1">Frozen: {details.decision}</p>}
+            {!!details.required_action && <p className="caption-mono text-[var(--data-mono)] mt-1">{details.required_action}</p>}
             {!!exitConditions.length && (
               <p className="caption-mono text-[var(--data-mono)] mt-1">Exit: {exitConditions.slice(0, 2).join(' / ')}</p>
             )}

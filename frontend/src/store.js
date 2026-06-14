@@ -50,6 +50,9 @@ const useStore = create((set, get) => ({
   plantContext: null,     // advisory context inferred by backend
   incidents: [],          // fused advisory incidents
   incidentTimeline: [],    // lightweight decision-integrity events
+  verificationTokens: [],  // active manual field verification tokens
+  handoverDebt: null,      // unresolved operational debt ledger
+  confidenceDebt: [],      // confidence-hours maintenance priority data
   timestamp: null,        // last update timestamp
 
   // ── Derived / computed ────────────────────────────────────────────────
@@ -82,6 +85,9 @@ const useStore = create((set, get) => ({
       plantContext: null,
       incidents: [],
       incidentTimeline: [],
+      verificationTokens: [],
+      handoverDebt: null,
+      confidenceDebt: [],
     });
 
     // Reconnect after state update
@@ -152,6 +158,9 @@ const useStore = create((set, get) => ({
             plantContext: data.plant_context || null,
             incidents: data.incidents || [],
             incidentTimeline: data.incident_timeline || [],
+            verificationTokens: data.verification_tokens || [],
+            handoverDebt: data.handover_debt || null,
+            confidenceDebt: data.confidence_debt || [],
             timestamp: data.timestamp,
             averageConfidence: avgConf,
             chartHistory: newHistory,

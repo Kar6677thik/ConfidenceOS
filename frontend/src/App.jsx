@@ -21,6 +21,11 @@ import NavBar from './components/NavBar';
 import IncidentQueue from './components/IncidentQueue';
 import EvidenceStack from './components/EvidenceStack';
 import IncidentTimeline from './components/IncidentTimeline';
+import ScoreSensitivityPanel from './components/ScoreSensitivityPanel';
+import VerificationTokens from './components/VerificationTokens';
+import HandoverDebtLedger from './components/HandoverDebtLedger';
+import ConfidenceDebtPanel from './components/ConfidenceDebtPanel';
+import TrustDependencyGraph from './components/TrustDependencyGraph';
 
 const SENSOR_IDS = ['LT-5100', 'FI-2010', 'FO-2020', 'PT-3100', 'TT-4100', 'ZT-6100'];
 const PLANT_IDS = ['plant-a', 'plant-b', 'plant-c'];
@@ -456,8 +461,11 @@ function OperatorDashboard() {
                 <EngineerDeepDive selectedSensorId={selectedSensorId} confidence={confidence} />
               </Panel>
             )}
+            {role === 'Engineer' && <ScoreSensitivityPanel selectedSensorId={selectedSensorId} />}
             <EvidenceStack selectedSensorId={selectedSensorId} confidence={confidence} incidents={incidents} />
+            <VerificationTokens selectedSensorId={selectedSensorId} confidence={confidence} />
             <IncidentTimeline events={incidentTimeline} />
+            <HandoverDebtLedger />
             <HealthTimeline sensorId={selectedSensorId} />
             <HandoverBrief />
           </aside>
@@ -586,15 +594,17 @@ function PredictiveTimelinePage() {
       <div className="page-scroll p-8 space-y-8">
         <header className="flex items-end justify-between">
           <div>
-            <p className="label-caps status-safe">Predictive Maintenance</p>
-            <h1 className="text-4xl font-bold">Next 12 Hours / {plantId}</h1>
+            <p className="label-caps status-safe">Confidence Debt Maintenance</p>
+            <h1 className="text-4xl font-bold">Maintenance Priority / {plantId}</h1>
           </div>
           <button onClick={() => fetchPredictions(plantId)} className="industrial-control status-safe">
             {predictionsLoading ? 'Refreshing...' : 'Refresh'}
           </button>
         </header>
 
-        <Panel title="Predictive Timeline">
+        <ConfidenceDebtPanel />
+
+        <Panel title="Confidence Trend Timeline">
           <div className="space-y-3">
             {rows.map((prediction) => {
               const low = Math.min(12, prediction.time_to_low_hours ?? 12);
@@ -885,6 +895,9 @@ function CausalGraphPage() {
             {(graph?.causal_chains || []).map((chain, index) => (
               <div key={index} className="industrial-panel-subtle p-3 caption-mono text-[var(--data-mono)]">{chain.join(' -> ')}</div>
             ))}
+          </div>
+          <div className="mt-5">
+            <TrustDependencyGraph />
           </div>
         </Panel>
       </div>
