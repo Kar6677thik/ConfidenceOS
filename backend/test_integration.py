@@ -237,6 +237,23 @@ for key in ("evidence", "namur_state", "recommended_action", "dominant_factor"):
 code, _ = GET("/api/confidence/NONEXISTENT")
 check("Unknown sensor confidence returns 404", code == 404)
 
+code, data = GET("/api/assumptions")
+check("GET /api/assumptions returns 200", code == 200)
+check("Assumptions include confidence_weights", "confidence_weights" in data.get("assumptions", {}))
+check("Assumptions include mass_balance_tolerance", "mass_balance_tolerance" in data.get("assumptions", {}))
+
+code, data = GET("/api/confidence/explain/LT-5100")
+check("GET /api/confidence/explain/LT-5100 returns 200", code == 200)
+for key in ("formula", "sub_scores", "dominant_factor", "strongest_evidence",
+            "counter_evidence", "verdict", "recommended_action", "related_assumptions"):
+    check(f"  Explanation has '{key}'", key in data)
+check("Explanation has 4 formula terms", len(data.get("formula", {}).get("terms", [])) == 4)
+check("Explanation links related assumptions", len(data.get("related_assumptions", [])) > 0)
+
+code, data = GET("/api/confidence/LT-5100/explain")
+check("GET /api/confidence/LT-5100/explain alias returns 200", code == 200)
+check("Alias sensor_id=LT-5100", data.get("sensor_id") == "LT-5100")
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  MODULE 3: Mass-Balance

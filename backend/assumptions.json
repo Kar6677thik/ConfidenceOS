@@ -1,0 +1,108 @@
+{
+  "confidence_weights": {
+    "value": {
+      "calibration": 0.3,
+      "stability": 0.2,
+      "cross_sensor": 0.3,
+      "physical_plausibility": 0.2
+    },
+    "unit": "fraction",
+    "source": "confidence.py ConfidenceWeights default",
+    "owner_role": "Controls Engineer",
+    "confidence_impact": "high",
+    "review_required": true
+  },
+  "calibration_interval": {
+    "value": 90.0,
+    "unit": "days",
+    "source": "confidence.py DEFAULT_CALIBRATION_INTERVAL_DAYS",
+    "owner_role": "Instrumentation Engineer",
+    "confidence_impact": "high",
+    "review_required": true
+  },
+  "mass_balance_tolerance": {
+    "value": 5.0,
+    "unit": "ft",
+    "source": "mass_balance.py DEFAULT_TOLERANCE",
+    "owner_role": "Process Engineer",
+    "confidence_impact": "high",
+    "review_required": true
+  },
+  "flow_to_level_conversion_factor": {
+    "value": 0.005,
+    "unit": "ft_per_second_per_gpm",
+    "source": "mass_balance.py FLOW_TO_LEVEL_RATE demo vessel conversion",
+    "owner_role": "Process Engineer",
+    "confidence_impact": "high",
+    "review_required": true
+  },
+  "startup_thresholds": {
+    "value": {
+      "normal": {
+        "HIGH": 80,
+        "MEDIUM": 50,
+        "LOW": 20,
+        "CRITICAL": 0
+      },
+      "startup": {
+        "HIGH": 80,
+        "MEDIUM": 70,
+        "LOW": 20,
+        "CRITICAL": 0
+      },
+      "mass_balance_tolerance_multiplier": 0.5
+    },
+    "unit": "percent_and_multiplier",
+    "source": "startup.py StartupManager tier thresholds and tolerance multiplier",
+    "owner_role": "Operations Engineer",
+    "confidence_impact": "medium",
+    "review_required": true
+  },
+  "stale_reading_threshold": {
+    "value": 480.0,
+    "unit": "seconds",
+    "source": "startup.py StartupManager STALE_THRESHOLD_SECONDS",
+    "owner_role": "Operations Engineer",
+    "confidence_impact": "medium",
+    "review_required": true
+  },
+  "operating_envelopes": {
+    "value": {
+      "level": {
+        "normal_min": 5.0,
+        "normal_max": 150.0,
+        "unit": "ft"
+      },
+      "flow_in": {
+        "normal_min": 10.0,
+        "normal_max": 400.0,
+        "unit": "gpm"
+      },
+      "flow_out": {
+        "normal_min": 10.0,
+        "normal_max": 400.0,
+        "unit": "gpm"
+      },
+      "pressure": {
+        "normal_min": 5.0,
+        "normal_max": 60.0,
+        "unit": "psi"
+      },
+      "temperature": {
+        "normal_min": 100.0,
+        "normal_max": 600.0,
+        "unit": "F"
+      },
+      "valve": {
+        "normal_min": 0.0,
+        "normal_max": 100.0,
+        "unit": "%"
+      }
+    },
+    "unit": "engineering_units_by_sensor_type",
+    "source": "confidence.py OPERATING_ENVELOPES",
+    "owner_role": "Process Engineer",
+    "confidence_impact": "medium",
+    "review_required": true
+  }
+}

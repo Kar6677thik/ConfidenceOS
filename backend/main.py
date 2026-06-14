@@ -52,6 +52,7 @@ from prediction import predict_all_sensors
 from causal_graph import get_graph_state
 from adaptive_thresholds import compute_adaptive_envelopes
 from advisory import detect_plant_context, build_incidents, build_timeline_events
+from assumptions import build_confidence_explanation, load_assumptions
 import nlquery
 
 
@@ -319,6 +320,13 @@ async def _plant_tick_loop(plant_id: str, plant):
 active_connections: list[WebSocket] = []
 
 
+def _latest_reading_for_sensor(readings: list[dict], sensor_id: str) -> dict | None:
+    for reading in readings or []:
+        if reading.get("sensor_id") == sensor_id:
+            return reading
+    return None
+
+
 def _merge_incident_timeline(existing: list[dict], current_events: list[dict]) -> list[dict]:
     """Append only new active event keys, keeping a compact rolling history."""
     seen = {event.get("event_id") for event in existing}
@@ -442,6 +450,36 @@ def get_all_confidence(plant_id: str = Query(default="plant-a")):
     if not plant.latest_confidence:
         return {"confidence": [], "message": "No data yet."}
     return {"confidence": list(plant.latest_confidence.values())}
+
+
+@app.get("/api/confidence/explain/{sensor_id}")
+def explain_confidence(sensor_id: str, plant_id: str = Query(default="plant-a")):
+    """Return deterministic confidence explanation for a specific sensor."""
+    plant = plant_manager.get(plant_id)
+    result = plant.latest_confidence.get(sensor_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"No confidence data for sensor '{sensor_id}'.")
+
+    reading = _latest_reading_for_sensor(plant.latest_readings, sensor_id)
+    assumptions = load_assumptions()
+    return build_confidence_explanation(sensor_id, result, reading, assumptions)
+
+
+@app.get("/api/confidence/{sensor_id}/explain")
+def explain_confidence_alias(sensor_id: str, plant_id: str = Query(default="plant-a")):
+    """Alias for clients that prefer sensor-scoped explain URLs."""
+    return explain_confidence(sensor_id=sensor_id, plant_id=plant_id)
+
+
+@app.get("/api/assumptions")
+def get_assumptions():
+    """Return the governed engineering assumption register."""
+    assumptions = load_assumptions()
+    return {
+        "assumptions": assumptions,
+        "count": len(assumptions),
+        "source": "backend/assumptions.json",
+    }
 
 
 # ─── REST: mass-balance flags (Module 3) ─────────────────────────────────────
@@ -1346,6 +1384,8 @@ def health_check():
         "modules": {
             "sensor_simulator": "active",
             "confidence_engine": "active",
+            "confidence_explainability": "active",
+            "assumption_register": "active",
             "mass_balance_engine": "active",
             "startup_manager": "active",
             "mode_inference": "active",
