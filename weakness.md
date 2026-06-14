@@ -1,780 +1,939 @@
-## The real move
+Brutally honest: **ABB judges may like the ambition, but they may not believe the product is real yet.** The latest code has a lot of the right nouns — Studio, Runtime, templates, asset model, role policies, shift channel, generated screens — but several parts still feel like **demo vocabulary wrapped around hardcoded data** rather than a control-system interface ABB engineers would trust.
 
-Do **not** add more dashboard panels. Add mechanisms that prove ConfidenceOS can operate like a real HMI assistant under abnormal conditions.
+## The biggest issue: it now risks looking “buzzword-complete but shallow”
 
-Right now, your system already has live readings, confidence, mass-balance state, startup mode, plant context, incidents, predictions, and roles in frontend state. That is solid, but still dashboard-like.
-Your advisory logic is also mostly deterministic context classification: startup, mass-balance divergence, instrumentation suspect, or steady state.
-So the winning direction is: **turn ConfidenceOS from “a system that shows uncertainty” into “a system that manages operator decision integrity.”**
+You added the ABB-shaped shell, but much of it is still thin. The repo now has `RuntimePlatform`, `StudioWorkspace`, `ShiftChannel`, generated manifests, template libraries, and model graph APIs. That sounds strong. But when I look at the implementation, the “platform” is mostly a deterministic demo around **one vessel, six tags, and three default assignments**.
+
+Your asset model is literally one Texas City demo plant, one unit, one module, one vessel, one valve, one flow pair, and six tags. That is fine for a demo, but dangerous if you pitch it as an HMI-generation platform. The model is named `confidenceos_demo_vessel_v2`, and the hierarchy is a single static plant/unit/module setup. The equipment/signal model is also fixed around `V-5100`, `LT-5100`, `FI-2010`, `FO-2020`, `PT-3100`, `TT-4100`, and `ZT-6100`.
+
+That means ABB judges could say: **“This is not auto-generated HMI engineering. This is a hand-authored demo model with generated-looking UI.”**
+
+## The Studio is the weakest part right now
+
+Studio is supposed to prove engineering-time reduction. Right now, it mostly proves that you can press buttons.
+
+The default template assignments are hardcoded to exactly three assets: `V-5100`, `XV-6100`, and `FG-2010`. The auto-map function returns three hardcoded suggestions for the same three assets, with static confidence values like `0.98`, `0.94`, and `0.96`. There is no real import parser, no noisy tag list, no ambiguous mapping case, no unmapped signals, no conflict resolution, no engineering approval trail beyond a boolean.
+
+The frontend makes this look like “AI Suggests / Engineer Approves,” but the backend explicitly returns `ai_assisted: False`. The UI still labels the section “AI Suggests / Engineer Approves.” That mismatch is dangerous. An ABB judge may ask, “Where is the AI?” and the honest answer is: **there is no real AI-assisted configuration here, only deterministic canned mappings.**
+
+Low-code is also shallow. The UI lets you click “Suggest Signal Binding,” “Generate Publish Preview,” “Publish To Runtime,” and “Reset Demo Default.” But a real low-code HMI engineering tool would let users edit signal metadata, ranges, units, equipment membership, role visibility, template parameters, validation rules, and publish diffs with audit history. Your low-code editing is mostly a template dropdown over existing assignments.
+
+## The “generated screens” are not convincing enough
+
+The backend screen generator does produce a manifest, but it still feels like a fixed layout with metadata sprinkled on top.
+
+The manifest always includes two hardcoded screen definitions: `plant-overview` and `unit-15-runtime`. Faceplates are generated only for assets of type `process_vessel`, `valve`, or `flow_pair`, and the main situations list is just `live_state.get("incidents")` passed through.
+
+So the generated-screen story is currently: **“We read a static JSON model and render a fixed React layout.”** That is not bad, but ABB may expect: “We imported a tag list, inferred hierarchy, bound templates, generated multiple screens, validated missing signals, and published a runtime configuration.”
+
+Your system says that, but it does not deeply do it yet.
+
+## Role-based UI is mostly cosmetic
+
+The role policies look good on paper. Operator, Maintenance, Engineer, Manager, and Auditor each have primary questions and visible sections. But the actual runtime role panel mostly renders section names and says “N item(s) generated from role policy.”
+
+That is not enough. ABB engineers will notice if switching roles does not actually change the workflow. A real maintenance view should feel like a work-order/diagnostics/calibration workspace. A real engineer view should feel like signal binding + validation + assumptions + template provenance. A real operator view should remove engineering noise and show action. Right now, the role model is structurally present but experientially thin.
+
+The harsh version: **role-based UI currently looks like role-based labels, not role-based operations.**
+
+## Context-aware UI is too binary
+
+The context policies have good names: steady state, startup ramp, mass-balance divergence, instrumentation suspect, manual verification required, warning, critical. But the runtime mostly makes one big decision: if `stress_mode` is true, show the stress layout; otherwise show the normal layout.
+
+That makes the feature feel shallow. ABB’s desired “context-aware UI” implies nuanced adaptation: startup verification, maintenance mode, handover mode, abnormal situation mode, degraded instrumentation mode, different promoted controls, different suppressed information, different operator tasks. Your backend has policy names for those, but the frontend does not fully operationalize them.
+
+In other words: **you have context policy metadata, but not enough context behavior.**
+
+## It still smells like a dashboard pretending to be an HMI
+
+Runtime has semantic navigation, situation workspace, faceplates, role panel, validation status. That is better than the old dashboard. But the layout is still mostly panels, cards, sidebars, badges, JSON provenance, and grids. The “Google Maps for the plant” idea is not really implemented; the navigation is a nested tree, not semantic zoom.
+
+The “Teams-like handover” is also quite thin. The shift channel builds pinned items from incidents/debt/tokens/timeline and allows notes. The frontend renders a pinned list and a thread with a note input. That is useful, but it is not yet a real collaborative shift workflow: no acknowledgement, ownership, resolution status, attachments, verification lifecycle, review, audit signature, or shift boundary ritual.
+
+ABB judges may say: **“This borrows the words Maps and Teams, but not the interaction depth.”**
+
+## The industrial credibility gaps are still visible
+
+There are still code-level things that make it feel non-industrial.
+
+CORS is wide open with credentials enabled. The plant tick loop still has one big outer exception handler, so a single unexpected exception can kill the loop and close the DB session. Studio and shift-channel state are file-backed JSON files in the backend directory, which is okay for a hackathon but weak for multi-user/audit/publish workflows.
+
+The OPC UA provider is explicitly a placeholder that returns an empty list. Again, fine if positioned honestly, but not fine if the pitch implies practical industrial integration.
+
+Also, `App.jsx` still has hardcoded `SENSOR_IDS` and `PLANT_IDS`. That undercuts the “metadata-driven” story. Even if the new Runtime uses metadata, old hardcoded constants are still visible in the codebase and some routes.
+
+## The confidence math may still look arbitrary
+
+Your core differentiator is confidence scoring. That is the strongest idea. But judges may still ask: “Why these weights? Why this threshold? Why this tolerance? How do you validate confidence against ground truth?”
+
+The system has assumptions and explanation layers, which helps. But an ABB engineer will not be fully impressed by “confidence score = weighted sum of calibration, stability, cross-sensor, plausibility” unless you show at least one of these:
+
+1. replay validation against known scenarios,
+2. sensitivity analysis proving the verdict is robust,
+3. calibration of confidence against false-positive/false-negative outcomes,
+4. engineering ownership of every threshold,
+5. clear separation between advisory confidence and control/safety logic.
+
+You have some of this, but the score can still feel like an invented metric unless the demo aggressively shows **why the conclusion does not depend on a cute formula.**
+
+## The ABB alignment checklist is useful, but it can backfire
+
+The Studio has a static “ABB Desired-Solution Checklist” with every item marked represented. It is a good demo guide, but it can also feel like you are grading your own homework.
+
+Judges may dislike seeing “13 represented” if the implementation behind those items is thin. It can trigger skepticism: “You say AI-assisted config is represented, but the backend says `ai_assisted: False`.” “You say low-code editing, but I can only change a dropdown.” “You say generated HMI screens, but the model has one vessel.”
+
+Use the checklist carefully. It should be a supporting explainer, not the centerpiece.
+
+## The product may feel over-expanded
+
+The original ConfidenceOS idea was sharp: **the HMI knows what it does not know.** After the overhaul, there is a risk that the product becomes:
+
+- Studio
+- Runtime
+- generated screens
+- semantic navigation
+- templates
+- role policies
+- context policies
+- shift channel
+- confidence debt
+- verification tokens
+- forensics
+- compliance
+- sandbox
+- graph
+- AI query
+
+That is a lot. If the demo is not extremely disciplined, ABB judges may see a feature buffet instead of one undeniable workflow.
+
+The strongest story is not “we implemented every requirement.” The strongest story is:
+
+**Import tags → assign templates → generate trust-aware HMI → abnormal situation appears → operator gets operating basis → maintenance gets verification task → engineer sees provenance → handover preserves unresolved debt.**
+
+Everything else should support that path or be hidden.
+
+## The most generic-feeling parts
+
+The parts that currently feel most generic or shallow are:
+
+1. **Studio auto-map** — hardcoded suggestions, not real discovery.
+2. **AI-assisted configuration** — mostly label-level; not actually AI unless added elsewhere.
+3. **Role-based UI** — role sections exist, but the actual workflows are not deep.
+4. **Modern UX** — still a grid/panel industrial dashboard, not a genuine Maps/Teams-inspired interaction model.
+5. **Generated screens** — fixed manifest + static JSON model; not enough proof of real generation.
+6. **Template library** — good file, but no deep parameterization or reusable engineering behavior.
+7. **Shift channel** — useful, but currently just notes + pinned debt, not a full shift workflow.
+8. **Integration story** — read-only posture is good, but OPC UA/CSV providers are placeholders.
+9. **Metrics** — no measured engineering-time reduction, alarm-collapse count over time, or decision-time improvement.
+10. **Industrial hardening** — CORS, loop failure, file persistence, audit trail, invalid IDs, and test coverage still weaken credibility.
+
+## What would make ABB actually impressed
+
+Do not add more features. Make three workflows brutally convincing.
+
+First, make Studio real enough that it scares the other teams. Show a messy imported tag list with unmapped tags. Click auto-map. Show confidence-ranked suggestions. Show one missing required signal warning. Approve. Generate. Show a diff. Publish. Runtime changes. That would directly hit ABB’s engineering-time requirement.
+
+Second, make Runtime feel like a decision machine, not a dashboard. In abnormal mode, it should show one situation, one operating basis, one decision freeze, one trusted substitute, one exit condition. No clutter. No “look at all my panels.”
+
+Third, make role switching obviously operational. Operator sees actions. Maintenance sees verification/calibration tasks. Engineer sees mapping/assumptions/provenance. Manager sees unresolved debt. Auditor sees timeline and publish history. Not just different section names.
+
+My blunt verdict: **you now have the skeleton of an ABB-aligned platform, but the muscles are still thin.** The judges might be impressed by the ambition and the narrative. They will not be fully impressed if they click around and realize that Studio, generation, AI-assist, role-based UI, and semantic navigation are mostly static demo layers. The core trust idea is still strong. The risk is that the overhaul makes the project look broader but less deep.
+
+Yes. The move now is **not “add more ABB features.”** It is to make judges believe the system is _actually generated, actually role-aware, actually useful under pressure,_ and not just a polished demo around six hardcoded tags.
+
+Right now, your weak spots are obvious: Studio auto-map is hardcoded to three assets, generated screens still include fixed screen IDs, the model is one demo vessel, role-based UI is mostly section labels, and “AI assisted” is mostly a promise.
+
+Here are the ideas that would actually change that.
 
 ---
 
-# 1. Operator Action Contract
+## 1. Build an “HMI Compiler,” not a Studio dashboard
 
-### What it is
+This is the biggest unlock.
 
-Every serious incident becomes a **contract card** with four fields:
+Instead of Studio looking like a configuration page, make it feel like a **compiler pipeline**:
 
-**Do not trust:** LT-5100 level reading
-**Use instead:** flow-implied level + sight glass/manual verification
-**First safe action:** verify level before increasing feed/load
-**Exit condition:** LT-5100 confidence restored above 80% or field verification token active
-
-This converts your incident queue from “advisory list” into an operational commitment.
-
-### Weakness solved
-
-Your current system says something is wrong, but does not fully manage the operator’s next decision. The incident queue already shows first actions, but they are still mostly text recommendations.
-
-### Why ABB would care
-
-Operators under pressure do not need more diagnosis. They need a clear **safe operating basis**: what can I trust, what can I not trust, and what am I allowed to do next?
-
-### Implementation hint
-
-Add an `action_contract` object to each fused incident:
-
-```json
-{
-  "do_not_use": ["LT-5100"],
-  "trusted_substitutes": ["FI-2010", "FO-2020", "manual_level_check"],
-  "first_safe_action": "Verify level locally before increasing feed.",
-  "blocked_decisions": [
-    "increase_inflow",
-    "accept_handover_without_verification"
-  ],
-  "exit_conditions": [
-    "LT-5100 confidence > 80",
-    "manual verification token active"
-  ]
-}
+```txt
+Raw Tags → Asset Graph → Template Binding → Validation → Generated Runtime → Publish
 ```
 
-Render it as the top element in `IncidentQueue`.
-
-### Complexity
-
-Medium.
-
-### Demo impact
-
-Judge sees: “This is not just alerting. It changes the operator’s decision path.”
-
----
-
-# 2. Confidence Courtroom
-
-### What it is
-
-Make every confidence score defend itself like evidence in court.
-
-Instead of showing “12% confidence,” show:
-
-- **Charge:** LT-5100 is unreliable.
-- **Evidence A:** calibration age degraded score.
-- **Evidence B:** reading frozen for 3 hours.
-- **Evidence C:** flow balance contradicts level.
-- **Counter-evidence:** pressure still normal, so severity not escalated to emergency.
-- **Verdict:** do not use LT-5100 as primary reference.
-
-### Weakness solved
-
-Your confidence score can feel arbitrary because the system uses fixed weights and thresholds. The mass-balance engine also has fixed tolerance, severity multipliers, and demo-specific conversion factors.
-
-### Why ABB would care
-
-Industrial users do not trust unexplained AI scores. They trust traceable logic, instrument evidence, and engineering assumptions.
-
-### Implementation hint
-
-You already output sub-scores, evidence, dominant factor, NAMUR-style state, and recommended action in `confidence.py`. Turn that into a formal “evidence ledger” instead of a tooltip.
-
-Add a “Why this score?” drawer with:
-
-```text
-Score = 0.30 calibration + 0.20 stability + 0.30 cross-sensor + 0.20 plausibility
-Dominant weakness: cross_sensor
-Most damaging evidence: flow-implied level diverges from LT by X ft
-Confidence would rise to 58% if calibration were fresh, but remains LOW due to mass-balance contradiction
-```
-
-### Complexity
-
-Low to Medium.
-
-### Demo impact
-
-When a judge asks “Why 12%?”, you do not explain verbally. You click the score and the system proves it.
-
----
-
-# 3. Score Sensitivity Simulator
-
-### What it is
-
-A live engineering tool that shows which assumption changes the confidence score.
+Every stage should have pass/warn/fail output.
 
 Example:
 
-- Change calibration interval from 90 days to 180 days → score rises from 12% to 24%.
-- Disable mass-balance evidence → score rises to 61%.
-- Increase vessel tolerance → score rises to 43%.
-- Conclusion: **mass-balance contradiction is the dominant reason, not arbitrary calibration aging.**
+```txt
+BUILD FAILED
+V-5100 uses Vessel template
+Required signals:
+✓ level: LT-5100
+✓ inflow: FI-2010
+✓ outflow: FO-2020
+⚠ independent high-level reference missing
+⚠ manual verification workflow required
+```
 
-### Weakness solved
+Why ABB would care: engineers understand build validation. This immediately makes “auto-generated HMI screens” feel real, not cosmetic.
 
-Judges may think your weights are invented. This feature shows that the system is not hiding behind a magic number.
+Implementation:
 
-### Why ABB would care
+- Rename Studio workflow internally to `hmi_build_pipeline`.
+- Add `GET /api/studio/build`.
+- Return stages: `import`, `mapping`, `template_binding`, `validation`, `screen_generation`, `publish_readiness`.
+- Runtime screens should show `build_id`, `template_id`, `source_tags`, and `validation_status`.
 
-ABB engineers will respect a system that exposes its engineering assumptions instead of pretending the algorithm is unquestionable.
+Demo line:
 
-### Implementation hint
+> “ConfidenceOS does not let engineers publish a generated HMI until the equipment template passes its operating-basis checks.”
 
-Create `/api/confidence/explain/{sensor_id}` that recomputes confidence under alternate weight/tolerance scenarios. Render a “sensitivity bar” in Engineer View.
-
-### Complexity
-
-Medium.
-
-### Demo impact
-
-This is a very strong judge moment. You can say:
-
-> “Even if you disagree with our calibration weight, the system still flags the transmitter because physics contradicts it.”
-
-That sounds mature.
+That is much stronger than “we have low-code.”
 
 ---
 
-# 4. Alarm Collapse Engine
+## 2. Add a dirty tag import gauntlet
 
-### What it is
+Your current tag import is too clean. ABB engineers know real tag lists are ugly.
 
-Instead of adding confidence alerts to the alarm list, collapse many alarms into one **root abnormal situation**.
+Create a fake imported tag file with messy names:
+
+```txt
+U15_LT_5100.PV
+15-FI-2010
+FO2020_RATE
+ZT6100.POS
+PT_3100_PROCESS
+TEMP4100
+BAD_TAG_123
+UNUSED_SPARE_AI_09
+```
+
+Then show Studio resolving them into clean model bindings:
+
+```txt
+U15_LT_5100.PV → LT-5100 → V-5100 level → vessel template
+FO2020_RATE → FO-2020 → V-5100 outflow → mass-balance group
+BAD_TAG_123 → unmapped / requires engineer review
+```
+
+This would solve the “hardcoded model” problem fast. Right now your model is already clean and mapped, so generation looks fake. Realistic mess makes the auto-mapping feel valuable.
+
+Implementation:
+
+- Add `backend/imported_tags_demo.json`.
+- Add unmapped tags.
+- Change `studio_imported_signals()` so it returns raw imported tags plus proposed bindings.
+- Show mapped, uncertain, and unmapped buckets in Studio.
+
+High-impact UI labels:
+
+```txt
+AUTO-MAPPED: 6
+AMBIGUOUS: 2
+UNMAPPED: 3
+BLOCKING: 1
+```
+
+ABB judges will instantly understand this.
+
+---
+
+## 3. Replace “AI suggests” with “Explainable Mapping Court”
+
+Do not just say AI suggests. Make mapping suggestions defend themselves.
+
+For each proposed mapping, show:
+
+```txt
+Proposed binding:
+U15_LT_5100.PV → LT-5100 / Vessel Level
+
+Evidence:
+- Tag contains LT, common abbreviation for level transmitter
+- Numeric suffix 5100 matches vessel V-5100
+- Engineering units are ft
+- Range 0–200 ft matches vessel-level template
+- Related FI/FO tags exist in same unit
+
+Counter-evidence:
+- No redundant high-level switch found
+
+Verdict:
+Approve as primary level, but require manual verification workflow.
+```
+
+This makes AI-assisted configuration credible even if the first version is deterministic.
+
+Current problem: backend returns `ai_assisted: False`, while the UI says “AI Suggests / Engineer Approves.” Fix it by making it honest:
+
+```txt
+Deterministic suggestion
+AI explanation available
+Engineer approval required
+```
+
+Later, if Claude exists, it can write the explanation. The logic remains deterministic.
+
+---
+
+## 4. Add “generation receipts” to every Runtime screen
+
+Every generated UI element should have a small receipt:
+
+```txt
+Generated because:
+- Asset: V-5100
+- Template: vessel@1.0
+- Signals: LT-5100, FI-2010, FO-2020
+- Role policy: Operator
+- Context policy: MASS_BALANCE_DIVERGENCE
+- Validation: passed with 1 warning
+- Build ID: hmi-build-0042
+```
+
+This solves the “fixed React layout pretending to be generated” problem.
+
+The judge should be able to click any faceplate, situation card, or role view and see **why it exists**.
+
+This is much better than just showing JSON provenance in a side panel. Make it a first-class industrial concept:
+
+```txt
+SCREEN RECEIPT
+Generated from metadata. Not hand-built.
+```
+
+Demo line:
+
+> “Every screen has a receipt. If the asset model changes, the generated screen changes, and the receipt proves why.”
+
+---
+
+## 5. Create a “template mutation demo”
+
+ABB’s requirement includes reusable libraries and standardization. Right now your template library exists, but judges may not feel its power.
+
+Add one killer demo:
+
+1. In Studio, open the `Vessel / Tank Faceplate` template.
+2. Toggle: “Require independent verification when level confidence < 50.”
+3. Preview affected screens.
+4. It shows:
+
+```txt
+Affected generated screens:
+- V-5100 vessel faceplate
+- Unit 15 Runtime
+- Operator stress mode
+- Maintenance verification view
+- Handover debt policy
+```
+
+This proves reusable templates actually propagate behavior.
+
+Do not build a full template editor. Build one or two safe toggles:
+
+- require manual verification below LOW confidence
+- show/hide confidence courtroom for Operator
+- promote mass balance during startup
+- require handover debt for unresolved decision freeze
+
+That would impress ABB more than adding ten more static templates.
+
+---
+
+## 6. Make role switching operational, not visual
+
+Right now role policies are good metadata, but the Runtime role panel mostly says section names and item counts. That is shallow.
+
+Make the same abnormal situation transform into four genuinely different workspaces:
+
+### Operator
+
+```txt
+Do not trust LT-5100.
+Use FI-2010 + FO-2020 implied level.
+First safe action: verify level before increasing feed.
+Frozen decision: increase_feed.
+Exit condition: manual verification token or LT confidence > 80%.
+```
+
+### Maintenance
+
+```txt
+Field task generated:
+- Inspect LT-5100 impulse line
+- Verify local level indication
+- Calibration status: 47 days since calibration
+- Token required: manual_level_check
+```
+
+### Engineer
+
+```txt
+Configuration impact:
+- Vessel template generated decision freeze
+- Mass-balance tolerance assumption used
+- Confidence score dominated by cross-sensor contradiction
+- Sensitivity: verdict unchanged if calibration weight is ignored
+```
+
+### Manager/Auditor
+
+```txt
+Shift risk:
+- 1 unresolved operating-basis item
+- 1 active decision freeze
+- Handover acceptance blocked
+- Timeline evidence preserved
+```
+
+Same incident. Four different jobs. That will feel role-based.
+
+---
+
+## 7. Add “Operator Single Safe Move”
+
+Under stress, operators do not need a dashboard. They need the next safe move.
+
+Make stress mode brutally minimal:
+
+```txt
+ABNORMAL SITUATION:
+Inventory accumulation with unreliable level indication
+
+SINGLE SAFE MOVE:
+Verify level locally before increasing feed.
+
+DO NOT:
+Increase feed
+Accept handover as normal
+Use LT-5100 as primary level basis
+
+USE:
+FI-2010 + FO-2020 mass-balance implied level
+
+EXIT WHEN:
+Manual verification active OR LT-5100 confidence > 80%
+```
+
+Then add a timer:
+
+```txt
+Time since first contradiction: 04:32
+Time decision freeze active: 03:58
+```
+
+This gives judges measurable faster decision-making.
+
+Do not show six cards. Do not show charts. Do not show AI query. In stress mode, the product should look almost empty.
+
+---
+
+## 8. Add “Trust Quarantine”
+
+This is more powerful than confidence scores.
+
+When a sensor becomes suspect, it enters quarantine:
+
+```txt
+LT-5100
+State: QUARANTINED
+Reason: contradicted by mass balance
+Allowed use: trend only
+Forbidden use: feed increase decision, handover acceptance
+Substitute: implied_level from FI/FO
+Exit: field verification or confidence recovery
+```
+
+This turns confidence from a number into an operating rule.
+
+ABB engineers would like this because it sounds like control-room governance. It does not control the plant; it governs what the operator is allowed to trust.
+
+Implementation:
+
+- Add `trust_state` to confidence results:
+  - `TRUSTED`
+  - `DEGRADED`
+  - `QUARANTINED`
+  - `SUBSTITUTED`
+  - `UNAVAILABLE`
+
+- Render this more prominently than raw confidence percentage.
+- Action contracts should use trust state.
+
+Demo line:
+
+> “We are not alarming on LT-5100. We are quarantining it from safety-relevant decisions.”
+
+That is excellent.
+
+---
+
+## 9. Add “Operating Basis Ledger”
+
+Industrial operators do not act on raw signals. They act on an operating basis.
+
+Create a ledger:
+
+```txt
+Current operating basis:
+- Vessel inventory is increasing.
+- Primary level indication is not trusted.
+- Flow-derived level is the temporary basis.
+- Feed increase is frozen.
+- Field verification required before handover.
+```
+
+Each line has evidence and owner.
+
+```txt
+Basis line: Primary level indication is not trusted
+Evidence: LT-5100 confidence 18%, FI/FO residual 12.4 ft
+Owner: Operator
+Status: active
+Expires: when verification clears
+```
+
+This is better than “Evidence Stack” because it sounds operational.
+
+The Runtime should be built around the operating basis, not around sensors.
+
+---
+
+## 10. Add “screen generation diff”
+
+When Studio publishes, show exactly what changed:
+
+```txt
+Publish Preview Diff
+
+Added:
++ Vessel faceplate for V-5100
++ Mass-balance section because FI/FO validate LT
++ Decision freeze rule for increase_feed
++ Maintenance verification task for LT-5100
+
+Changed:
+~ Operator stress layout now suppresses forecast chart
+~ Manager view now includes handover debt ledger
+
+Blocked:
+! Cannot publish valve template for XV-6100: missing command signal
+```
+
+This solves three ABB requirements at once:
+
+- model-based engineering,
+- reusable templates,
+- lower engineering effort.
+
+Right now your diff only compares assignment changes against demo defaults. Make it a generated-HMI diff, not just a JSON assignment diff.
+
+---
+
+## 11. Add “template unit tests”
+
+This is unconventional and very ABB-engineer-friendly.
+
+Each template should have a tiny test:
+
+```txt
+Vessel template tests:
+✓ If level confidence is LOW and FI/FO contradiction exists, generate decision freeze.
+✓ If flow pair missing, show validation warning.
+✓ If startup context active, promote mass balance.
+✓ If verification token active, show temporary operating basis.
+```
+
+In Studio, show:
+
+```txt
+Template Test Suite
+vessel: 4/4 passed
+valve: 2/3 passed
+flow_pair: 3/3 passed
+```
+
+This makes your template library feel engineered, not decorative.
+
+Implementation:
+
+- Add `backend/template_tests.py`.
+- Add `/api/studio/template-tests`.
+- Build tests from simple fixture states.
+- Display pass/fail in Studio.
+
+Demo line:
+
+> “Before a generated HMI can be published, the equipment template has to pass decision-integrity tests.”
+
+That is a serious systems-engineering line.
+
+---
+
+## 12. Add “unknown plant challenge”
+
+If you only demo Texas City, judges may think everything is scripted.
+
+Create a second tiny asset model, maybe:
+
+```txt
+Municipal Water Pump Station
+- Tank T-100
+- Pump P-101
+- Inflow FIT-101
+- Outflow FIT-102
+- Level LIT-100
+```
+
+Then in Studio, allow switching imported model:
+
+```txt
+Demo Vessel
+Pump Station
+Gas Compressor
+```
+
+The system should generate different Runtime faceplates from the same templates.
+
+Even if simple, this proves generality.
+
+Do not build a huge second simulator. Just create enough metadata to show the generator is not locked to `V-5100`.
+
+This directly attacks the “one hardcoded vessel” weakness.
+
+---
+
+## 13. Replace “semantic navigation tree” with a trust map
+
+Your current semantic navigation is basically a tree. That is not “Google Maps.”
+
+Make a simple map-like plant view:
+
+```txt
+[Plant]
+  ↓
+[Area]
+  ↓
+[Unit 15 ISOM]  WARNING
+  ↓
+[V-5100]  TRUST QUARANTINE
+  ├─ LT-5100 quarantined
+  ├─ FI-2010 trusted
+  └─ FO-2020 trusted
+```
+
+Use zoom levels:
+
+- Level 1: plants
+- Level 2: units
+- Level 3: equipment
+- Level 4: signals/evidence
+
+Clicking does not just navigate; it changes the level of detail.
+
+High-impact twist: show only trust hotspots, not every tag.
+
+```txt
+3 hidden healthy assets
+1 trust hotspot
+1 frozen decision
+```
+
+This is much closer to Google Maps: you see where attention is needed, then zoom in.
+
+---
+
+## 14. Add “alarm collapse receipt”
+
+Do not just say “collapsed from X signals.” Show the compression logic.
+
+```txt
+Collapsed Situation:
+Inventory accumulation with unreliable level indication
+
+Raw signals collapsed:
+1. LT-5100 LOW confidence
+2. FI/FO mass-balance residual
+3. Startup ramp inferred
+4. LT stale tendency
+5. Feed increase decision depends on LT
+
+Why one situation:
+All five signals affect the same operating basis:
+“Can the operator trust level before increasing feed?”
+```
+
+This solves reduced alarm fatigue better than just hiding alarms.
+
+ABB judges care about alarm management. Show that the collapse is lossless and explainable.
+
+Add:
+
+- `raw_signal_count`
+- `suppressed_alarm_count`
+- `collapse_reason`
+- `operator_question`
+- `expand_all_raw_signals`
+
+The killer phrase:
+
+> “We do not suppress alarms. We preserve them under one operator question.”
+
+---
+
+## 15. Add “decision-time score,” not generic KPIs
+
+Do not claim “faster decisions” vaguely. Measure it in the demo.
+
+For each abnormal situation, compute:
+
+```txt
+Traditional HMI path:
+- inspect LT
+- inspect FI
+- inspect FO
+- inspect trends
+- infer contradiction
+- decide verification
+Estimated steps: 6
+
+ConfidenceOS path:
+- read operating basis
+- verify field level
+Estimated steps: 2
+
+Decision compression: 6 → 2 steps
+```
+
+This is not fake “hours saved.” It is a transparent interaction metric.
+
+Also show:
+
+```txt
+raw warnings: 5
+situations: 1
+blocked decisions: 2
+trusted substitutes: 2
+required operator action: 1
+```
+
+ABB will understand that.
+
+---
+
+## 16. Add “publish guardrails”
+
+Studio should refuse to publish unsafe generated HMIs.
+
+Examples:
+
+```txt
+Cannot publish:
+- Vessel template has no validated level substitute
+- Safety-critical sensor has no role policy for Maintenance
+- Context policy suppresses evidence in CRITICAL mode
+```
+
+This would make your low-code story credible. Low-code without guardrails is scary in industrial systems. Low-code with publish validation is valuable.
+
+Implementation:
+
+- Add validation levels:
+  - `INFO`
+  - `WARNING`
+  - `BLOCKING`
+
+- Publish fails on blocking.
+- Show “Override requires Engineer role” if you want drama.
+
+---
+
+## 17. Add “policy replay before publish”
+
+This is very strong.
+
+When an engineer changes a context policy, Studio should replay the Texas City scenario and show what would have happened.
 
 Example:
 
-Raw alarm flood:
+```txt
+Policy change:
+Suppress mass-balance chart in startup mode.
 
-- LT low confidence
-- mass-balance warning
-- pressure rising
-- inflow high
-- outflow low
-- stale valve feedback
-- startup mode warning
+Replay result:
+BLOCKED. During Texas City replay, mass-balance evidence was required to detect unreliable level indication.
 
-Collapsed operator view:
-
-> **Abnormal Situation:** Inventory accumulation with unreliable level indication
-> **Primary risk:** vessel overfill
-> **Suspect instruments:** LT-5100, ZT-6100
-> **First action:** verify level and valve position before increasing feed
-
-### Weakness solved
-
-Your system claims to solve alarm fatigue, but currently it still creates flags, advisories, predictions, stale warnings, and query responses. The incident queue helps, but it is not yet a true alarm-fatigue solution.
-
-### Why ABB would care
-
-ABB knows alarm floods are not solved by better sorting. Meaningful innovation is causal compression: many symptoms → one operator-actionable situation.
-
-### Implementation hint
-
-Extend `build_incidents()` so it clusters flags into causal incident types:
-
-- `inventory_accumulation`
-- `instrument_integrity_loss`
-- `valve_command_feedback_mismatch`
-- `startup_verification_required`
-- `process_envelope_violation`
-
-Each cluster should consume multiple low-level flags and show only one primary incident.
-
-### Complexity
-
-Medium.
-
-### Demo impact
-
-Trigger 15–20 simulated warnings. Then show ConfidenceOS compressing them into **one abnormal situation**. That is much stronger than showing a pretty alarm list.
-
----
-
-# 5. Verification Token Workflow
-
-### What it is
-
-When a sensor is low-confidence, the operator cannot just acknowledge it. They must create a **verification token**:
-
-> LT-5100 locally verified by field operator at 13:42. Valid for 30 minutes. Confidence substitute active.
-
-The token expires automatically and is included in handover.
-
-### Weakness solved
-
-Your current stale-reading acknowledgement is useful, but too simple. It acknowledges a flag; it does not create an operationally meaningful state. Startup stale readings are currently acknowledged by sensor ID only.
-
-### Why ABB would care
-
-Real control rooms depend on temporary trust decisions: manual checks, local gauges, field operator confirmation, maintenance overrides, bypasses. These need expiry and traceability.
-
-### Implementation hint
-
-Add table/object:
-
-```json
-{
-  "sensor_id": "LT-5100",
-  "verification_type": "field_check",
-  "verified_by": "Operator A",
-  "valid_until": "...",
-  "confidence_override": false,
-  "usable_as_reference": true,
-  "handover_required": true
-}
+Recommendation:
+Do not suppress mass-balance during STARTUP_RAMP.
 ```
 
-Important: do **not** override the confidence score. Keep the score low, but add “verified substitute available.”
+This is an advanced idea that feels like real engineering.
 
-### Complexity
+It proves:
 
-Medium.
+- model-based engineering,
+- safety validation,
+- context-aware UI,
+- forensics,
+- lower risk configuration.
 
-### Demo impact
-
-This makes the system feel like a real operations tool, not just analytics.
+You already have forensics/replay. Connect it to Studio publish.
 
 ---
 
-# 6. Mode Inference, Not Mode Toggle
+## 18. Add “field verification task lifecycle”
 
-### What it is
+Verification tokens are good, but make them operational.
 
-Remove the feeling of a manual “Startup Mode” button. The system should infer mode from process behavior:
+Current token:
 
-- feed flow ramping up,
-- temperature not yet at steady-state,
-- valves transitioning,
-- pressure unstable,
-- recent shutdown/restart,
-- multiple stale sensors after no-flow period.
-
-Then it says:
-
-> “Detected: Cold restart / startup transition. Applying tighter confidence rules.”
-
-### Weakness solved
-
-Startup Mode is currently a toggle with three rule changes: tier threshold shift, mass-balance tolerance multiplier, and stale-reading detection.
-
-That is good, but it feels like a preset, not adaptive HMI.
-
-### Why ABB would care
-
-Real operators should not have to remember to switch the HMI into the correct mental mode. The HMI should recognize the operational phase.
-
-### Implementation hint
-
-Create `mode_inference.py`:
-
-```python
-if inflow_ramp_rate > threshold and temperature_variance > threshold:
-    mode = "STARTUP_RAMP"
-
-elif flow_near_zero_for_30min and recent_flow_restart:
-    mode = "COLD_RESTART"
-
-elif valve_position_changes > N and controller_manual:
-    mode = "TRANSITION"
-
-else:
-    mode = "STEADY_STATE"
+```txt
+created, valid_until, note
 ```
 
-Then map each mode to different confidence thresholds, layout hints, and first-action rules.
+Better lifecycle:
 
-### Complexity
-
-Medium.
-
-### Demo impact
-
-Start from normal plant. Increase flow. The UI automatically says:
-
-> “Startup transition detected. Promoting mass-balance and stale-reading verification.”
-
-That is next-gen HMI behavior.
-
----
-
-# 7. Trust Dependency Graph
-
-### What it is
-
-Show how trust propagates across instruments.
-
-Example:
-
-- LT-5100 is low confidence.
-- FI-2010 and FO-2020 are high confidence.
-- Therefore, mass-balance estimate is trusted more than level reading.
-- But if FI-2010 also degrades, mass-balance confidence drops too.
-
-This becomes a graph of evidence dependency, not just sensor cards.
-
-### Weakness solved
-
-Your fleet and plant views can feel like independent sensor tiles. Real systems are connected. A bad level reading matters differently depending on whether independent flow evidence is trustworthy.
-
-### Why ABB would care
-
-ABB engineers think in loops, equipment, signals, dependencies, and failure propagation. This shows you understand control architecture.
-
-### Implementation hint
-
-You already have a `causal_graph.py` file in the repo list. Make it visible and central. Use nodes:
-
-- sensors,
-- equipment,
-- process variables,
-- inferred states,
-- operator decisions.
-
-Edges:
-
-- FI + FO → implied level,
-- LT → measured level,
-- ZT feedback → valve state,
-- valve state → outflow credibility.
-
-### Complexity
-
-Medium to High.
-
-### Demo impact
-
-Click LT-5100. The system shows:
-
-> “This value is not trusted. These two independent instruments contradict it. Therefore the trusted operating picture is: level likely rising.”
-
-That will impress ABB engineers more than another chart.
-
----
-
-# 8. Decision Freeze Zones
-
-### What it is
-
-When the system loses trust in a critical measurement, it marks certain operator decisions as unsafe without verification.
-
-Example:
-
-> **Decision freeze:** Do not increase feed rate while level integrity is suspect.
-> **Reason:** primary level instrument confidence below 20%, mass-balance residual active.
-> **Unlock condition:** field verification or restored confidence.
-
-This does not control the plant. It advises the operator decision boundary.
-
-### Weakness solved
-
-Your system says “manual verification required,” but does not show what decisions are affected.
-
-### Why ABB would care
-
-Operators under pressure ask: “Can I continue? Can I increase load? Can I hand over? Can I ignore this?” Decision freeze zones answer that directly.
-
-### Implementation hint
-
-Add `blocked_decisions` to the incident model:
-
-```json
-[
-  {
-    "decision": "increase_feed",
-    "status": "blocked_until_verified",
-    "reason": "Level integrity suspect",
-    "required_evidence": ["manual_level_check", "LT confidence > 80"]
-  }
-]
+```txt
+REQUESTED → ASSIGNED → FIELD_CHECK_DONE → ACCEPTED → EXPIRED
 ```
 
-### Complexity
+Fields:
 
-Medium.
+- requested_by
+- assigned_to_role
+- verification_method
+- evidence_required
+- expiry
+- accepted_by
+- handover_required
 
-### Demo impact
+The operator should not create a token casually. The system should create a **verification task**, and the token is the result.
 
-The judge sees the HMI protecting decision quality without pretending to be an autonomous controller.
-
----
-
-# 9. Handover Debt Ledger
-
-### What it is
-
-Instead of just generating a shift brief, track unresolved operational debt:
-
-- unverified low-confidence sensors,
-- stale readings,
-- active verification tokens,
-- expired tokens,
-- suppressed/acknowledged incidents,
-- decisions blocked during the shift,
-- abnormal situations not fully resolved.
-
-The handover becomes a debt ledger, not a summary.
-
-### Weakness solved
-
-AI handover is a strong story, but it can feel like “LLM writes a nice paragraph.” Make it operationally binding.
-
-### Why ABB would care
-
-Shift handover failures are not solved by text generation. They are solved by forcing unresolved risk to survive the shift boundary.
-
-### Implementation hint
-
-Add a `handover_required: true` flag to incidents, verification tokens, degraded sensors, and decision freezes. The handover brief should be generated from these objects, not from raw sensor state alone.
-
-### Complexity
-
-Medium.
-
-### Demo impact
-
-You can say:
-
-> “The operator can ignore a paragraph. They cannot erase unresolved debt from the next shift’s operating basis.”
-
-That is a strong industrial UX insight.
+This makes Maintenance view much more real.
 
 ---
 
-# 10. Confidence Debt, Not Predictive Failure
+## 19. Add “control-room mode: no chat”
 
-### What it is
+Hide the query panel during stress mode. Seriously.
 
-Replace “predictive failure” language with **confidence debt**.
+ABB operators under pressure do not want to chat. They want the system to present the operating basis.
 
-Confidence debt = time spent operating with degraded instrument trust.
+Keep “Grounded Operator Explanation” only as:
 
-Example:
+- normal mode explanation,
+- engineer/auditor explanation,
+- post-incident query.
 
-> LT-5100 has accumulated 2.4 confidence-hours below LOW tier.
-> TT-4100 is trending toward LOW in 7 hours, but debt is currently low.
-> Maintenance priority: LT-5100 first, because it affects an active safety-critical decision.
+In stress mode, the UI should say:
 
-### Weakness solved
-
-Your current prediction engine uses NumPy `polyfit` and forecasts threshold crossing. That is useful, but “Predictive Failure Engine” may sound overclaimed.
-
-### Why ABB would care
-
-Maintenance teams care about prioritization, not just prediction. A sensor at 40% confidence on a non-critical variable may be less urgent than a 55% sensor used in an active startup decision.
-
-### Implementation hint
-
-Compute:
-
-```text
-confidence_debt = Σ (tier_weight × duration × criticality_weight × active_context_weight)
+```txt
+Chat disabled during active decision freeze.
+Use operating-basis workflow.
 ```
 
-Then show:
-
-> “Maintenance priority is not lowest confidence. It is highest operational debt.”
-
-### Complexity
-
-Medium.
-
-### Demo impact
-
-This feels much more industrial than “AI predicts failure.”
+That is an unconventional but strong safety design choice. It signals maturity.
 
 ---
 
-# 11. Engineering Assumption Register
+## 20. Add “read-only integration contract”
 
-### What it is
+Do not just say read-only. Generate a contract.
 
-Every threshold, weight, tolerance, and physical envelope gets an owner and provenance.
+```txt
+ConfidenceOS Integration Contract
 
-Example:
+Inputs:
+- OPC UA subscription: read only
+- Historian read: read only
+- Asset model import: read only
 
-- Mass-balance tolerance: 5 ft
-- Source: demo vessel metadata
-- Owner: process engineer
-- Last reviewed: today
-- Confidence impact: high
-- Status: provisional
+Outputs:
+- confidence metadata
+- operating-basis advisory
+- handover debt
+- verification requests
 
-### Weakness solved
-
-Your fixed thresholds and weights may look arbitrary. This turns them into governed engineering assumptions.
-
-### Why ABB would care
-
-Industrial systems are not just algorithms. They are engineered, reviewed, commissioned, and audited.
-
-### Implementation hint
-
-Create `assumptions.json`:
-
-```json
-{
-  "mass_balance_tolerance_ft": {
-    "value": 5.0,
-    "source": "demo_vessel_metadata",
-    "owner_role": "Process Engineer",
-    "confidence_impact": "high",
-    "review_required": true
-  }
-}
+Forbidden:
+- write tag value
+- acknowledge DCS alarm
+- change setpoint
+- change controller mode
+- bypass interlock
 ```
 
-Expose it in Engineer View and link each confidence reason to the assumption that produced it.
+This turns a placeholder integration into a credible architecture artifact.
 
-### Complexity
-
-Low.
-
-### Demo impact
-
-When judges question the model, you show the assumption register. That is a very ABB-friendly move.
+ABB engineers may not expect actual OPC UA integration from a hackathon, but they will appreciate a safe integration boundary.
 
 ---
 
-# 12. Self-Configuring HMI From Tag Metadata
+## Highest-impact build order
 
-### What it is
+Do not implement all 20 equally. Build this sequence:
 
-Give the system a small tag metadata file and let it generate:
+### First: make Studio undeniable
 
-- sensor cards,
-- equipment grouping,
-- mass-balance relationships,
-- confidence weights,
-- operating envelopes,
-- role-specific views,
-- first-action templates.
+1. HMI Compiler pipeline
+2. Dirty tag import gauntlet
+3. Mapping Court
+4. Screen generation receipts
+5. Publish diff + guardrails
 
-This is more impressive than another UI feature.
+This fixes the biggest ABB-alignment weakness: engineering-time reduction.
 
-### Weakness solved
+### Second: make Runtime undeniable
 
-Your three-plant fleet risks looking hardcoded because plants share similar sensor structures. The current plant configs are explicitly defined in code with fixed plants, scenarios, and calibration ages.
+6. Trust Quarantine
+7. Operating Basis Ledger
+8. Operator Single Safe Move
+9. Alarm collapse receipt
+10. Decision-time score
 
-### Why ABB would care
+This fixes the operator-under-pressure weakness.
 
-Reduced engineering effort is a huge theme. ABB would care deeply about HMIs that generate useful screens from control-system metadata.
+### Third: make roles real
 
-### Implementation hint
+11. Maintenance verification task lifecycle
+12. Engineer policy replay before publish
+13. Manager/Auditor handover acceptance ritual
 
-Create a simple `asset_model.yaml`:
+This fixes the role-based UI weakness.
 
-```yaml
-equipment:
-  - id: V-5100
-    type: vessel
-    signals:
-      level: LT-5100
-      inflow: FI-2010
-      outflow: FO-2020
-      pressure: PT-3100
-relationships:
-  - type: mass_balance
-    inputs: [FI-2010, FO-2020]
-    validates: LT-5100
-```
+### Fourth: prove generality
 
-Then auto-generate the dashboard layout and confidence relationships.
+14. Unknown plant challenge
+15. Template mutation demo
+16. Template unit tests
 
-### Complexity
-
-High, but demo version can be small.
-
-### Demo impact
-
-Live demo:
-
-> “Here is a new tank asset. We add six lines of metadata. ConfidenceOS generates the HMI and mass-balance check automatically.”
-
-That screams ABB theme alignment.
+This fixes the “hardcoded demo” weakness.
 
 ---
 
-# 13. Operator View That Deletes UI Under Stress
-
-### What it is
-
-When the plant is normal, show normal dashboard.
-When abnormal, remove most of the dashboard.
-
-Show only:
-
-1. current abnormal situation,
-2. trusted/untrusted variables,
-3. first safe action,
-4. evidence,
-5. exit condition.
-
-This is intentionally anti-dashboard.
-
-### Weakness solved
-
-Your current UI risks showing too much. Under pressure, more panels equal more cognitive load.
-
-### Why ABB would care
-
-The best HMI under abnormal conditions is not the one with most information. It is the one that removes irrelevant information at the right moment.
-
-### Implementation hint
-
-Use existing `layout_hint` from plant context. Right now it returns hints like `promote_mass_balance` or `promote_evidence`.
-
-Make those hints actually change the screen:
-
-- `standard_monitoring`: dashboard
-- `promote_mass_balance`: mass-balance + action contract only
-- `startup_verification`: startup checklist + stale verification only
-- `instrumentation_suspect`: evidence stack + verification workflow only
-
-### Complexity
-
-Medium.
-
-### Demo impact
-
-Judges see the interface transform from monitoring mode to decision mode. That is next-generation HMI.
-
----
-
-# 14. Counterfactual Replay
-
-### What it is
-
-Replay the same incident twice:
-
-**Traditional HMI:** raw LT reads 7.9 ft, no alarm.
-**ConfidenceOS:** low confidence appears at minute 12, mass-balance divergence at minute 17, decision freeze at minute 20, handover debt created at shift change.
-
-Show a timeline:
-
-```text
-00:00 startup begins
-12:10 confidence degradation detected
-17:45 mass-balance contradiction detected
-20:00 feed increase blocked pending verification
-30:00 handover debt created
-```
-
-### Weakness solved
-
-Your BP story is powerful, but it can sound like storytelling. Counterfactual replay makes it measurable.
-
-### Why ABB would care
-
-Engineers like evidence. Show time-to-detection, missed cues, and operator intervention opportunities.
-
-### Implementation hint
-
-Use your existing scenario simulator and historical chart data. Add event markers when incidents, confidence thresholds, and decision freezes trigger.
-
-### Complexity
-
-Medium.
-
-### Demo impact
-
-This is likely one of the strongest finale features.
-
----
-
-# 15. Shadow Mode Integration Story
-
-### What it is
-
-Position ConfidenceOS as a **read-only trust layer** beside existing SCADA/DCS, not a replacement HMI.
-
-Show:
-
-```text
-OPC UA / Modbus / historian tags
-        ↓
-ConfidenceOS read-only trust engine
-        ↓
-Operator HMI overlay / advisory panel
-        ↓
-No direct control writes
-```
-
-### Weakness solved
-
-Your system can feel simulator-first. This gives ABB a believable deployment path.
-
-### Why ABB would care
-
-ABB will be skeptical of anything that appears to replace control systems. They will be more receptive to a sidecar that improves operator trust without touching control logic.
-
-### Implementation hint
-
-Even a mock adapter is enough:
-
-```python
-class TagProvider:
-    def read_tags(self): ...
-
-class SimulatorProvider(TagProvider)
-class OpcUaProvider(TagProvider)
-class CsvReplayProvider(TagProvider)
-```
-
-Then demo switching from simulator provider to CSV replay provider.
-
-### Complexity
-
-Low to Medium.
-
-### Demo impact
-
-You say:
-
-> “We are not asking ABB to replace 800xA or SCADA. ConfidenceOS can run as a read-only confidence layer on existing tag streams.”
-
-That is exactly the kind of maturity judges will respect.
-
----
-
-# Highest-impact build order
-
-Build these first:
-
-1. **Operator Action Contract**
-2. **Confidence Courtroom**
-3. **Alarm Collapse Engine**
-4. **Mode Inference, Not Toggle**
-5. **Counterfactual Replay**
-
-Then add these if time allows:
-
-6. Verification Token Workflow
-7. Engineering Assumption Register
-8. Self-Configuring HMI From Tag Metadata
-9. Confidence Debt
-10. Shadow Mode Integration Story
-
----
-
-# The demo should shift from “look at our UI” to this
-
-### Old demo
-
-“Here are sensors. Here is confidence. Here is mass balance. Here is handover.”
-
-### New demo
-
-“The plant enters startup. The HMI detects startup automatically. A level sensor looks normal but loses trust. ConfidenceOS collapses multiple weak signals into one abnormal situation. It tells the operator which number not to trust, what substitute evidence to use, what decision is frozen, what field verification is required, and what unresolved debt must survive handover.”
-
-That is the difference between a smart dashboard and an ABB-grade next-generation HMI.
+## The one killer demo path
+
+This is the demo I would build toward:
+
+1. Open Studio.
+2. Import dirty tag list.
+3. Studio shows mapped / ambiguous / unmapped tags.
+4. Open Mapping Court for `U15_LT_5100.PV`.
+5. Approve vessel template.
+6. Run HMI build.
+7. Build fails once because independent verification is missing.
+8. Engineer accepts template guardrail: “manual verification required if LT quarantined.”
+9. Build passes.
+10. Publish.
+11. Runtime opens a trust map.
+12. Startup begins.
+13. LT-5100 looks normal but enters Trust Quarantine.
+14. Five raw warnings collapse into one operating question.
+15. Stress mode shows only Single Safe Move.
+16. Maintenance receives verification task.
+17. Manager sees handover blocked until verification.
+18. Engineer opens generation receipt proving the UI came from metadata/templates.
+
+Close with:
+
+> “This is not a dashboard. It is a compiler for trust-aware HMIs. It reduces engineering time because screens are generated from metadata, and it improves decisions because abnormal situations collapse into an operating basis.”
+
+That is the version that could genuinely impress ABB.
