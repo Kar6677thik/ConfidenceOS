@@ -1,0 +1,46 @@
+{
+  "policies": {
+    "STEADY_STATE": {
+      "label": "Normal operation",
+      "layout": "semantic_overview",
+      "promoted_sections": ["equipment_faceplates", "integrity_overview"],
+      "suppressed_sections": []
+    },
+    "STARTUP_RAMP": {
+      "label": "Startup ramp inferred",
+      "layout": "startup_verification",
+      "promoted_sections": ["mode_inference", "verification_required", "mass_balance"],
+      "suppressed_sections": ["forecast_chart"]
+    },
+    "MASS_BALANCE_DIVERGENCE": {
+      "label": "Mass-balance divergence",
+      "layout": "situation_workspace",
+      "promoted_sections": ["abnormal_situation", "trusted_substitute", "decision_freeze", "evidence_ledger"],
+      "suppressed_sections": ["noncritical_trends", "forecast_chart"]
+    },
+    "INSTRUMENTATION_SUSPECT": {
+      "label": "Instrumentation suspect",
+      "layout": "evidence_workspace",
+      "promoted_sections": ["confidence_courtroom", "verification_tokens", "trusted_substitute"],
+      "suppressed_sections": ["noncritical_trends"]
+    },
+    "MANUAL_VERIFICATION_REQUIRED": {
+      "label": "Manual verification required",
+      "layout": "stress_operating_basis",
+      "promoted_sections": ["do_not_trust", "first_safe_action", "exit_condition", "handover_debt"],
+      "suppressed_sections": ["all_nonessential"]
+    },
+    "WARNING": {
+      "label": "Warning",
+      "layout": "stress_operating_basis",
+      "promoted_sections": ["abnormal_situation", "operating_basis", "evidence"],
+      "suppressed_sections": ["all_nonessential"]
+    },
+    "CRITICAL": {
+      "label": "Critical",
+      "layout": "stress_operating_basis",
+      "promoted_sections": ["abnormal_situation", "do_not_trust", "trusted_substitute", "first_safe_action", "exit_condition"],
+      "suppressed_sections": ["all_nonessential"]
+    }
+  }
+}

@@ -252,6 +252,77 @@ check("GET /api/integration/read-only-layer returns 200", code == 200)
 check("Integration layer disables control writes", data.get("control_writes_enabled") is False)
 check("Integration layer lists SimulatorProvider", any(p.get("provider_id") == "simulator" for p in data.get("available_providers", [])))
 
+code, data = GET("/api/model/graph")
+check("GET /api/model/graph returns 200", code == 200)
+check("Model graph is read-only", data.get("read_only_trust_layer") is True)
+check("Model graph has nodes", len(data.get("nodes", [])) >= 6)
+
+code, data = GET("/api/model/assets")
+check("GET /api/model/assets returns 200", code == 200)
+check("Model assets include V-5100", any(item.get("asset_id") == "V-5100" for item in data.get("assets", [])))
+
+code, data = GET("/api/model/signals")
+check("GET /api/model/signals returns 200", code == 200)
+check("Model signals include LT-5100", any(item.get("id") == "LT-5100" for item in data.get("signals", [])))
+
+code, data = GET("/api/templates")
+check("GET /api/templates returns 200", code == 200)
+check("Template catalog has equipment templates", len(data.get("equipment_templates", [])) >= 1)
+
+code, data = GET("/api/screens/generated?role=Operator&context=auto")
+check("GET /api/screens/generated returns 200", code == 200)
+check("Generated screen route=/runtime", data.get("route") == "/runtime")
+check("Generated screen has faceplates", len(data.get("faceplates", [])) >= 1)
+check("Generated screen includes provenance", "provenance" in data)
+
+code, data = GET("/api/runtime/navigation")
+check("GET /api/runtime/navigation returns 200", code == 200)
+check("Runtime navigation has areas", len(data.get("navigation", {}).get("areas", [])) >= 1)
+
+code, data = GET("/api/runtime/equipment/V-5100")
+check("GET /api/runtime/equipment/V-5100 returns 200", code == 200)
+check("Runtime equipment id V-5100", data.get("equipment_id") == "V-5100")
+
+POST("/api/studio/reset")
+code, data = GET("/api/studio/imported-signals")
+check("GET /api/studio/imported-signals returns 200", code == 200)
+check("Studio imports simulator tags", len(data.get("signals", [])) >= 6)
+
+code, data = POST("/api/studio/auto-map")
+check("POST /api/studio/auto-map returns 200", code == 200)
+check("Studio auto-map has suggestions", len(data.get("suggestions", [])) >= 1)
+
+code, data = POST("/api/studio/assign-template", {"asset_id": "V-5100", "template_id": "vessel", "approved": True})
+check("POST /api/studio/assign-template returns 200", code == 200)
+check("Studio assignment approved", data.get("assignment", {}).get("approved") is True)
+
+code, data = POST("/api/studio/generate", {"role": "Engineer", "context": "auto"})
+check("POST /api/studio/generate returns 200", code == 200)
+check("Studio generate returns manifest", data.get("route") == "/runtime")
+
+code, data = GET("/api/studio/validation")
+check("GET /api/studio/validation returns 200", code == 200)
+check("Studio validation reports status", "status" in data)
+
+code, data = GET("/api/studio/diff")
+check("GET /api/studio/diff returns 200", code == 200)
+check("Studio diff reports changes", "changes" in data)
+
+code, data = POST("/api/studio/publish")
+check("POST /api/studio/publish returns 200", code == 200)
+check("Studio publish status", data.get("status") == "published")
+
+code, data = GET("/api/shift-channel")
+check("GET /api/shift-channel returns 200", code == 200)
+check("Shift channel has pinned/thread fields", "pinned" in data and "thread" in data)
+
+code, data = POST("/api/shift-channel/note", {"plant_id": "plant-a", "author": "Operator", "message": "Field verification pending for LT-5100."})
+check("POST /api/shift-channel/note returns 200", code == 200)
+check("Shift note created", data.get("note", {}).get("type") == "operator_note")
+
+POST("/api/shift-channel/reset")
+POST("/api/studio/reset")
+
 code, data = GET("/api/confidence/explain/LT-5100")
 check("GET /api/confidence/explain/LT-5100 returns 200", code == 200)
 for key in ("formula", "sub_scores", "dominant_factor", "strongest_evidence",

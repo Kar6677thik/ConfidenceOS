@@ -1,0 +1,28 @@
+{
+  "templates": [
+    {
+      "template_id": "level_signal",
+      "label": "Level Signal",
+      "signal_type": "level",
+      "required_fields": ["tag", "unit", "range", "criticality"],
+      "ui_sections": ["value", "confidence", "evidence", "verification"],
+      "role_visibility": ["Operator", "Maintenance", "Engineer", "Manager", "Auditor"]
+    },
+    {
+      "template_id": "flow_signal",
+      "label": "Flow Signal",
+      "signal_type": "flow",
+      "required_fields": ["tag", "unit", "range"],
+      "ui_sections": ["value", "confidence", "mass_balance_role"],
+      "role_visibility": ["Operator", "Maintenance", "Engineer"]
+    },
+    {
+      "template_id": "process_context_signal",
+      "label": "Process Context Signal",
+      "signal_type": "context",
+      "required_fields": ["tag", "unit", "range"],
+      "ui_sections": ["value", "confidence", "diagnostics"],
+      "role_visibility": ["Maintenance", "Engineer", "Manager"]
+    }
+  ]
+}

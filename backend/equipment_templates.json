@@ -1,0 +1,94 @@
+{
+  "templates": [
+    {
+      "template_id": "vessel",
+      "label": "Vessel / Tank Faceplate",
+      "equipment_types": ["process_vessel", "tank"],
+      "required_signal_types": ["level", "flow_in", "flow_out"],
+      "optional_signal_types": ["pressure", "temperature", "valve"],
+      "generated_ui_sections": ["operating_basis", "faceplate", "mass_balance", "trusted_substitutes", "evidence_ledger", "decision_freeze"],
+      "confidence_rules_to_display": ["calibration", "stability", "cross_sensor", "physical_plausibility"],
+      "role_visibility": {
+        "Operator": ["operating_basis", "faceplate", "trusted_substitutes", "decision_freeze"],
+        "Maintenance": ["faceplate", "diagnostics", "verification_tokens", "confidence_debt"],
+        "Engineer": ["faceplate", "mass_balance", "evidence_ledger", "template_provenance", "assumptions"],
+        "Manager": ["operating_basis", "handover_debt", "timeline"],
+        "Auditor": ["handover_debt", "timeline", "template_provenance"]
+      },
+      "context_behavior": {
+        "STEADY_STATE": "show_overview",
+        "STARTUP_RAMP": "promote_verification",
+        "MASS_BALANCE_DIVERGENCE": "promote_situation_workspace",
+        "INSTRUMENTATION_SUSPECT": "promote_evidence",
+        "MANUAL_VERIFICATION_REQUIRED": "stress_operating_basis"
+      },
+      "first_action_patterns": ["Verify level locally before increasing feed.", "Use FI/FO mass-balance as trusted substitute until level integrity exits freeze."],
+      "validation_checks": ["required_signals_present", "mass_balance_relationship_present", "affected_decision_present"]
+    },
+    {
+      "template_id": "valve",
+      "label": "Valve / Actuator Faceplate",
+      "equipment_types": ["valve", "actuator"],
+      "required_signal_types": ["valve"],
+      "optional_signal_types": ["flow_out"],
+      "generated_ui_sections": ["faceplate", "command_feedback_trust", "downstream_effect"],
+      "confidence_rules_to_display": ["stability", "physical_plausibility"],
+      "role_visibility": {
+        "Operator": ["faceplate", "command_feedback_trust"],
+        "Maintenance": ["faceplate", "diagnostics", "verification_tokens"],
+        "Engineer": ["signal_mapping", "template_provenance"],
+        "Manager": ["timeline"],
+        "Auditor": ["timeline", "template_provenance"]
+      },
+      "context_behavior": {
+        "STEADY_STATE": "show_overview",
+        "MANUAL_VERIFICATION_REQUIRED": "promote_verification"
+      },
+      "first_action_patterns": ["Verify valve position locally before relying on downstream flow."],
+      "validation_checks": ["required_signals_present"]
+    },
+    {
+      "template_id": "flow_pair",
+      "label": "Flow Pair / Mass-Balance Group",
+      "equipment_types": ["flow_pair", "mass_balance_group"],
+      "required_signal_types": ["flow_in", "flow_out"],
+      "optional_signal_types": ["level"],
+      "generated_ui_sections": ["mass_balance", "trend", "confidence"],
+      "confidence_rules_to_display": ["cross_sensor", "physical_plausibility"],
+      "role_visibility": {
+        "Operator": ["mass_balance", "trusted_substitutes"],
+        "Maintenance": ["diagnostics", "confidence_debt"],
+        "Engineer": ["signal_mapping", "assumptions"],
+        "Manager": ["timeline"],
+        "Auditor": ["timeline"]
+      },
+      "context_behavior": {
+        "MASS_BALANCE_DIVERGENCE": "promote_situation_workspace"
+      },
+      "first_action_patterns": ["Compare inflow and outflow totalizers before accepting indicated level."],
+      "validation_checks": ["required_signals_present", "mass_balance_relationship_present"]
+    },
+    {
+      "template_id": "abnormal_situation",
+      "label": "Abnormal Situation Workspace",
+      "equipment_types": ["situation"],
+      "required_signal_types": [],
+      "optional_signal_types": ["level", "flow_in", "flow_out", "pressure", "valve"],
+      "generated_ui_sections": ["abnormal_situation", "do_not_trust", "trusted_substitute", "first_safe_action", "decision_freeze", "exit_condition", "evidence_ledger", "timeline"],
+      "confidence_rules_to_display": ["dominant_factor", "strongest_evidence", "counter_evidence"],
+      "role_visibility": {
+        "Operator": ["abnormal_situation", "do_not_trust", "trusted_substitute", "first_safe_action", "exit_condition"],
+        "Maintenance": ["verification_tokens", "confidence_debt", "diagnostics"],
+        "Engineer": ["evidence_ledger", "assumptions", "template_provenance"],
+        "Manager": ["handover_debt", "timeline"],
+        "Auditor": ["handover_debt", "timeline", "template_provenance"]
+      },
+      "context_behavior": {
+        "CRITICAL": "stress_operating_basis",
+        "WARNING": "stress_operating_basis"
+      },
+      "first_action_patterns": ["Freeze unsafe decisions until independent verification clears the operating basis."],
+      "validation_checks": ["action_contract_present"]
+    }
+  ]
+}

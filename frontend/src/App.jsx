@@ -26,6 +26,9 @@ import VerificationTokens from './components/VerificationTokens';
 import HandoverDebtLedger from './components/HandoverDebtLedger';
 import ConfidenceDebtPanel from './components/ConfidenceDebtPanel';
 import TrustDependencyGraph from './components/TrustDependencyGraph';
+import RuntimePlatform from './components/RuntimePlatform';
+import StudioWorkspace from './components/StudioWorkspace';
+import ShiftChannel from './components/ShiftChannel';
 
 const SENSOR_IDS = ['LT-5100', 'FI-2010', 'FO-2020', 'PT-3100', 'TT-4100', 'ZT-6100'];
 const PLANT_IDS = ['plant-a', 'plant-b', 'plant-c'];
@@ -1051,6 +1054,9 @@ function App() {
       <main className="industrial-main">
         <Routes>
           <Route path="/" element={<FleetOverviewPage />} />
+          <Route path="/runtime" element={<RuntimePlatform />} />
+          <Route path="/studio" element={<StudioWorkspace />} />
+          <Route path="/handover" element={<ShiftChannel />} />
           <Route path="/operator" element={<OperatorDashboard />} />
           <Route path="/predictions" element={<ConfidenceDebtPage />} />
           <Route path="/forensics" element={<ForensicsPage />} />

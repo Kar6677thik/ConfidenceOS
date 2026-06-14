@@ -54,6 +54,8 @@ from adaptive_thresholds import compute_adaptive_envelopes
 from advisory import detect_plant_context, build_incidents, build_timeline_events
 from assumptions import build_confidence_explanation, load_assumptions
 from asset_model import load_asset_model
+from model_graph import get_assets, get_model_graph, get_navigation, get_signals
+from screen_generator import equipment_manifest, generate_screen_manifest
 from decision_integrity import (
     active_verification_tokens,
     annotate_incidents_for_handover,
@@ -62,6 +64,19 @@ from decision_integrity import (
     build_trust_dependency_graph,
     update_confidence_debt,
 )
+from studio_service import (
+    assign_template as studio_assign_template,
+    auto_map as studio_auto_map,
+    diff as studio_diff,
+    generate_preview as studio_generate_preview,
+    imported_signals as studio_imported_signals,
+    publish as studio_publish,
+    reset as studio_reset,
+    studio_overview,
+    validation as studio_validation,
+)
+from template_library import get_template_catalog
+from shift_channel import add_note as add_shift_note, build_shift_channel, reset_notes as reset_shift_notes
 from tag_provider import provider_catalog
 import nlquery
 
@@ -109,6 +124,20 @@ class VerificationTokenRequest(BaseModel):
     verification_type: str = "field_check"
     valid_minutes: float = 30.0
     note: str = ""
+
+class StudioTemplateAssignmentRequest(BaseModel):
+    asset_id: str
+    template_id: str
+    approved: bool = True
+
+class StudioGenerateRequest(BaseModel):
+    role: str = "Engineer"
+    context: str = "auto"
+
+class ShiftNoteRequest(BaseModel):
+    plant_id: str = "plant-a"
+    author: str = "Operator"
+    message: str
 
 
 # ─── App lifecycle ───────────────────────────────────────────────────────────
@@ -398,6 +427,23 @@ def _handover_debt_events(plant_id: str, debt: dict, timestamp: float) -> list[d
     return events
 
 
+def _runtime_live_state(plant_id: str, plant) -> dict:
+    """Collect frontend-friendly live state for generated Runtime manifests."""
+    return {
+        "plant_id": plant_id,
+        "readings": plant.latest_readings,
+        "confidence": list(plant.latest_confidence.values()),
+        "mass_balance": plant.latest_mb_state,
+        "mode": plant.latest_mode_payload,
+        "plant_context": plant.latest_context,
+        "incidents": plant.latest_incidents,
+        "incident_timeline": plant.latest_incident_timeline,
+        "verification_tokens": active_verification_tokens(plant.verification_tokens, time.time()),
+        "handover_debt": plant.latest_handover_debt,
+        "confidence_debt": plant.latest_confidence_debt,
+    }
+
+
 @app.websocket("/ws/sensors")
 async def sensor_stream(
     websocket: WebSocket,
@@ -606,6 +652,163 @@ def get_read_only_integration_layer():
         "asset_model_id": asset_model.get("model_id"),
         "equipment_id": asset_model.get("equipment", {}).get("equipment_id"),
     }
+
+
+@app.get("/api/model/graph")
+def get_model_graph_endpoint():
+    """Return the asset/signal graph that drives generated HMI screens."""
+    return get_model_graph()
+
+
+@app.get("/api/model/assets")
+def get_model_assets():
+    """Return model assets: plant, area, unit, module, equipment."""
+    return {"assets": get_assets(), "count": len(get_assets())}
+
+
+@app.get("/api/model/signals")
+def get_model_signals():
+    """Return imported and mapped process signals."""
+    signals = get_signals()
+    return {"signals": signals, "count": len(signals), "source": "asset_model.json"}
+
+
+@app.get("/api/templates")
+def get_templates():
+    """Return reusable signal/equipment templates and policies."""
+    return get_template_catalog()
+
+
+@app.get("/api/screens/generated")
+def get_generated_screens(
+    role: str = Query(default="Operator"),
+    context: str = Query(default="auto"),
+    plant_id: str = Query(default="plant-a"),
+):
+    """Generate Runtime screen manifest from metadata, templates, role, context, and live state."""
+    plant = plant_manager.get(plant_id)
+    return generate_screen_manifest(
+        role=role,
+        context=context,
+        live_state=_runtime_live_state(plant_id, plant),
+        assignments=studio_overview()["state"].get("assignments", []),
+    )
+
+
+@app.get("/api/runtime/navigation")
+def get_runtime_navigation():
+    """Return semantic plant navigation for Runtime."""
+    return {"navigation": get_navigation(), "semantic_zoom": ["plant", "area", "unit", "module", "equipment", "signal"]}
+
+
+@app.get("/api/runtime/situations")
+def get_runtime_situations(plant_id: str = Query(default="plant-a")):
+    """Return current abnormal situations and operating-basis contracts."""
+    plant = plant_manager.get(plant_id)
+    return {
+        "plant_id": plant_id,
+        "situations": plant.latest_incidents,
+        "count": len(plant.latest_incidents),
+        "context": plant.latest_context,
+    }
+
+
+@app.get("/api/runtime/equipment/{equipment_id}")
+def get_runtime_equipment(
+    equipment_id: str,
+    role: str = Query(default="Operator"),
+    plant_id: str = Query(default="plant-a"),
+):
+    """Return generated equipment faceplate manifest."""
+    plant = plant_manager.get(plant_id)
+    faceplate = equipment_manifest(
+        equipment_id,
+        role,
+        live_state=_runtime_live_state(plant_id, plant),
+        assignments=studio_overview()["state"].get("assignments", []),
+    )
+    if not faceplate:
+        raise HTTPException(status_code=404, detail=f"Equipment not found: {equipment_id}")
+    return faceplate
+
+
+@app.get("/api/studio/imported-signals")
+def get_studio_imported_signals():
+    """Return current imported simulator/model signals for Studio."""
+    return studio_imported_signals()
+
+
+@app.post("/api/studio/auto-map")
+def post_studio_auto_map():
+    """Generate deterministic mapping suggestions. Approval is still required."""
+    return studio_auto_map()
+
+
+@app.post("/api/studio/assign-template")
+def post_studio_assign_template(request: StudioTemplateAssignmentRequest):
+    """Approve or update an asset/template assignment."""
+    return studio_assign_template(request.asset_id, request.template_id, approved=request.approved)
+
+
+@app.post("/api/studio/generate")
+def post_studio_generate(request: StudioGenerateRequest | None = None):
+    """Generate a Studio preview manifest without publishing control changes."""
+    payload = request or StudioGenerateRequest()
+    return studio_generate_preview(role=payload.role, context=payload.context)
+
+
+@app.post("/api/studio/publish")
+def post_studio_publish():
+    """Publish generated metadata to Runtime manifest state. This remains read-only to controls."""
+    return studio_publish()
+
+
+@app.post("/api/studio/reset")
+def post_studio_reset():
+    """Reset Studio state to demo defaults."""
+    return studio_reset()
+
+
+@app.get("/api/studio/validation")
+def get_studio_validation():
+    """Return template and mapping validation warnings."""
+    return studio_validation()
+
+
+@app.get("/api/studio/diff")
+def get_studio_diff():
+    """Return Studio changes since demo defaults."""
+    return studio_diff()
+
+
+@app.get("/api/studio")
+def get_studio_overview():
+    """Return consolidated Studio state for the low-code engineering workspace."""
+    return studio_overview()
+
+
+@app.get("/api/shift-channel")
+def get_shift_channel(plant_id: str = Query(default="plant-a")):
+    """Return persistent shift channel with pinned unresolved operating debt."""
+    plant = plant_manager.get(plant_id)
+    return build_shift_channel(plant_id, plant)
+
+
+@app.post("/api/shift-channel/note")
+def post_shift_channel_note(request: ShiftNoteRequest):
+    """Add an operator note to the persistent shift channel."""
+    note = add_shift_note(request.plant_id, request.author, request.message)
+    plant = plant_manager.get(request.plant_id)
+    return {
+        "note": note,
+        "channel": build_shift_channel(request.plant_id, plant),
+    }
+
+
+@app.post("/api/shift-channel/reset")
+def post_shift_channel_reset():
+    """Reset demo shift-channel notes; operational debt is rebuilt from live state."""
+    return {"status": "reset", "state": reset_shift_notes()}
 
 
 # ─── REST: mass-balance flags (Module 3) ─────────────────────────────────────
@@ -1611,6 +1814,11 @@ def health_check():
             "tag_provider": "active",
             "read_only_trust_layer": "active",
             "asset_model": "active",
+            "model_graph": "active",
+            "template_library": "active",
+            "generated_runtime": "active",
+            "studio": "active",
+            "shift_channel": "active",
             "confidence_engine": "active",
             "confidence_explainability": "active",
             "assumption_register": "active",

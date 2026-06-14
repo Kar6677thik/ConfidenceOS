@@ -1,0 +1,493 @@
+You are working on the ConfidenceOS codebase for the ABB Accelerator Grand Finale.
+
+Read these files first:
+1. `abb_research.md` — this is the new product direction and ABB theme alignment.
+2. `weakness.md` — this contains the earlier critique and operator-decision improvements.
+3. Existing codebase.
+
+Goal:
+Perform a major overhaul of ConfidenceOS into an ABB-grade next-generation HMI platform, not just a dashboard.
+
+The new product should become:
+
+**ConfidenceOS = a trust-aware HMI generation and runtime platform.**
+
+Preserve the core thesis:
+“ConfidenceOS shows not only sensor values, but how much those values should be trusted right now.”
+
+But rebuild the product around ABB’s desired solution:
+- auto-generated HMI screens
+- reusable signal/equipment templates
+- model-based / metadata-driven engineering
+- AI-assisted configuration
+- low-code/no-code modification
+- role-based, context-aware UIs
+- modern UX patterns inspired by Google Maps, Teams, and streaming apps
+- faster operator decisions
+- reduced alarm fatigue
+- improved safety and awareness
+- lower engineering effort
+- higher consistency
+
+This will be a large overhaul. Do not just add more cards to the existing dashboard.
+
+---
+
+## Product Architecture
+
+Create two main experiences:
+
+### 1. ConfidenceOS Runtime
+
+This is the operator-facing and role-facing live HMI.
+
+It should include:
+- semantic plant navigation, like “Google Maps for the plant”
+- plant → area → unit → equipment → signal drilldown
+- generated screens from metadata/templates
+- situation cards instead of alarm lists
+- confidence-aware equipment faceplates
+- trust hotspots
+- context-aware stress mode
+- role-specific views for Operator, Maintenance, Engineer, Manager/Auditor
+- shift channel / handover thread
+
+### 2. ConfidenceOS Studio
+
+This is the engineering-time low-code configuration surface.
+
+It should include:
+- asset/signal graph browser
+- imported signal list / simulated tag manifest
+- template assignment
+- screen generation preview
+- role policy editor
+- context policy editor
+- assumptions/config editor
+- publish/apply workflow
+- generation diff / validation warnings
+- bounded AI-assisted suggestions where possible
+
+Studio is what proves engineering-time reduction to ABB.
+
+---
+
+## Core Backend Model
+
+Create a single metadata source of truth.
+
+Implement or extend:
+
+### Asset and Signal Graph
+
+The primary artifact should be a machine-readable graph, not hand-built screens.
+
+Model should include:
+- plant
+- area
+- unit
+- module
+- equipment
+- device
+- signal
+
+Relationships should include:
+- `measured_by`
+- `controlled_by`
+- `feeds`
+- `drains`
+- `validates`
+- `backup_measurement`
+- `sister_signal`
+- `mass_balance_group`
+- `affects_decision`
+
+Use this graph to drive the runtime UI and generated screens.
+
+### Template Library
+
+Create reusable template definitions for:
+- tank/vessel
+- valve
+- pump or generic actuator
+- flow pair
+- temperature/pressure signal
+- mass-balance group
+- abnormal situation
+- shift channel
+- equipment faceplate
+
+Each template should define:
+- required signal types
+- optional signal types
+- generated UI sections
+- confidence rules to display
+- role visibility
+- context behavior
+- first-action patterns
+- validation checks
+
+### Screen Generation Engine
+
+Create a backend generation layer that reads:
+- asset/signal graph
+- templates
+- role policies
+- context policies
+- live confidence/mass-balance state
+
+and outputs frontend-friendly screen manifests.
+
+Generated screen types:
+- plant overview
+- unit overview
+- equipment detail
+- signal detail
+- situation workspace
+- maintenance workspace
+- engineer configuration preview
+
+Do not hardcode the UI around fixed sensor IDs.
+
+---
+
+## Frontend Overhaul
+
+The current dashboard can be removed or demoted once the new Runtime works.
+
+Build a new frontend structure around generated manifests.
+
+Suggested routes:
+- `/runtime`
+- `/studio`
+- `/handover`
+- `/forensics`
+- `/settings` or `/assumptions`
+
+### Runtime UI
+
+Use a modern industrial UX, not a generic dashboard.
+
+Runtime should include:
+
+1. Semantic Navigation
+   - left rail or map-like hierarchy
+   - plant → area → unit → equipment → signal
+   - zoom/drilldown behavior
+   - search/filter like modern apps
+
+2. Situation Workspace
+   - main abnormal situation card
+   - collapsed alarms/signals
+   - do-not-trust
+   - use-instead
+   - first safe action
+   - decision freeze
+   - exit condition
+   - confidence courtroom/evidence
+   - timeline
+
+3. Generated Equipment Faceplates
+   - generated from template + asset graph
+   - show live value, confidence, status, diagnostics, related signals
+   - tank faceplate should show LT/FI/FO mass-balance relationship
+   - valve faceplate should show command/feedback/trust contradiction
+
+4. Role-Based Rendering
+   Operator:
+   - what changed
+   - what cannot be trusted
+   - what safe action to take
+   - what must be verified
+
+   Maintenance:
+   - device health
+   - calibration state
+   - verification tokens
+   - diagnostics
+   - confidence debt
+
+   Engineer:
+   - signal mapping
+   - template assignment
+   - assumptions
+   - confidence sub-scores
+   - generated screen preview
+   - validation warnings
+
+   Manager/Auditor:
+   - unresolved handover debt
+   - timeline
+   - consistency/compliance summary
+   - engineering changes
+
+5. Context-Aware UI
+   The UI should change based on plant context:
+   - normal
+   - startup
+   - instrumentation suspect
+   - mass-balance divergence
+   - handover
+   - maintenance
+   - critical/stress mode
+
+   In stress mode, delete noise:
+   show only abnormal situation, do-not-trust, use-instead, first action, evidence, exit condition.
+
+6. Shift Channel
+   Replace one-off handover with a persistent Teams-like shift thread:
+   - pinned unresolved situations
+   - verification tokens
+   - decision freezes
+   - handover debt
+   - operator notes
+   - auto-generated shift summary
+   - timeline of trust changes
+
+### Studio UI
+
+Studio should prove ABB alignment.
+
+Build a practical low-code engineering flow:
+
+1. Import / Discover
+   - load current simulator tags
+   - load asset model JSON
+   - show unmapped/mapped signals
+
+2. Auto-Map
+   - propose asset grouping and signal relationships
+   - deterministic rules first
+   - AI suggestions optional and clearly marked as suggestions
+   - human approval required
+
+3. Template Assignment
+   - assign tank/valve/flow-pair/situation templates
+   - show missing required signals
+   - show validation warnings
+
+4. Generate Screens
+   - preview generated Runtime screens
+   - show what was generated from which metadata
+   - show consistency score / engineering effort saved
+
+5. Low-Code Policy Editing
+   - edit role policy
+   - edit context policy
+   - edit assumptions
+   - edit signal display names/ranges/criticality
+   - no raw JSON editing required for basic changes
+
+6. Publish
+   - apply generated model to Runtime
+   - show diff before publish
+   - allow reset to demo default
+
+---
+
+## API Requirements
+
+Add or update endpoints as needed:
+
+- `GET /api/model/graph`
+- `GET /api/model/assets`
+- `GET /api/model/signals`
+- `GET /api/templates`
+- `GET /api/screens/generated?role=Operator&context=...`
+- `GET /api/runtime/navigation`
+- `GET /api/runtime/situations`
+- `GET /api/runtime/equipment/{equipment_id}`
+- `GET /api/studio/imported-signals`
+- `POST /api/studio/auto-map`
+- `POST /api/studio/assign-template`
+- `POST /api/studio/generate`
+- `POST /api/studio/publish`
+- `GET /api/studio/validation`
+- `GET /api/studio/diff`
+- `GET /api/shift-channel`
+- `POST /api/shift-channel/note`
+
+Preserve existing APIs where possible so current backend engines still work.
+
+---
+
+## Data Files
+
+Create or extend these:
+
+- `backend/asset_model.json`
+- `backend/signal_templates.json`
+- `backend/equipment_templates.json`
+- `backend/role_policies.json`
+- `backend/context_policies.json`
+- `backend/generated_screens.json` if useful
+- `backend/studio_state.json` if lightweight persistence is needed
+
+Use demo-friendly static files if a database migration would slow implementation.
+
+---
+
+## AI-Assisted Configuration
+
+Add bounded AI-assisted configuration only if safe and reliable.
+
+AI can:
+- suggest tag-to-asset mappings
+- suggest template assignment
+- draft descriptions
+- explain screen changes
+- summarize unresolved handover debt
+
+AI must not:
+- write control commands
+- silently publish changes
+- override confidence
+- make autonomous safety decisions
+
+Every AI suggestion must be:
+- marked as suggestion
+- explainable
+- approved by user before publish
+
+If API key is missing, provide deterministic fallback suggestions.
+
+---
+
+## ABB Alignment Must Be Visible
+
+The final UI must visibly demonstrate every ABB requirement:
+
+1. Auto-generated HMI screens
+   - show screens generated from metadata/templates
+
+2. Signal templates and reusable libraries
+   - show template library in Studio
+
+3. Model-based / metadata-driven engineering
+   - asset/signal graph drives screens
+
+4. AI-assisted configuration
+   - show suggested mappings/templates with approval
+
+5. Low-code/no-code modification
+   - edit role/context/template assignments in UI, not raw code
+
+6. Role-based context-aware UI
+   - switch Operator/Maintenance/Engineer/Manager and see different screens
+
+7. Modern UX patterns
+   - semantic zoom/navigation like Maps
+   - shift channel like Teams
+   - resumable situation cards like modern apps
+   - search/filter/discoverability
+
+8. Faster operator decisions
+   - situation card gives first safe action and exit condition
+
+9. Reduced alarm fatigue
+   - alarm collapse into one abnormal situation
+
+10. Improved safety/system awareness
+   - confidence, evidence, trust graph, decision freeze
+
+11. Lower engineering effort
+   - import tags → auto-map → assign template → generate screens
+
+12. Higher consistency
+   - reusable templates and validation warnings
+
+---
+
+## Implementation Strategy
+
+This is a big overhaul, but keep it functional.
+
+Do not attempt a perfect enterprise platform. Build a demo-complete version.
+
+Priority order:
+
+1. Create asset/signal graph and template library.
+2. Create generated screen manifest backend.
+3. Build new Runtime route from generated manifest.
+4. Build situation workspace as primary operator screen.
+5. Build generated equipment faceplates.
+6. Build role-aware rendering.
+7. Build context-aware stress mode.
+8. Build Studio import/auto-map/template/generate/publish flow.
+9. Build shift channel.
+10. Polish ABB language and demo path.
+
+Remove or hide old dashboard only after new Runtime is functional.
+
+---
+
+## Non-Negotiables
+
+Do not:
+- create a pretty but static dashboard
+- hardcode everything in React
+- remove confidence/mass-balance/decision-integrity engines
+- claim autonomous control
+- claim this replaces ABB 800xA/DCS
+- rely only on AI
+- require users to edit raw JSON for the main demo
+- break Docker/local startup
+
+Do:
+- keep simulator working
+- keep live WebSocket updates
+- use metadata as source of truth
+- show generated UI provenance
+- show why each screen/situation was generated
+- keep all logic deterministic where safety-relevant
+- use clear industrial language
+- make demo path obvious
+
+---
+
+## Final Demo Story
+
+The final app should support this demo:
+
+1. Open Studio.
+2. Import simulator tags / asset model.
+3. ConfidenceOS proposes a vessel asset with LT/FI/FO/PT/TT/ZT signals.
+4. Engineer approves template assignments.
+5. Studio generates Runtime screens.
+6. Switch to Runtime.
+7. Operator sees semantic plant overview.
+8. Plant enters startup or degraded instrumentation context.
+9. UI automatically shifts from normal overview to situation workspace.
+10. Multiple raw warnings collapse into one abnormal situation.
+11. Situation card shows:
+    - do not trust LT-5100
+    - use FI/FO mass-balance instead
+    - first safe action
+    - decision freeze
+    - exit condition
+    - evidence
+12. Maintenance sees verification/calibration/confidence debt.
+13. Engineer sees signal mapping, assumptions, template provenance.
+14. Manager/Auditor sees handover debt and timeline.
+15. Close with: ConfidenceOS reduces engineering effort and improves operator decisions by generating trust-aware HMIs from metadata.
+
+---
+
+## Acceptance Criteria
+
+The project is done when:
+
+- New Runtime route works.
+- New Studio route works.
+- Runtime screens are generated from model/template data.
+- Situation workspace is the primary abnormal-condition UI.
+- Role switch materially changes displayed information.
+- Context/stress mode materially changes layout.
+- Studio can show import → mapping → template assignment → generated preview.
+- Shift channel shows unresolved operational debt.
+- Old dashboard is no longer the main experience.
+- App builds successfully.
+- Backend starts successfully.
+- Docker path is not broken.
+
+Implement this overhaul now.

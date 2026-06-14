@@ -1,53 +1,103 @@
 {
-  "model_id": "confidenceos_demo_vessel_v1",
+  "model_id": "confidenceos_demo_vessel_v2",
   "read_only_trust_layer": true,
-  "integration_posture": "ConfidenceOS subscribes to process tags and emits trust/evidence metadata only. It does not write control commands, setpoints, or controller modes.",
+  "integration_posture": "ConfidenceOS subscribes to process tags and emits trust/evidence metadata only. It is a read-only trust layer beside existing HMI/DCS and does not write control commands, setpoints, or controller modes.",
+  "hierarchy": {
+    "plant": {
+      "id": "plant-a",
+      "name": "Texas City Demo Plant",
+      "type": "plant",
+      "areas": [
+        {
+          "id": "area-1",
+          "name": "Refining Area",
+          "type": "area",
+          "units": [
+            {
+              "id": "unit-15",
+              "name": "Unit 15 ISOM",
+              "type": "unit",
+              "modules": [
+                {
+                  "id": "module-raffinate",
+                  "name": "Raffinate Splitter Module",
+                  "type": "module",
+                  "equipment": ["V-5100", "XV-6100", "FG-2010"]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
   "equipment": {
     "equipment_id": "V-5100",
     "name": "Raffinate splitter demo vessel",
     "type": "process_vessel",
+    "template_id": "vessel",
+    "parent_module": "module-raffinate",
     "criticality": "high",
     "sensor_tags": [
       {
         "tag": "LT-5100",
+        "name": "Splitter Level",
+        "device_id": "DEV-LT-5100",
         "sensor_type": "level",
         "role": "primary_level",
         "unit": "ft",
+        "range": {"min": 0, "max": 200},
         "criticality": "safety_critical"
       },
       {
         "tag": "FI-2010",
+        "name": "Feed Inflow",
+        "device_id": "DEV-FI-2010",
         "sensor_type": "flow_in",
         "role": "mass_balance_input",
         "unit": "gpm",
+        "range": {"min": 0, "max": 500},
         "criticality": "high"
       },
       {
         "tag": "FO-2020",
+        "name": "Bottoms Outflow",
+        "device_id": "DEV-FO-2020",
         "sensor_type": "flow_out",
         "role": "mass_balance_output",
         "unit": "gpm",
+        "range": {"min": 0, "max": 500},
         "criticality": "high"
       },
       {
         "tag": "PT-3100",
+        "name": "Splitter Pressure",
+        "device_id": "DEV-PT-3100",
         "sensor_type": "pressure",
         "role": "independent_process_reference",
         "unit": "psi",
+        "range": {"min": 0, "max": 100},
         "criticality": "medium"
       },
       {
         "tag": "TT-4100",
+        "name": "Splitter Temperature",
+        "device_id": "DEV-TT-4100",
         "sensor_type": "temperature",
         "role": "process_context",
         "unit": "degF",
+        "range": {"min": 60, "max": 800},
         "criticality": "medium"
       },
       {
         "tag": "ZT-6100",
+        "name": "Feed Valve Position",
+        "device_id": "DEV-ZT-6100",
+        "equipment_id": "XV-6100",
         "sensor_type": "valve",
         "role": "final_element_position",
         "unit": "%",
+        "range": {"min": 0, "max": 100},
         "criticality": "high"
       }
     ],
@@ -66,6 +116,13 @@
         "source_tags": ["PT-3100"],
         "validated_tag": "LT-5100",
         "description": "Pressure is not a level substitute, but it is useful context when inventory accumulation is suspected."
+      },
+      {
+        "id": "valve_position_affects_outflow",
+        "type": "controlled_by",
+        "source_tags": ["ZT-6100"],
+        "validated_tag": "FO-2020",
+        "description": "Valve position affects outflow credibility during startup and upset conditions."
       }
     ],
     "affected_decisions": [
@@ -91,5 +148,37 @@
         "blocked_when": ["unresolved_decision_freeze", "active_handover_debt"]
       }
     ]
-  }
+  },
+  "additional_equipment": [
+    {
+      "equipment_id": "XV-6100",
+      "name": "Feed control valve",
+      "type": "valve",
+      "template_id": "valve",
+      "parent_module": "module-raffinate",
+      "criticality": "high",
+      "signal_tags": ["ZT-6100"]
+    },
+    {
+      "equipment_id": "FG-2010",
+      "name": "Feed/outflow balance group",
+      "type": "flow_pair",
+      "template_id": "flow_pair",
+      "parent_module": "module-raffinate",
+      "criticality": "high",
+      "signal_tags": ["FI-2010", "FO-2020"]
+    }
+  ],
+  "graph_relationships": [
+    {"source": "FI-2010", "target": "V-5100", "type": "feeds"},
+    {"source": "FO-2020", "target": "V-5100", "type": "drains"},
+    {"source": "LT-5100", "target": "V-5100", "type": "measured_by"},
+    {"source": "ZT-6100", "target": "XV-6100", "type": "measured_by"},
+    {"source": "XV-6100", "target": "FO-2020", "type": "controlled_by"},
+    {"source": "FI-2010", "target": "implied_level", "type": "mass_balance_group"},
+    {"source": "FO-2020", "target": "implied_level", "type": "mass_balance_group"},
+    {"source": "implied_level", "target": "LT-5100", "type": "validates"},
+    {"source": "PT-3100", "target": "LT-5100", "type": "backup_measurement"},
+    {"source": "feed_increase_decision", "target": "V-5100", "type": "affects_decision"}
+  ]
 }

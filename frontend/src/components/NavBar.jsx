@@ -1,12 +1,15 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import useStore from '../store';
 
-const ROLES = ['Operator', 'Engineer', 'Manager', 'Auditor'];
+const ROLES = ['Operator', 'Maintenance', 'Engineer', 'Manager', 'Auditor'];
 
 const NAV_ITEMS = [
-  { path: '/', label: 'Integrity', roles: ['Operator', 'Engineer', 'Manager', 'Auditor'] },
-  { path: '/operator', label: 'Plant A', roles: ['Operator', 'Engineer', 'Manager'] },
-  { path: '/predictions', label: 'Confidence Debt', roles: ['Operator', 'Engineer', 'Manager'] },
+  { path: '/runtime', label: 'Runtime', roles: ['Operator', 'Maintenance', 'Engineer', 'Manager', 'Auditor'] },
+  { path: '/studio', label: 'Studio', roles: ['Engineer', 'Manager'] },
+  { path: '/handover', label: 'Shift Channel', roles: ['Operator', 'Maintenance', 'Engineer', 'Manager', 'Auditor'] },
+  { path: '/', label: 'Integrity', roles: ['Operator', 'Maintenance', 'Engineer', 'Manager', 'Auditor'] },
+  { path: '/operator', label: 'Plant A', roles: ['Operator', 'Maintenance', 'Engineer', 'Manager'] },
+  { path: '/predictions', label: 'Confidence Debt', roles: ['Operator', 'Maintenance', 'Engineer', 'Manager'] },
   { path: '/forensics', label: 'Incident Timeline', roles: ['Engineer', 'Manager', 'Auditor'] },
   { path: '/graph', label: 'Trust Graph', roles: ['Engineer', 'Manager'] },
   { path: '/compliance', label: 'Compliance', roles: ['Manager', 'Auditor'] },

@@ -1,0 +1,39 @@
+{
+  "policies": {
+    "Operator": {
+      "label": "Operator",
+      "primary_question": "What changed, what cannot be trusted, and what is the first safe action?",
+      "visible_sections": ["navigation", "situation_workspace", "equipment_faceplates", "operating_basis", "shift_channel"],
+      "hidden_sections": ["raw_json", "template_editor", "policy_editor"],
+      "stress_mode_sections": ["abnormal_situation", "do_not_trust", "trusted_substitute", "first_safe_action", "evidence", "exit_condition"]
+    },
+    "Maintenance": {
+      "label": "Maintenance",
+      "primary_question": "Which device needs verification, calibration, or field work?",
+      "visible_sections": ["device_health", "calibration", "verification_tokens", "confidence_debt", "diagnostics"],
+      "hidden_sections": ["publish_controls"],
+      "stress_mode_sections": ["verification_required", "trusted_substitute", "confidence_debt", "handover_debt"]
+    },
+    "Engineer": {
+      "label": "Engineer",
+      "primary_question": "How was the HMI generated and are mappings valid?",
+      "visible_sections": ["asset_graph", "signal_mapping", "template_assignment", "generated_preview", "assumptions", "score_sensitivity", "validation"],
+      "hidden_sections": [],
+      "stress_mode_sections": ["signal_mapping", "evidence_ledger", "assumptions", "template_provenance"]
+    },
+    "Manager": {
+      "label": "Manager",
+      "primary_question": "What unresolved operating debt must survive the shift boundary?",
+      "visible_sections": ["integrity_overview", "handover_debt", "timeline", "compliance_summary"],
+      "hidden_sections": ["template_editor"],
+      "stress_mode_sections": ["handover_debt", "timeline", "operating_basis"]
+    },
+    "Auditor": {
+      "label": "Auditor",
+      "primary_question": "What changed and what evidence supports the operating basis?",
+      "visible_sections": ["timeline", "handover_debt", "template_provenance", "assumptions", "compliance_summary"],
+      "hidden_sections": ["publish_controls"],
+      "stress_mode_sections": ["timeline", "handover_debt", "template_provenance"]
+    }
+  }
+}
