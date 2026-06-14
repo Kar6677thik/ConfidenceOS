@@ -1053,10 +1053,11 @@ function App() {
       <NavBar />
       <main className="industrial-main">
         <Routes>
-          <Route path="/" element={<FleetOverviewPage />} />
+          <Route path="/" element={<RuntimePlatform />} />
           <Route path="/runtime" element={<RuntimePlatform />} />
           <Route path="/studio" element={<StudioWorkspace />} />
           <Route path="/handover" element={<ShiftChannel />} />
+          <Route path="/integrity" element={<FleetOverviewPage />} />
           <Route path="/operator" element={<OperatorDashboard />} />
           <Route path="/predictions" element={<ConfidenceDebtPage />} />
           <Route path="/forensics" element={<ForensicsPage />} />

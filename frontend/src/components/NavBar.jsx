@@ -7,8 +7,8 @@ const NAV_ITEMS = [
   { path: '/runtime', label: 'Runtime', roles: ['Operator', 'Maintenance', 'Engineer', 'Manager', 'Auditor'] },
   { path: '/studio', label: 'Studio', roles: ['Engineer', 'Manager'] },
   { path: '/handover', label: 'Shift Channel', roles: ['Operator', 'Maintenance', 'Engineer', 'Manager', 'Auditor'] },
-  { path: '/', label: 'Integrity', roles: ['Operator', 'Maintenance', 'Engineer', 'Manager', 'Auditor'] },
-  { path: '/operator', label: 'Plant A', roles: ['Operator', 'Maintenance', 'Engineer', 'Manager'] },
+  { path: '/integrity', label: 'Integrity Overview', roles: ['Operator', 'Maintenance', 'Engineer', 'Manager', 'Auditor'] },
+  { path: '/operator', label: 'Support View', roles: ['Operator', 'Maintenance', 'Engineer', 'Manager'] },
   { path: '/predictions', label: 'Confidence Debt', roles: ['Operator', 'Maintenance', 'Engineer', 'Manager'] },
   { path: '/forensics', label: 'Incident Timeline', roles: ['Engineer', 'Manager', 'Auditor'] },
   { path: '/graph', label: 'Trust Graph', roles: ['Engineer', 'Manager'] },
@@ -47,7 +47,7 @@ export default function NavBar() {
   return (
     <header className="top-nav">
       <div className="flex items-center gap-8 min-w-0">
-        <NavLink to="/" className="brand-mark shrink-0">
+        <NavLink to="/runtime" className="brand-mark shrink-0">
           ConfidenceOS
         </NavLink>
         <div className="hidden md:block h-8 w-px bg-[var(--border-strong)]" />
@@ -81,7 +81,7 @@ export default function NavBar() {
           Verification Required: {alerts}
         </div>
 
-        {location.pathname !== '/' && (
+        {location.pathname !== '/runtime' && location.pathname !== '/' && (
           <div className={`caption-mono ${healthClass}`}>
             Integrity {averageConfidence}%
           </div>

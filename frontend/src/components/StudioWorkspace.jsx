@@ -5,6 +5,22 @@ function formatText(value) {
   return String(value || '').replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+const ABB_ALIGNMENT_CHECKLIST = [
+  ['auto-generated HMI screens', 'Runtime manifests and faceplates generated from asset metadata and approved templates.'],
+  ['reusable templates', 'Studio template library covers vessel, valve, flow pair, and abnormal situation patterns.'],
+  ['metadata-driven engineering', 'Asset/signal graph is the source of truth for navigation, evidence, and generated screens.'],
+  ['AI-assisted configuration', 'Suggestion workflow is bounded by approval; deterministic fallback is active when no AI key is configured.'],
+  ['low-code/no-code editing', 'Engineers approve mappings, change template assignments, preview, publish, and reset without editing code.'],
+  ['role-based UI', 'Operator, Maintenance, Engineer, Manager, and Auditor roles receive different generated sections.'],
+  ['context-aware UI', 'Runtime switches to stress mode when WARNING or CRITICAL context is inferred.'],
+  ['modern UX pattern used', 'Semantic zoom, guided mapping, preview/diff, and persistent shift channel supersede fixed screen layouts.'],
+  ['faster decision-making mechanism', 'Operating basis compresses situation, do-not-trust, trusted substitute, first action, and exit condition.'],
+  ['alarm-fatigue reduction mechanism', 'Alarm collapse changes many low-level warnings into one abnormal situation workspace.'],
+  ['safety/system-awareness mechanism', 'Decision freezes, verification-required states, assumptions, and read-only integration are visible.'],
+  ['engineering-effort reduction mechanism', 'Import / auto-map / template assignment / generate / publish reduces hand-built screen work.'],
+  ['consistency mechanism', 'Reusable templates, validation warnings, provenance, and published revisions standardize generated HMIs.'],
+];
+
 export default function StudioWorkspace() {
   const { role } = useStore();
   const [overview, setOverview] = useState(null);
@@ -70,6 +86,14 @@ export default function StudioWorkspace() {
     await fetch('/api/studio/publish', { method: 'POST' });
   });
 
+  const updateAssignment = (assetId, templateId) => runAction(async () => {
+    await fetch('/api/studio/assign-template', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ asset_id: assetId, template_id: templateId, approved: true }),
+    });
+  });
+
   const reset = () => runAction(async () => {
     await fetch('/api/studio/reset', { method: 'POST' });
     setPreview(null);
@@ -132,6 +156,24 @@ export default function StudioWorkspace() {
               <h1 className="industrial-panel-title">Import / Map / Assign / Generate / Publish</h1>
             </div>
             <span className={`industrial-badge ${validation.status === 'valid' ? 'status-safe' : 'status-warning'}`}>{validation.status || 'loading'}</span>
+          </div>
+        </section>
+
+        <section className="industrial-panel mb-[1px]">
+          <div className="industrial-panel-header">
+            <div>
+              <p className="label-caps text-[var(--text-muted)]">ABB Desired-Solution Checklist</p>
+              <h2 className="industrial-panel-title text-base">Visible Demo Coverage</h2>
+            </div>
+            <span className="industrial-badge status-safe">{ABB_ALIGNMENT_CHECKLIST.length} represented</span>
+          </div>
+          <div className="industrial-body grid grid-cols-1 xl:grid-cols-2 gap-[1px] bg-[var(--border-strong)]">
+            {ABB_ALIGNMENT_CHECKLIST.map(([label, mechanism]) => (
+              <div key={label} className="bg-[var(--surface-panel)] p-3 min-h-[92px]">
+                <p className="label-caps status-safe">{label}</p>
+                <p className="caption-mono text-[var(--data-mono)] mt-2">{mechanism}</p>
+              </div>
+            ))}
           </div>
         </section>
 
@@ -225,6 +267,16 @@ export default function StudioWorkspace() {
               <div key={`${item.asset_id}-${item.template_id}`} className="bg-[var(--surface-panel)] p-3">
                 <p className="caption-mono text-[var(--text)]">{item.asset_id} / {item.template_id}</p>
                 <p className="caption-mono text-[var(--data-mono)] mt-1">approved {String(item.approved)}</p>
+                <select
+                  value={item.template_id}
+                  onChange={(event) => updateAssignment(item.asset_id, event.target.value)}
+                  className="industrial-select mt-3"
+                  disabled={busy}
+                >
+                  {templates.map((template) => (
+                    <option key={template.template_id} value={template.template_id}>{template.label}</option>
+                  ))}
+                </select>
               </div>
             ))}
           </div>
