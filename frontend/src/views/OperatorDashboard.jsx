@@ -1,5 +1,5 @@
 /**
- * views/OperatorDashboard.jsx — Live HMI Operator View
+ * views/OperatorDashboard.jsx — Secondary Runtime Support View
  *
  * Endpoints (via Zustand store):
  *   WS  /ws/sensors?plant_id=...  — live 1Hz sensor + confidence + mass-balance
@@ -7,7 +7,7 @@
  *   POST /api/mode/startup/acknowledge/:id — clear stale flag
  *   GET  /api/predictions/:plant_id — forecast data (sidebar)
  *
- * Stitch mockup: 2operator dashboard.html
+ * Stitch mockup: secondary operator support view
  */
 
 import { useEffect, useMemo, useState } from 'react';
@@ -295,7 +295,7 @@ function StressModeLayout({
   );
 }
 
-// ── Main Dashboard ──
+// ── Secondary Runtime Support View ──
 export default function OperatorDashboard() {
   const {
     connect,
@@ -369,7 +369,7 @@ export default function OperatorDashboard() {
           <div className="flex justify-between items-end shrink-0">
             <div>
               <h1 className="text-[18px] font-semibold text-[var(--text)]">
-                {plantId?.replace('-', ' ').toUpperCase()} — Operator Dashboard
+                {plantId?.replace('-', ' ').toUpperCase()} — Operator Support Runtime
               </h1>
               <p className="label-caps text-[var(--text-muted)] mt-1">Live Data · 1 Hz</p>
             </div>
@@ -461,7 +461,7 @@ export default function OperatorDashboard() {
             </div>
           </div>
 
-          {/* Predictive forecast */}
+          {/* Confidence degradation forecast */}
           <div className="stitch-card p-0 overflow-hidden shrink-0">
             <div className="stitch-card-header px-4 py-3 border-b border-[var(--border)]">
               <span className="text-[14px] font-semibold text-[var(--text)]">Confidence Forecast</span>

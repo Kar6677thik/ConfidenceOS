@@ -1,5 +1,5 @@
 /**
- * views/FleetOverview.jsx — Fleet Risk Profile Dashboard
+ * views/FleetOverview.jsx — Instrument Integrity Overview
  *
  * Endpoints:
  *   GET /api/fleet          — fleet summary (auto-polls every 5s)
@@ -72,7 +72,7 @@ export default function FleetOverview() {
 
   const openPlant = (id) => {
     setPlantId(id);
-    navigate('/operator');
+    navigate('/runtime');
   };
 
   const sorted = [...fleetData].sort((a, b) => a.health_pct - b.health_pct);
@@ -87,15 +87,15 @@ export default function FleetOverview() {
         {/* ── Page header + KPI chips ── */}
         <div className="flex flex-col lg:flex-row gap-6 justify-between items-start lg:items-end">
           <div>
-            <h1 className="text-[48px] leading-none font-bold text-[var(--text)] tracking-tight">Fleet Overview</h1>
+            <h1 className="text-[48px] leading-none font-bold text-[var(--text)] tracking-tight">Instrument Integrity Overview</h1>
             <p className="mt-3 text-[14px] text-[var(--text-muted)]">
-              Real-time aggregate performance across all active facilities.
+              Real-time aggregate trust state across all active facilities.
             </p>
           </div>
           <div className="flex gap-4">
-            {/* Fleet health score */}
+            {/* Instrument integrity score */}
             <div className="stitch-card p-4 w-40">
-              <p className="label-caps text-[var(--text-muted)] mb-2">Fleet Health</p>
+              <p className="label-caps text-[var(--text-muted)] mb-2">Integrity</p>
               <div className="flex items-end gap-1">
                 <span className="text-5xl font-bold leading-none" style={{ color: tierColor(fleetData[0]?.health_pct ?? 80) }}>
                   {fleetData.length
@@ -129,14 +129,14 @@ export default function FleetOverview() {
             <div className="bg-[rgba(147,0,10,0.12)] border border-[#ffb4ab]/30 px-4 py-2 flex items-center justify-between rounded-r glow-critical">
               <div className="flex items-center gap-2">
                 <span className="material-symbols-outlined text-[var(--critical)] text-[18px]">warning</span>
-                <span className="label-caps text-[var(--critical)]">Highest Risk</span>
+                <span className="label-caps text-[var(--critical)]">Lowest Integrity</span>
               </div>
               <span className="font-data text-[14px] text-[var(--critical)]">{worst.name} ({worst.health_pct}%)</span>
             </div>
           </div>
         )}
 
-        {/* ── Plant risk cards ── */}
+        {/* ── Plant integrity cards ── */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           {fleetData.map((plant) => {
             const color = tierColor(plant.health_pct);
@@ -171,7 +171,7 @@ export default function FleetOverview() {
 
                 {/* Top alerts */}
                 <div>
-                  <p className="label-caps text-[var(--text-dim)] mb-2">Top Alerts</p>
+                  <p className="label-caps text-[var(--text-dim)] mb-2">Operating Questions</p>
                   {(plant.top_issues || []).slice(0, 3).map((issue) => (
                     <div key={issue} className="flex items-center justify-between py-1 border-b border-[var(--border-subtle)]">
                       <span className="font-data text-[13px]" style={{ color }}>{issue.split(':')[0]}</span>
@@ -221,7 +221,7 @@ export default function FleetOverview() {
         {/* ── 24h fleet health trend chart ── */}
         <div className="stitch-card p-4">
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-[18px] font-semibold text-[var(--text)]">24h Fleet Health Trend</h2>
+            <h2 className="text-[18px] font-semibold text-[var(--text)]">24h Instrument Integrity Trend</h2>
             <div className="flex gap-4">
               {Object.entries(PLANT_COLORS).map(([pid, color]) => (
                 <div key={pid} className="flex items-center gap-1.5">

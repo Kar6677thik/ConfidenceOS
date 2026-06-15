@@ -140,7 +140,7 @@ class PlantManager:
 
     def compute_fleet_risk_score(self, plant: PlantInstance) -> float:
         """
-        Compute Plant Risk Score per PRD §4.3:
+        Compute plant integrity score for the Instrument Integrity Overview:
         
         risk = (1 - avg_confidence) * 0.40
              + active_critical_flags * 0.25

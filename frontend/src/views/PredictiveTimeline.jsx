@@ -1,5 +1,5 @@
 /**
- * views/PredictiveTimeline.jsx — Predictive Maintenance Timeline
+ * views/PredictiveTimeline.jsx — Confidence Degradation Timeline
  *
  * Endpoints:
  *   GET /api/predictions/:plant_id — degradation forecasts for all sensors
@@ -45,14 +45,14 @@ export default function PredictiveTimeline() {
       {/* ── Context header ── */}
       <header className="px-6 py-4 border-b border-[var(--border)] flex items-center justify-between flex-shrink-0 bg-[var(--bg-low)]">
         <div>
-          <h1 className="text-[24px] font-semibold text-[var(--text)]">Predictive Maintenance Timeline</h1>
-          <p className="label-caps text-[var(--text-muted)] mt-1">12-Hour Forecast Window · Sorted by Criticality</p>
+          <h1 className="text-[24px] font-semibold text-[var(--text)]">Confidence Degradation Timeline</h1>
+          <p className="label-caps text-[var(--text-muted)] mt-1">12-Hour Trust Forecast Window · Sorted by Criticality</p>
         </div>
         <div className="flex gap-3 items-center">
           {avgPLT && (
             <div className="stitch-card px-4 py-2 flex items-center gap-3">
               <div>
-                <p className="label-caps text-[var(--text-muted)] mb-1">Avg Predicted Lead Time</p>
+                <p className="label-caps text-[var(--text-muted)] mb-1">Avg Degradation Lead Time</p>
                 <p className="text-[20px] font-bold font-data text-[var(--primary)]">{avgPLT}<span className="text-[12px] text-[var(--text-muted)] ml-1">hrs</span></p>
               </div>
               <span className="material-symbols-outlined text-[var(--primary)]">update</span>
