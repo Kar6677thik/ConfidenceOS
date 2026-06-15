@@ -132,11 +132,16 @@ def get_relationships(model: dict | None = None) -> list[dict]:
 
 
 def equipment_signals(equipment_id: str, model: dict | None = None) -> list[dict]:
+    model = model or load_asset_model()
     signals = get_signals(model)
+    declared_tags = _declared_signal_tags(equipment_id, model)
+    if declared_tags:
+        return [signal for signal in signals if signal.get("tag") in declared_tags]
     if equipment_id == model_or_primary_id(model):
+        primary_id = model_or_primary_id(model)
         return [
             signal for signal in signals
-            if signal.get("equipment_id") in (None, equipment_id, "V-5100")
+            if signal.get("equipment_id") in (None, equipment_id, primary_id)
             or signal.get("sensor_type") in ("level", "flow_in", "flow_out", "pressure", "temperature")
         ]
     return [signal for signal in signals if signal.get("equipment_id") == equipment_id]
@@ -145,6 +150,24 @@ def equipment_signals(equipment_id: str, model: dict | None = None) -> list[dict
 def model_or_primary_id(model: dict | None = None) -> str:
     model = model or load_asset_model()
     return model.get("equipment", {}).get("equipment_id", "V-5100")
+
+
+def _declared_signal_tags(equipment_id: str, model: dict) -> set[str]:
+    primary = model.get("equipment", {})
+    if primary.get("equipment_id") == equipment_id:
+        if primary.get("signal_tags"):
+            tags = primary.get("signal_tags", [])
+        else:
+            tags = [
+                tag.get("tag")
+                for tag in primary.get("sensor_tags", [])
+                if tag.get("equipment_id") in (None, equipment_id)
+            ]
+        return {tag for tag in tags if tag}
+    for item in model.get("additional_equipment", []):
+        if item.get("equipment_id") == equipment_id:
+            return {tag for tag in item.get("signal_tags", []) if tag}
+    return set()
 
 
 def _equipment_asset(item: dict) -> dict:

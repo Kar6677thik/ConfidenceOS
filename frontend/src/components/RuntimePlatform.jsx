@@ -693,7 +693,7 @@ export default function RuntimePlatform() {
     verificationTasks,
   } = storeState;
   const [manifest, setManifest] = useState(null);
-  const [selected, setSelected] = useState('V-5100');
+  const [selected, setSelected] = useState('');
 
   useEffect(() => {
     connect();

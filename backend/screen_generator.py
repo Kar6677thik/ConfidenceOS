@@ -39,6 +39,10 @@ def generate_screen_manifest(
     }
     warnings = _validation_messages(build_context.get("validation") or validation)
     plant_id = live_state.get("plant_id", "plant-a")
+    navigation = get_navigation()
+    unit = _first_unit(navigation)
+    unit_id = unit.get("id", "unit-runtime")
+    unit_name = unit.get("name", "Generated Unit")
     assets = get_assets()
     faceplates = [
         _faceplate_for_asset(asset, live_state, role, context_state, assignments or [], build_context)
@@ -51,43 +55,43 @@ def generate_screen_manifest(
         {
             **_generation_metadata(
                 build_context=build_context,
-                generated_id=f"{build_id}:plant-overview",
-                asset_id=plant_id,
+                generated_id=f"{build_id}:{navigation.get('id', plant_id)}:plant-overview",
+                asset_id=navigation.get("id", plant_id),
                 template_id="plant_overview",
                 role=role,
                 context_state=context_state,
                 validation_status=validation_status,
                 source_tags=source_tags,
                 generated_because=[
-                    "Plant overview generated from asset model hierarchy.",
+                    f"{navigation.get('name', 'Plant')} overview generated from asset model hierarchy.",
                     "Instrument integrity overview is required for Runtime navigation.",
                 ],
                 warnings=warnings,
             ),
             "screen_id": "plant-overview",
             "screen_type": "plant_overview",
-            "title": "Instrument Integrity Overview",
+            "title": f"{navigation.get('name', 'Plant')} Instrument Integrity Overview",
             "sections": ["semantic_navigation", "trust_hotspots", "unresolved_situations"],
         },
         {
             **_generation_metadata(
                 build_context=build_context,
-                generated_id=f"{build_id}:unit-15-runtime",
-                asset_id="unit-15",
+                generated_id=f"{build_id}:{unit_id}:runtime",
+                asset_id=unit_id,
                 template_id="unit_overview",
                 role=role,
                 context_state=context_state,
                 validation_status=validation_status,
                 source_tags=source_tags,
                 generated_because=[
-                    "Unit Runtime generated from semantic plant hierarchy.",
+                    f"{unit_name} Runtime generated from semantic plant hierarchy.",
                     "Situation workspace and generated faceplates are required for operator use.",
                 ],
                 warnings=warnings,
             ),
-            "screen_id": "unit-15-runtime",
+            "screen_id": f"{unit_id}-runtime",
             "screen_type": "unit_overview",
-            "title": "Unit 15 ISOM Runtime",
+            "title": f"{unit_name} Runtime",
             "sections": ["situation_workspace", "generated_faceplates", "shift_channel"],
         },
     ]
@@ -114,7 +118,7 @@ def generate_screen_manifest(
         "source": "asset_model_and_template_library",
         "read_only_trust_layer": True,
         "compiler_pipeline": "Raw Tags -> Asset Graph -> Template Binding -> Validation -> Screen Generation -> Publish Readiness -> Runtime",
-        "navigation": get_navigation(),
+        "navigation": navigation,
         "role_policy": role_policy,
         "context_policy": context_policy,
         "validation": build_context.get("validation") or validation,
@@ -136,7 +140,29 @@ def generate_screen_manifest(
         "operating_basis": _operating_basis(live_state, situations),
         "role_sections": role_sections,
         "stress_mode_panel": stress_mode_panel,
-    }
+}
+
+
+def _first_unit(navigation: dict) -> dict:
+    for area in navigation.get("areas", []) or []:
+        units = area.get("units", []) or []
+        if units:
+            return units[0]
+    return {"id": "unit-runtime", "name": "Generated Unit"}
+
+
+def _primary_equipment_id() -> str:
+    for asset in get_assets():
+        if asset.get("asset_type") in ("process_vessel", "pump", "valve", "flow_pair"):
+            return asset.get("asset_id") or "primary-equipment"
+    return "primary-equipment"
+
+
+def _primary_level_signal_id() -> str:
+    for signal in get_model_graph().get("signals", []):
+        if signal.get("role") == "primary_level" or signal.get("sensor_type") == "level":
+            return signal.get("tag") or "primary-level"
+    return "primary-level"
 
 
 def equipment_manifest(equipment_id: str, role: str, live_state: dict | None = None, assignments: list[dict] | None = None) -> dict:
@@ -268,7 +294,7 @@ def _situations(
     incidents = live_state.get("incidents") or []
     decorated = []
     for index, incident in enumerate(incidents):
-        asset_id = incident.get("asset_id") or "V-5100"
+        asset_id = incident.get("asset_id") or _primary_equipment_id()
         source_tags = _situation_source_tags(incident, build_context)
         decorated.append({
             **_generation_metadata(
@@ -340,13 +366,14 @@ def _role_sections(
         ]
     elif role == "Engineer":
         confidence = live_state.get("confidence", [])
-        lead_confidence = next((item for item in confidence if item.get("sensor_id") == "LT-5100"), confidence[0] if confidence else {})
+        primary_level = _primary_level_signal_id()
+        lead_confidence = next((item for item in confidence if item.get("sensor_id") == primary_level), confidence[0] if confidence else {})
         build_id = build_context.get("build_id", "runtime-ad-hoc")
         rows = [
             {"section": "signal_mapping", "items": get_model_graph().get("signals", [])},
             {"section": "template_receipt", "items": build_context.get("receipts", [])},
             {"section": "assumptions_used", "items": _assumptions_used()},
-            {"section": "score_sensitivity", "items": [build_score_sensitivity(lead_confidence.get("sensor_id", "LT-5100"), lead_confidence, role="Engineer")] if lead_confidence else []},
+            {"section": "score_sensitivity", "items": [build_score_sensitivity(lead_confidence.get("sensor_id", primary_level), lead_confidence, role="Engineer")] if lead_confidence else []},
             {"section": "validation_warnings", "items": (build_context.get("validation") or {}).get("warnings", []) + (build_context.get("validation") or {}).get("blocking", [])},
             {"section": "build_publish_provenance", "items": [{
                 "build_id": build_id,

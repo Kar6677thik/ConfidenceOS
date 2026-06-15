@@ -108,6 +108,7 @@ function CompilerPipeline({ build }) {
         <div className="bg-[var(--surface-panel)] p-3">
           <p className="label-caps text-[var(--text-muted)]">Compiler Contract</p>
           <p className="caption-mono text-[var(--data-mono)] mt-1">read-only trust-aware HMI layer beside existing DCS/HMI</p>
+          <p className="caption-mono text-[var(--text-muted)] mt-1">forbidden writes: tag values / setpoints / controller modes / DCS alarm acknowledgements</p>
         </div>
       </div>
     </Panel>
