@@ -563,32 +563,48 @@ def _blocked_diff_items(blocking: list[dict], warnings: list[dict]) -> list[dict
 def _semantic_generation_diff(generated_manifest: dict, validation: dict, template_mutations: dict) -> list[dict]:
     changes = []
     faceplates = generated_manifest.get("faceplates", [])
-    by_template = {item.get("template_id"): item for item in faceplates}
-    vessel = by_template.get("vessel")
-    if vessel:
+
+    # Emit a faceplate-added change for every generated faceplate, regardless of
+    # template type (vessel / pump / valve / flow_pair). Model-agnostic.
+    for faceplate in faceplates:
+        template_id = faceplate.get("template_id") or "asset"
         changes.append({
             "type": "generated_hmi_change",
-            "asset_id": vessel.get("equipment_id"),
-            "description": f"Added vessel faceplate for {vessel.get('equipment_id')}.",
+            "asset_id": faceplate.get("equipment_id"),
+            "description": f"Added {template_id} faceplate for {faceplate.get('equipment_id')}.",
         })
-        signal_tags = {signal.get("tag") for signal in vessel.get("signals", [])}
-        relationship = mass_balance_validation()
-        required_tags = set(relationship.get("source_tags", []) + [relationship.get("validated_tag")])
-        if required_tags and required_tags.issubset(signal_tags):
+
+    # The mass-balance / decision-freeze / verification narrative is keyed off the
+    # active asset model's relationship — attached to whichever faceplate actually
+    # carries the relationship's source + validated tags (works for the pump-station
+    # tank, not just the demo vessel).
+    relationship = mass_balance_validation()
+    required_tags = set(relationship.get("source_tags", []) + [relationship.get("validated_tag")])
+    required_tags.discard(None)
+    if required_tags:
+        host = next(
+            (
+                fp for fp in faceplates
+                if required_tags.issubset({signal.get("tag") for signal in fp.get("signals", [])})
+            ),
+            None,
+        )
+        if host:
+            host_id = host.get("equipment_id")
             changes.append({
                 "type": "generated_hmi_change",
-                "asset_id": vessel.get("equipment_id"),
+                "asset_id": host_id,
                 "description": f"Added mass-balance section because {', '.join(relationship.get('source_tags', []))} validate {relationship.get('validated_tag')}.",
             })
             changes.append({
                 "type": "generated_hmi_change",
-                "asset_id": vessel.get("equipment_id"),
+                "asset_id": host_id,
                 "decision_id": "operating_basis_decision",
                 "description": "Added decision freeze rule from asset-model affected decisions.",
             })
             changes.append({
                 "type": "generated_hmi_change",
-                "asset_id": vessel.get("equipment_id"),
+                "asset_id": host_id,
                 "sensor_id": relationship.get("validated_tag"),
                 "description": f"Added Maintenance verification task for {relationship.get('validated_tag')}.",
             })

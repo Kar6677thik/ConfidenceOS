@@ -177,6 +177,73 @@ def test_confidence_weights_single_source():
     check("weights: sum to 1.0", abs(sum(CONFIDENCE_WEIGHTS.values()) - 1.0) < 0.001)
 
 
+# --- 6. R2-A: no refinery literals leak in pump-station path ----------------
+
+def test_trust_graph_no_refinery_literals_on_pump_station():
+    """build_trust_dependency_graph must derive tags from the active model, not literal LT-5100/FI-2010/FO-2020."""
+    from decision_integrity import build_trust_dependency_graph
+    from asset_model import set_active_asset_model
+
+    try:
+        set_active_asset_model("pump_station")
+        graph = build_trust_dependency_graph(
+            plant_id="plant-a",
+            readings=[],
+            confidence=[],
+            mass_balance={"flags": []},
+            incidents=[],
+        )
+        node_ids = {n.get("id") for n in graph.get("nodes", [])}
+        focus = graph.get("focus", "")
+        for leak in ("LT-5100", "FI-2010", "FO-2020"):
+            check(f"pump_station trust graph: no {leak} node", leak not in node_ids, f"node_ids={node_ids}")
+            check(f"pump_station trust graph: no {leak} in focus", leak not in focus, f"focus={focus}")
+        # Should reference the pump-station tank tags instead
+        check("pump_station trust graph: references LIT-100", "LIT-100" in node_ids or "LIT-100" in focus,
+              f"node_ids={node_ids}, focus={focus}")
+    finally:
+        set_active_asset_model("texas_city_vessel")
+
+
+def test_semantic_diff_generalizes_beyond_vessel():
+    """_semantic_generation_diff must emit faceplate-added changes for non-vessel templates and
+    attach the mass-balance narrative to the faceplate that holds the model relationship tags."""
+    from hmi_compiler import _semantic_generation_diff
+    from asset_model import set_active_asset_model
+
+    try:
+        set_active_asset_model("pump_station")
+        # Simulate a generated manifest with a pump-station tank faceplate (template != "vessel")
+        manifest = {
+            "faceplates": [
+                {
+                    "equipment_id": "TK-100",
+                    "template_id": "vessel",  # tank uses vessel template, but equip is TK-100
+                    "signals": [
+                        {"tag": "LIT-100"}, {"tag": "FIT-101"}, {"tag": "FIT-102"},
+                    ],
+                },
+                {
+                    "equipment_id": "P-101",
+                    "template_id": "pump",
+                    "signals": [{"tag": "VIB-101"}],
+                },
+            ]
+        }
+        changes = _semantic_generation_diff(manifest, {"warnings": []}, {})
+        descriptions = " ".join(c.get("description", "") for c in changes)
+        # Faceplate-added change emitted for the pump (non-vessel) too
+        check("semantic diff: pump faceplate change emitted", "pump faceplate for P-101" in descriptions,
+              f"descriptions={descriptions}")
+        # Mass-balance narrative keyed off the model relationship (LIT-100), no refinery literals
+        check("semantic diff: mass-balance section references LIT-100", "LIT-100" in descriptions,
+              f"descriptions={descriptions}")
+        for leak in ("LT-5100", "FI-2010", "FO-2020"):
+            check(f"semantic diff: no {leak} leak", leak not in descriptions, f"descriptions={descriptions}")
+    finally:
+        set_active_asset_model("texas_city_vessel")
+
+
 # --- Runner ------------------------------------------------------------------
 
 async def run_all():
@@ -195,6 +262,10 @@ async def run_all():
 
     print("\n-- Confidence Weights: Single Source of Truth -----------")
     test_confidence_weights_single_source()
+
+    print("\n-- R2-A: No Refinery Literals Leak (pump-station) -------")
+    test_trust_graph_no_refinery_literals_on_pump_station()
+    test_semantic_diff_generalizes_beyond_vessel()
 
     print("\nAll tests passed.\n")
 

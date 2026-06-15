@@ -121,6 +121,34 @@ class AdaptiveEnvelopeLog(Base):
     generated_at = Column(DateTime, default=datetime.utcnow, index=True)
 
 
+class VerificationEvent(Base):
+    """
+    Immutable, append-only audit trail for field-verification task lifecycle.
+
+    One row per state transition (and task creation). This is what makes the
+    verification workflow a real, owned, auditable process rather than display
+    state: every move records who did it, what role, when, and the evidence note.
+    ConfidenceOS remains read-only to the process — this only logs the engineering
+    verification workflow, never a control action.
+    """
+    __tablename__ = "verification_events"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    plant_id = Column(String(20), index=True, nullable=False, default="plant-a")
+    task_id = Column(String(80), index=True, nullable=False)
+    sensor_id = Column(String(20), nullable=True)
+    from_state = Column(String(20), nullable=True)   # null on creation
+    to_state = Column(String(20), nullable=False)
+    actor = Column(String(60), nullable=True)        # client-supplied identity (no real auth yet)
+    actor_role = Column(String(20), nullable=True)
+    evidence_note = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    __table_args__ = (
+        Index('ix_verification_events_plant_task_ts', 'plant_id', 'task_id', 'created_at'),
+    )
+
+
 # ── Database lifecycle ──────────────────────────────────────────────────────
 
 def init_db():
@@ -226,6 +254,56 @@ def get_confidence_history(db, plant_id, sensor_id, hours=24.0):
             "cross_sensor_score": e.cross_sensor_score,
             "plausibility_score": e.plausibility_score,
             "timestamp": e.timestamp.isoformat() if e.timestamp else None,
+        }
+        for e in entries
+    ]
+
+
+def log_verification_event(
+    db,
+    plant_id,
+    task_id,
+    to_state,
+    from_state=None,
+    sensor_id=None,
+    actor=None,
+    actor_role=None,
+    evidence_note=None,
+):
+    """Append an immutable verification-task lifecycle event to the audit trail."""
+    entry = VerificationEvent(
+        plant_id=plant_id,
+        task_id=task_id,
+        sensor_id=sensor_id,
+        from_state=from_state,
+        to_state=to_state,
+        actor=actor,
+        actor_role=actor_role,
+        evidence_note=evidence_note,
+    )
+    db.add(entry)
+    db.commit()
+    return entry
+
+
+def get_verification_audit(db, plant_id, task_id=None, limit=200):
+    """Return the immutable, time-ordered verification audit trail for a plant (optionally one task)."""
+    query = db.query(VerificationEvent).filter(VerificationEvent.plant_id == plant_id)
+    if task_id:
+        query = query.filter(VerificationEvent.task_id == task_id)
+    entries = query.order_by(VerificationEvent.created_at.asc(), VerificationEvent.id.asc()).limit(limit).all()
+    return [
+        {
+            "id": e.id,
+            "plant_id": e.plant_id,
+            "task_id": e.task_id,
+            "sensor_id": e.sensor_id,
+            "from_state": e.from_state,
+            "to_state": e.to_state,
+            "actor": e.actor,
+            "actor_role": e.actor_role,
+            "evidence_note": e.evidence_note,
+            "created_at": e.created_at.isoformat() if e.created_at else None,
         }
         for e in entries
     ]

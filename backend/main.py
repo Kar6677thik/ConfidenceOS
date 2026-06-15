@@ -28,6 +28,7 @@ import json
 import math
 import os
 import time
+import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from contextlib import asynccontextmanager
@@ -47,6 +48,7 @@ from database import (
     log_anomaly, get_recent_anomalies,
     log_confidence, log_shift_handover,
     get_confidence_history,
+    log_verification_event, get_verification_audit,
 )
 from plants import PlantManager, UnknownPlantError
 from mass_balance import DEFAULT_TOLERANCE
@@ -150,6 +152,9 @@ class VerificationTaskUpdateRequest(BaseModel):
     state: str
     accepted_by: Optional[str] = None
     note: str = ""
+    actor: Optional[str] = None        # client-supplied identity (no real auth yet)
+    actor_role: Optional[str] = None   # Operator / Maintenance / Engineer / Manager / Auditor
+    evidence_note: str = ""            # required for FIELD_CHECK_DONE and ACCEPTED
 
 class StudioTemplateAssignmentRequest(BaseModel):
     asset_id: str
@@ -1242,19 +1247,45 @@ def acknowledge_stale_reading(sensor_id: str, plant_id: str = Query(default="pla
     return {"status": "acknowledged", "sensor_id": sensor_id}
 
 
+# ── Verification workflow lifecycle rules ───────────────────────────────────
+# Legal transition graph: a task can only advance along this path. EXPIRED is
+# reachable from any active state. This makes the workflow a real, guarded state
+# machine rather than free-form state writes.
+VERIFICATION_TRANSITIONS = {
+    "REQUESTED": {"ASSIGNED", "EXPIRED"},
+    "ASSIGNED": {"FIELD_CHECK_DONE", "EXPIRED"},
+    "FIELD_CHECK_DONE": {"ACCEPTED", "EXPIRED"},
+    "ACCEPTED": set(),   # terminal
+    "EXPIRED": set(),    # terminal
+}
+# Transitions that must cite an evidence note (field work / engineer acceptance).
+VERIFICATION_EVIDENCE_REQUIRED = {"FIELD_CHECK_DONE", "ACCEPTED"}
+# Light, advisory role scoping (no real auth — actor_role is client-supplied).
+VERIFICATION_ROLE_SCOPE = {
+    "ASSIGNED": {"Maintenance", "Engineer", "Manager"},
+    "FIELD_CHECK_DONE": {"Maintenance", "Engineer"},
+    "ACCEPTED": {"Engineer", "Manager"},
+    "EXPIRED": {"Operator", "Maintenance", "Engineer", "Manager", "Auditor"},
+}
+
+
 @app.post("/api/verification-tokens")
 def create_verification_token(
     request: VerificationTokenRequest,
     plant_id: str = Query(default="plant-a"),
+    db: Session = Depends(get_db),
 ):
     """Create a temporary field verification token without overriding confidence."""
     plant = plant_manager.get(plant_id)
     now = time.time()
     valid_minutes = max(1.0, min(float(request.valid_minutes), 240.0))
     valid_until = now + valid_minutes * 60.0
+    # Unique per-task suffix so two tasks for the same sensor in the same second
+    # cannot collide into one audit stream.
+    uniq = f"{int(now)}-{uuid.uuid4().hex[:6]}"
     token = {
-        "task_id": f"verification-task:{request.sensor_id}:{int(now)}",
-        "token_id": f"{plant_id}:{request.sensor_id}:{int(now)}",
+        "task_id": f"verification-task:{request.sensor_id}:{uniq}",
+        "token_id": f"{plant_id}:{request.sensor_id}:{uniq}",
         "plant_id": plant_id,
         "sensor_id": request.sensor_id,
         "state": "REQUESTED",
@@ -1286,6 +1317,18 @@ def create_verification_token(
         plant.latest_incident_timeline,
         _handover_debt_events(plant_id, plant.latest_handover_debt, now),
     )
+    # Audit trail: record task creation (no prior state) as the first immutable event.
+    log_verification_event(
+        db,
+        plant_id=plant_id,
+        task_id=token["task_id"],
+        to_state="REQUESTED",
+        from_state=None,
+        sensor_id=request.sensor_id,
+        actor=None,        # creation is system/UI-initiated; no actor identity
+        actor_role=None,
+        evidence_note=request.note or "Verification requested.",
+    )
     return normalize_verification_task(token, now)
 
 
@@ -1293,32 +1336,101 @@ def create_verification_token(
 def update_verification_task_state(
     request: VerificationTaskUpdateRequest,
     plant_id: str = Query(default="plant-a"),
+    db: Session = Depends(get_db),
 ):
-    """Advance a field verification task lifecycle without changing confidence."""
+    """
+    Advance a field verification task along its guarded lifecycle.
+
+    Enforces: a legal transition graph, an evidence note for field-check / accept,
+    and (advisory) role scoping. Captures owner + timestamp per state and writes an
+    immutable audit event. Never changes confidence and never writes a control.
+    """
     allowed = {"REQUESTED", "ASSIGNED", "FIELD_CHECK_DONE", "ACCEPTED", "EXPIRED"}
     state = request.state.upper()
     if state not in allowed:
         raise HTTPException(status_code=400, detail=f"state must be one of {sorted(allowed)}")
+
+    # Evidence note is mandatory for field-check completion and engineer acceptance.
+    evidence_note = (request.evidence_note or request.note or "").strip()
+    if state in VERIFICATION_EVIDENCE_REQUIRED and not evidence_note:
+        raise HTTPException(
+            status_code=422,
+            detail=f"An evidence note is required to move a task to {state}.",
+        )
+
+    # Advisory role scoping (no real auth — actor_role is client-supplied).
+    actor_role = request.actor_role
+    allowed_roles = VERIFICATION_ROLE_SCOPE.get(state)
+    if allowed_roles and actor_role and actor_role not in allowed_roles:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Role '{actor_role}' may not perform transition to {state}. Allowed: {sorted(allowed_roles)}",
+        )
+
     plant = plant_manager.get(plant_id)
     now = time.time()
+    now_iso = datetime.utcfromtimestamp(now).isoformat() + "Z"
+    actor = request.actor or request.accepted_by
     updated = None
+    from_state = None
     tasks = []
     for token in plant.verification_tokens:
         task = normalize_verification_task(token, now)
         if task.get("task_id") == request.task_id or task.get("token_id") == request.task_id:
+            from_state = task.get("state")
+            # Guard against illegal jumps. Allow no-op re-assert of the same state.
+            legal = VERIFICATION_TRANSITIONS.get(from_state, set())
+            if state != from_state and state not in legal:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Illegal transition {from_state} -> {state}. Legal next states: {sorted(legal)}",
+                )
+            history = list(task.get("history", []))
+            history.append({
+                "from_state": from_state,
+                "to_state": state,
+                "actor": actor,
+                "actor_role": actor_role,
+                "evidence_note": evidence_note or None,
+                "at": now,
+                "at_iso": now_iso,
+            })
             task["state"] = state
-            task["accepted_by"] = request.accepted_by if state == "ACCEPTED" else task.get("accepted_by")
-            task["note"] = request.note or task.get("note")
+            task["history"] = history
+            task["note"] = evidence_note or task.get("note")
+            # Per-state ownership stamps.
+            if state == "ASSIGNED":
+                task["assigned_to"] = actor
+                task["assigned_at"] = now
+            elif state == "FIELD_CHECK_DONE":
+                task["field_checked_by"] = actor
+                task["field_checked_at"] = now
+            elif state == "ACCEPTED":
+                task["accepted_by"] = actor or request.accepted_by
+                task["accepted_at"] = now
             task["handover_required"] = state not in ("ACCEPTED", "EXPIRED")
             task["active"] = float(task.get("valid_until", 0)) > now and state not in ("ACCEPTED", "EXPIRED")
             task["expired"] = state == "EXPIRED" or float(task.get("valid_until", 0)) <= now
             task["updated_at"] = now
-            task["updated_at_iso"] = datetime.utcfromtimestamp(now).isoformat() + "Z"
+            task["updated_at_iso"] = now_iso
             updated = task
         tasks.append(task)
     if not updated:
         raise HTTPException(status_code=404, detail=f"No verification task '{request.task_id}'")
+
     plant.verification_tokens = tasks
+    # Immutable audit trail row for this transition.
+    log_verification_event(
+        db,
+        plant_id=plant_id,
+        task_id=updated.get("task_id"),
+        to_state=state,
+        from_state=from_state,
+        sensor_id=updated.get("sensor_id"),
+        actor=actor,
+        actor_role=actor_role,
+        evidence_note=evidence_note or None,
+    )
     plant.latest_handover_debt = build_handover_debt(
         plant_id=plant_id,
         incidents=plant.latest_incidents,
@@ -1328,6 +1440,24 @@ def update_verification_task_state(
         now=now,
     )
     return {"status": "updated", "task": updated, "handover_debt": plant.latest_handover_debt}
+
+
+@app.get("/api/verification-tasks/audit")
+def get_verification_task_audit(
+    plant_id: str = Query(default="plant-a"),
+    task_id: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    """Return the immutable, time-ordered verification audit trail (optionally for one task)."""
+    plant_manager.get(plant_id)  # validates plant_id → 404 if unknown
+    events = get_verification_audit(db, plant_id, task_id=task_id)
+    return {
+        "plant_id": plant_id,
+        "task_id": task_id,
+        "events": events,
+        "count": len(events),
+        "note": "Immutable append-only audit trail. Actor identity is client-supplied (no auth yet).",
+    }
 
 
 @app.get("/api/verification-tokens")

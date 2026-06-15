@@ -562,6 +562,46 @@ function WorkspacePanel({ title, children, badge }) {
   );
 }
 
+function AuditTrailTimeline({ events }) {
+  return (
+    <div className="mt-3 border border-[var(--border-strong)] bg-[var(--surface-panel)] p-3">
+      <p className="label-caps text-[var(--text-muted)] mb-2">Immutable Audit Trail</p>
+      <div className="space-y-[1px] bg-[var(--border-strong)]">
+        {events.map((event) => (
+          <div key={event.id} className="bg-[var(--surface-base)] p-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="caption-mono text-[var(--text)]">
+                {event.from_state ? `${event.from_state} → ` : ''}{event.to_state}
+              </span>
+              <span className="label-caps text-[var(--text-muted)]">
+                {event.actor || 'system'}{event.actor_role ? ` · ${event.actor_role}` : ''}
+              </span>
+            </div>
+            {event.evidence_note && <p className="caption-mono text-[var(--data-mono)] mt-1">{event.evidence_note}</p>}
+            <p className="label-caps text-[var(--text-muted)] mt-1">{event.created_at}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Legal verification transitions (mirrors backend VERIFICATION_TRANSITIONS).
+const LEGAL_NEXT = {
+  REQUESTED: ['ASSIGNED', 'EXPIRED'],
+  ASSIGNED: ['FIELD_CHECK_DONE', 'EXPIRED'],
+  FIELD_CHECK_DONE: ['ACCEPTED', 'EXPIRED'],
+  ACCEPTED: [],
+  EXPIRED: [],
+};
+const EVIDENCE_REQUIRED_STATES = new Set(['FIELD_CHECK_DONE', 'ACCEPTED']);
+const STATE_LABEL = {
+  ASSIGNED: 'Assign to me',
+  FIELD_CHECK_DONE: 'Field Check Done',
+  ACCEPTED: 'Accept Field Check',
+  EXPIRED: 'Expire',
+};
+
 function RoleWorkspace({ manifest, confidenceDebt, handoverDebt, verificationTasks }) {
   const sections = manifest?.role_sections || [];
   const role = manifest?.role || 'Operator';
@@ -570,10 +610,16 @@ function RoleWorkspace({ manifest, confidenceDebt, handoverDebt, verificationTas
   const [taskNote, setTaskNote] = useState('');
   const [taskBusy, setTaskBusy] = useState('');
   const [taskMessage, setTaskMessage] = useState('');
+  const [auditTrail, setAuditTrail] = useState({ taskId: null, events: [] });
 
   const updateTask = async (task, state) => {
     const taskId = task.task_id || task.token_id;
     if (!taskId) return;
+    // Client-side guard mirrors the backend so the operator gets immediate feedback.
+    if (EVIDENCE_REQUIRED_STATES.has(state) && !taskNote.trim()) {
+      setTaskMessage(`An evidence note is required to move this task to ${state}.`);
+      return;
+    }
     setTaskBusy(`${taskId}:${state}`);
     setTaskMessage('');
     try {
@@ -583,17 +629,34 @@ function RoleWorkspace({ manifest, confidenceDebt, handoverDebt, verificationTas
         body: JSON.stringify({
           task_id: taskId,
           state,
+          actor: role,            // client-supplied identity (no real auth yet)
+          actor_role: role,
           accepted_by: state === 'ACCEPTED' ? role : null,
+          evidence_note: taskNote,
           note: taskNote,
         }),
       });
       const payload = await res.json().catch(() => null);
       if (!res.ok) throw new Error(payload?.detail || `Request failed: ${res.status}`);
-      setTaskMessage(`${task.sensor_id || taskId} moved to ${state}.`);
+      setTaskMessage(`${task.sensor_id || taskId} moved to ${state} by ${role}.`);
+      if (auditTrail.taskId === taskId) loadAudit(taskId);
     } catch (err) {
       setTaskMessage(err.message || 'Task update failed.');
     } finally {
       setTaskBusy('');
+    }
+  };
+
+  const loadAudit = async (taskId) => {
+    try {
+      const url = taskId
+        ? `/api/verification-tasks/audit?plant_id=${plantId}&task_id=${encodeURIComponent(taskId)}`
+        : `/api/verification-tasks/audit?plant_id=${plantId}`;
+      const res = await fetch(url);
+      const payload = await res.json().catch(() => null);
+      if (res.ok && payload) setAuditTrail({ taskId: taskId || null, events: payload.events || [] });
+    } catch {
+      /* non-fatal: audit view is supplementary */
     }
   };
 
@@ -605,40 +668,58 @@ function RoleWorkspace({ manifest, confidenceDebt, handoverDebt, verificationTas
     content = (
       <>
         <WorkspacePanel title="Verification Task" badge={`${tasks.length} task(s)`}>
-          {tasks.length ? tasks.slice(0, 4).map((task) => (
-            <div key={task.task_id || task.token_id} className="border border-[var(--border-strong)] bg-[var(--surface-base)] p-3 mt-2">
-              <div className="flex items-center justify-between gap-3">
-                <p className="caption-mono status-warning">{task.sensor_id}</p>
-                <span className="industrial-badge status-warning">{task.state}</span>
+          <p className="caption-mono text-[var(--text-muted)] mb-2">
+            Role-scoped actions; actor identity client-supplied; immutable audit trail. ConfidenceOS never writes process controls.
+          </p>
+          {tasks.length ? tasks.slice(0, 4).map((task) => {
+            const legal = LEGAL_NEXT[task.state] || [];
+            const owner = task.field_checked_by || task.assigned_to || task.accepted_by;
+            return (
+              <div key={task.task_id || task.token_id} className="border border-[var(--border-strong)] bg-[var(--surface-base)] p-3 mt-2">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="caption-mono status-warning">{task.sensor_id}</p>
+                  <span className="industrial-badge status-warning">{task.state}</span>
+                </div>
+                <p className="caption-mono text-[var(--data-mono)] mt-1">{formatText(task.verification_method)}</p>
+                <p className="caption-mono text-[var(--text)] mt-1">{asList(task.evidence_required).join(' / ')}</p>
+                {owner && (
+                  <p className="label-caps text-[var(--text-muted)] mt-1">
+                    {task.accepted_by ? `accepted by ${task.accepted_by}` : task.field_checked_by ? `field-checked by ${task.field_checked_by}` : `assigned to ${task.assigned_to}`}
+                  </p>
+                )}
+                {legal.length ? (
+                  <div className="mt-3 grid grid-cols-2 gap-[1px] bg-[var(--border-strong)]">
+                    {legal.map((state) => (
+                      <button
+                        key={state}
+                        disabled={!!taskBusy}
+                        onClick={() => updateTask(task, state)}
+                        className="industrial-control bg-[var(--surface-panel)] disabled:opacity-40"
+                      >
+                        {STATE_LABEL[state] || formatText(state)}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="caption-mono status-safe mt-2">Terminal state — no further action.</p>
+                )}
+                <button
+                  onClick={() => loadAudit(task.task_id || task.token_id)}
+                  className="industrial-control bg-transparent text-[var(--text-muted)] mt-2 w-full"
+                >
+                  View audit trail
+                </button>
               </div>
-              <p className="caption-mono text-[var(--data-mono)] mt-1">{formatText(task.verification_method)}</p>
-              <p className="caption-mono text-[var(--text)] mt-1">{asList(task.evidence_required).join(' / ')}</p>
-              <div className="mt-3 grid grid-cols-2 gap-[1px] bg-[var(--border-strong)]">
-                {[
-                  ['ASSIGNED', 'Assign'],
-                  ['FIELD_CHECK_DONE', 'Field Check Done'],
-                  ['ACCEPTED', 'Accept'],
-                  ['EXPIRED', 'Expire'],
-                ].map(([state, label]) => (
-                  <button
-                    key={state}
-                    disabled={!!taskBusy || task.state === state}
-                    onClick={() => updateTask(task, state)}
-                    className="industrial-control bg-[var(--surface-panel)] disabled:opacity-40"
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )) : <ValueList values={[]} empty="No active field verification task." />}
+            );
+          }) : <ValueList values={[]} empty="No active field verification task." />}
           <input
             value={taskNote}
             onChange={(event) => setTaskNote(event.target.value)}
             className="industrial-input mt-3"
-            placeholder="Field verification note for acceptance or state change"
+            placeholder="Evidence note (required for Field Check Done / Accept)"
           />
           {taskMessage && <p className="caption-mono text-[var(--data-mono)] mt-2">{taskMessage}</p>}
+          {auditTrail.events.length > 0 && <AuditTrailTimeline events={auditTrail.events} />}
         </WorkspacePanel>
         <WorkspacePanel title="Calibration Context">
           <ValueList values={sectionItems(sections, 'calibration_context').map((item) => `${item.sensor_id}: ${item.calibration_status} - ${item.calibration_message}`)} />
@@ -720,6 +801,17 @@ function RoleWorkspace({ manifest, confidenceDebt, handoverDebt, verificationTas
         </WorkspacePanel>
         <WorkspacePanel title="Timeline Evidence">
           <ValueList values={sectionItems(sections, 'timeline_evidence').map((item) => item.message)} />
+        </WorkspacePanel>
+        <WorkspacePanel title="Verification Audit Trail" badge={`${auditTrail.events.length} event(s)`}>
+          <p className="caption-mono text-[var(--text-muted)] mb-2">
+            Immutable, time-ordered record of every field-verification state change (who, role, evidence, when). Actor identity is client-supplied; real RBAC is future work.
+          </p>
+          <button onClick={() => loadAudit(null)} className="industrial-control bg-[var(--surface-panel)] w-full">
+            Load plant verification audit trail
+          </button>
+          {auditTrail.events.length > 0
+            ? <AuditTrailTimeline events={auditTrail.events} />
+            : <p className="caption-mono text-[var(--data-mono)] mt-2">No audit events loaded yet.</p>}
         </WorkspacePanel>
         <WorkspacePanel title="Published Build ID">
           <ValueList values={sectionItems(sections, 'published_build_id').map((item) => item.build_id)} />

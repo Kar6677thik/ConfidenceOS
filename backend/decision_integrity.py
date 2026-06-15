@@ -382,8 +382,10 @@ def build_trust_dependency_graph(
 ) -> dict:
     asset_model = load_asset_model()
     relationship = mass_balance_validation(asset_model)
-    level_tag = relationship.get("validated_tag", "LT-5100")
-    flow_tags = relationship.get("source_tags", ["FI-2010", "FO-2020"])
+    # Tags are sourced from the active asset model's mass-balance relationship.
+    # Neutral fallbacks only — never literal refinery tag IDs — so model switches stay clean.
+    level_tag = relationship.get("validated_tag", "")
+    flow_tags = relationship.get("source_tags", [])
     inferred_variable = relationship.get("inferred_variable", "implied_level")
     model_decisions = affected_decisions(asset_model)
     primary_decision = next(
@@ -391,7 +393,7 @@ def build_trust_dependency_graph(
             item for item in model_decisions
             if item.get("contract_decision") != "accept_handover_without_verification"
         ),
-        affected_decision_by_contract("increase_feed", asset_model) or {},
+        {},
     )
     decision_id = primary_decision.get("id", "primary_operating_decision")
     decision_label = primary_decision.get("label", "Primary operating decision")
