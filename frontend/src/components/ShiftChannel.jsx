@@ -20,6 +20,9 @@ export default function ShiftChannel() {
   const [channel, setChannel] = useState(null);
   const [message, setMessage] = useState('');
   const [author, setAuthor] = useState('Operator');
+  const verificationTasks = channel?.verification_tasks || [];
+  const activeTasks = verificationTasks.filter((item) => item.active || item.handover_required);
+  const closedTasks = verificationTasks.filter((item) => !item.active && !item.handover_required);
 
   const refresh = () => {
     fetch(`/api/shift-channel?plant_id=${plantId}`)
@@ -67,10 +70,10 @@ export default function ShiftChannel() {
         <section className="industrial-panel border-t-0">
           <div className="industrial-panel-header">
             <h2 className="industrial-panel-title text-base">Active Verification Tasks</h2>
-            <span className="industrial-badge text-[var(--data-mono)]">{(channel?.verification_tasks || []).filter((item) => item.active).length}</span>
+            <span className="industrial-badge text-[var(--data-mono)]">{activeTasks.length}</span>
           </div>
           <div className="industrial-body space-y-[1px] bg-[var(--border-strong)]">
-            {(channel?.verification_tasks || []).filter((item) => item.active).map((task) => (
+            {activeTasks.map((task) => (
               <div key={task.task_id || task.token_id} className="bg-[var(--surface-panel)] p-3">
                 <div className="flex items-center justify-between gap-3">
                   <p className="label-caps status-warning">{task.sensor_id}</p>
@@ -78,10 +81,41 @@ export default function ShiftChannel() {
                 </div>
                 <p className="caption-mono text-[var(--data-mono)] mt-1">{task.verification_method}</p>
                 <p className="caption-mono text-[var(--text)] mt-1">{(task.evidence_required || []).join(' / ')}</p>
+                {!!task.last_evidence_summary && (
+                  <p className="caption-mono text-[var(--text-muted)] mt-1">evidence: {task.last_evidence_summary}</p>
+                )}
+                <p className="label-caps text-[var(--text-muted)] mt-1">
+                  confidence override: no / usable as reference: {task.usable_as_reference ? 'yes' : 'no'}
+                </p>
               </div>
             ))}
-            {!(channel?.verification_tasks || []).some((item) => item.active) && (
+            {!activeTasks.length && (
               <p className="bg-[var(--surface-panel)] p-3 caption-mono text-[var(--data-mono)]">No active field verification tasks.</p>
+            )}
+          </div>
+        </section>
+        <section className="industrial-panel border-t-0">
+          <div className="industrial-panel-header">
+            <h2 className="industrial-panel-title text-base">Recent Verification History</h2>
+            <span className="industrial-badge text-[var(--data-mono)]">{closedTasks.length}</span>
+          </div>
+          <div className="industrial-body space-y-[1px] bg-[var(--border-strong)]">
+            {closedTasks.slice(0, 5).map((task) => (
+              <div key={task.task_id || task.token_id} className="bg-[var(--surface-panel)] p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="label-caps text-[var(--data-mono)]">{task.sensor_id}</p>
+                  <span className={`industrial-badge ${task.state === 'ACCEPTED' ? 'status-safe' : 'status-warning'}`}>{task.state}</span>
+                </div>
+                <p className="caption-mono text-[var(--text-muted)] mt-1">
+                  {task.accepted_by ? `accepted by ${task.accepted_by}` : task.rejected_by ? `rejected by ${task.rejected_by}` : task.closeout_status || 'closed'}
+                </p>
+                {!!task.last_evidence_summary && (
+                  <p className="caption-mono text-[var(--data-mono)] mt-1">{task.last_evidence_summary}</p>
+                )}
+              </div>
+            ))}
+            {!closedTasks.length && (
+              <p className="bg-[var(--surface-panel)] p-3 caption-mono text-[var(--data-mono)]">No closed verification tasks yet.</p>
             )}
           </div>
         </section>

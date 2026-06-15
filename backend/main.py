@@ -28,7 +28,6 @@ import json
 import math
 import os
 import time
-import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from contextlib import asynccontextmanager
@@ -48,7 +47,7 @@ from database import (
     log_anomaly, get_recent_anomalies,
     log_confidence, log_shift_handover,
     get_confidence_history,
-    log_verification_event, get_verification_audit,
+    get_verification_audit,
 )
 from plants import PlantManager, UnknownPlantError
 from mass_balance import DEFAULT_TOLERANCE
@@ -66,9 +65,14 @@ from decision_integrity import (
     build_handover_debt,
     build_score_sensitivity,
     build_trust_dependency_graph,
-    ensure_verification_tasks,
     normalize_verification_task,
     update_confidence_debt,
+)
+from verification_service import (
+    create_task as create_verification_task,
+    list_tasks as list_verification_tasks,
+    sync_auto_tasks,
+    transition_task as transition_verification_task,
 )
 from studio_service import (
     assign_template as studio_assign_template,
@@ -84,6 +88,8 @@ from studio_service import (
     mapping_court_detail as studio_mapping_court_detail,
     mapping_court_items as studio_mapping_court,
     manual_map_raw_tag as studio_manual_map_raw_tag,
+    persisted_build_artifacts as studio_persisted_build_artifacts,
+    persisted_import_batches as studio_persisted_import_batches,
     publish as studio_publish,
     reset as studio_reset,
     runtime_manifest as studio_runtime_manifest,
@@ -147,6 +153,13 @@ class VerificationTokenRequest(BaseModel):
     valid_minutes: float = 30.0
     note: str = ""
 
+class VerificationEvidenceRequest(BaseModel):
+    method: Optional[str] = None
+    field_reading_value: Optional[float] = None
+    field_reading_unit: Optional[str] = None
+    technician_note: Optional[str] = None
+    attachment_ref: Optional[str] = None
+
 class VerificationTaskUpdateRequest(BaseModel):
     task_id: str
     state: str
@@ -155,6 +168,7 @@ class VerificationTaskUpdateRequest(BaseModel):
     actor: Optional[str] = None        # client-supplied identity (no real auth yet)
     actor_role: Optional[str] = None   # Operator / Maintenance / Engineer / Manager / Auditor
     evidence_note: str = ""            # required for FIELD_CHECK_DONE and ACCEPTED
+    evidence: Optional[VerificationEvidenceRequest] = None
 
 class StudioTemplateAssignmentRequest(BaseModel):
     asset_id: str
@@ -372,12 +386,13 @@ async def _plant_tick_loop(plant_id: str, plant):
                     plant_context=plant.latest_context,
                 )
                 plant.latest_incidents = annotate_incidents_for_handover(plant.latest_incidents)
-                plant.verification_tokens = ensure_verification_tasks(
-                    plant.verification_tokens,
-                    plant.latest_incidents,
-                    confidence_data,
-                    plant.latest_context,
-                    now,
+                plant.verification_tokens = sync_auto_tasks(
+                    db,
+                    plant_id=plant_id,
+                    incidents=plant.latest_incidents,
+                    confidence=confidence_data,
+                    plant_context=plant.latest_context,
+                    now=now,
                 )
                 plant.latest_confidence_debt = update_confidence_debt(
                     plant.confidence_debt_state,
@@ -584,7 +599,9 @@ def _runtime_live_state(plant_id: str, plant) -> dict:
     confidence = list(plant.latest_confidence.values())
     if confidence and any("trust_state" not in item for item in confidence):
         confidence = _derive_trust_states(confidence, plant.latest_readings, plant.latest_mb_state)
-    verification_tasks = active_verification_tokens(plant.verification_tokens, time.time())
+    now = time.time()
+    verification_tasks = [normalize_verification_task(task, now) for task in plant.verification_tokens or []]
+    active_tasks = active_verification_tokens(plant.verification_tokens, now)
     return {
         "plant_id": plant_id,
         "readings": plant.latest_readings,
@@ -594,7 +611,7 @@ def _runtime_live_state(plant_id: str, plant) -> dict:
         "plant_context": plant.latest_context,
         "incidents": plant.latest_incidents,
         "incident_timeline": plant.latest_incident_timeline,
-        "verification_tokens": verification_tasks,
+        "verification_tokens": active_tasks,
         "verification_tasks": verification_tasks,
         "handover_debt": plant.latest_handover_debt,
         "confidence_debt": plant.latest_confidence_debt,
@@ -631,7 +648,8 @@ async def sensor_stream(
             if confidence_data and any("trust_state" not in item for item in confidence_data):
                 confidence_data = _derive_trust_states(confidence_data, readings, plant.latest_mb_state)
             stale_flags = plant.startup_manager.check_stale_readings(readings, now) if readings else []
-            verification_tasks = active_verification_tokens(plant.verification_tokens, now)
+            verification_tasks = [normalize_verification_task(task, now) for task in plant.verification_tokens or []]
+            active_tasks = active_verification_tokens(plant.verification_tokens, now)
 
             await websocket.send_json({
                 "type": "sensor_update",
@@ -651,7 +669,7 @@ async def sensor_stream(
                 "plant_context": plant.latest_context,
                 "incidents": plant.latest_incidents,
                 "incident_timeline": plant.latest_incident_timeline,
-                "verification_tokens": verification_tasks,
+                "verification_tokens": active_tasks,
                 "verification_tasks": verification_tasks,
                 "handover_debt": plant.latest_handover_debt,
                 "confidence_debt": plant.latest_confidence_debt,
@@ -931,6 +949,24 @@ def post_studio_build_run():
     return studio_run_compiler_build()
 
 
+@app.get("/api/studio/build/artifacts")
+def get_studio_build_artifacts(
+    model_key: Optional[str] = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=100),
+):
+    """Return immutable SQLite receipts for recent HMI Compiler builds."""
+    return studio_persisted_build_artifacts(model_key=model_key, limit=limit)
+
+
+@app.get("/api/studio/import-batches")
+def get_studio_import_batches(
+    model_key: Optional[str] = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=100),
+):
+    """Return durable raw-tag import batch receipts used by compiler builds."""
+    return studio_persisted_import_batches(model_key=model_key, limit=limit)
+
+
 @app.get("/api/studio/template-tests")
 def get_studio_template_tests():
     """Return deterministic template smoke-test results for Studio."""
@@ -1075,17 +1111,27 @@ def get_studio_overview():
 
 
 @app.get("/api/shift-channel")
-def get_shift_channel(plant_id: str = Query(default="plant-a")):
+def get_shift_channel(plant_id: str = Query(default="plant-a"), db: Session = Depends(get_db)):
     """Return persistent shift channel with pinned unresolved operating debt."""
     plant = plant_manager.get(plant_id)
+    plant.verification_tokens = list_verification_tasks(db, plant_id=plant_id, include_closed=True)
+    plant.latest_handover_debt = build_handover_debt(
+        plant_id=plant_id,
+        incidents=plant.latest_incidents,
+        confidence=list(plant.latest_confidence.values()),
+        verification_tokens=plant.verification_tokens,
+        confidence_debt=plant.latest_confidence_debt,
+        now=time.time(),
+    )
     return build_shift_channel(plant_id, plant)
 
 
 @app.post("/api/shift-channel/note")
-def post_shift_channel_note(request: ShiftNoteRequest):
+def post_shift_channel_note(request: ShiftNoteRequest, db: Session = Depends(get_db)):
     """Add an operator note to the persistent shift channel."""
     note = add_shift_note(request.plant_id, request.author, request.message)
     plant = plant_manager.get(request.plant_id)
+    plant.verification_tokens = list_verification_tasks(db, plant_id=request.plant_id, include_closed=True)
     return {
         "note": note,
         "channel": build_shift_channel(request.plant_id, plant),
@@ -1278,33 +1324,16 @@ def create_verification_token(
     """Create a temporary field verification token without overriding confidence."""
     plant = plant_manager.get(plant_id)
     now = time.time()
-    valid_minutes = max(1.0, min(float(request.valid_minutes), 240.0))
-    valid_until = now + valid_minutes * 60.0
-    # Unique per-task suffix so two tasks for the same sensor in the same second
-    # cannot collide into one audit stream.
-    uniq = f"{int(now)}-{uuid.uuid4().hex[:6]}"
-    token = {
-        "task_id": f"verification-task:{request.sensor_id}:{uniq}",
-        "token_id": f"{plant_id}:{request.sensor_id}:{uniq}",
-        "plant_id": plant_id,
-        "sensor_id": request.sensor_id,
-        "state": "REQUESTED",
-        "assigned_role": "Maintenance",
-        "verification_method": request.verification_type,
-        "evidence_required": ["local indication", "field note", "time-stamped confirmation"],
-        "verification_type": request.verification_type,
-        "created_at": now,
-        "created_at_iso": datetime.utcfromtimestamp(now).isoformat() + "Z",
-        "valid_until": valid_until,
-        "valid_until_iso": datetime.utcfromtimestamp(valid_until).isoformat() + "Z",
-        "note": request.note,
-        "confidence_override": False,
-        "accepted_by": None,
-        "usable_as_reference": False,
-        "handover_required": True,
-        "active": True,
-    }
-    plant.verification_tokens.append(normalize_verification_task(token, now))
+    token = create_verification_task(
+        db,
+        plant_id=plant_id,
+        sensor_id=request.sensor_id,
+        verification_type=request.verification_type,
+        valid_minutes=request.valid_minutes,
+        note=request.note,
+        source="manual",
+    )
+    plant.verification_tokens = list_verification_tasks(db, plant_id=plant_id, include_closed=True)
     plant.latest_handover_debt = build_handover_debt(
         plant_id=plant_id,
         incidents=plant.latest_incidents,
@@ -1317,19 +1346,7 @@ def create_verification_token(
         plant.latest_incident_timeline,
         _handover_debt_events(plant_id, plant.latest_handover_debt, now),
     )
-    # Audit trail: record task creation (no prior state) as the first immutable event.
-    log_verification_event(
-        db,
-        plant_id=plant_id,
-        task_id=token["task_id"],
-        to_state="REQUESTED",
-        from_state=None,
-        sensor_id=request.sensor_id,
-        actor=None,        # creation is system/UI-initiated; no actor identity
-        actor_role=None,
-        evidence_note=request.note or "Verification requested.",
-    )
-    return normalize_verification_task(token, now)
+    return token
 
 
 @app.post("/api/verification-tasks/state")
@@ -1345,7 +1362,30 @@ def update_verification_task_state(
     and (advisory) role scoping. Captures owner + timestamp per state and writes an
     immutable audit event. Never changes confidence and never writes a control.
     """
-    allowed = {"REQUESTED", "ASSIGNED", "FIELD_CHECK_DONE", "ACCEPTED", "EXPIRED"}
+    plant = plant_manager.get(plant_id)
+    now = time.time()
+    updated = transition_verification_task(
+        db,
+        plant_id=plant_id,
+        task_id=request.task_id,
+        to_state=request.state,
+        actor=request.actor or request.accepted_by,
+        actor_role=request.actor_role,
+        evidence_note=request.evidence_note or request.note,
+        evidence=request.evidence.model_dump(exclude_none=True) if request.evidence else None,
+    )
+    plant.verification_tokens = list_verification_tasks(db, plant_id=plant_id, include_closed=True)
+    plant.latest_handover_debt = build_handover_debt(
+        plant_id=plant_id,
+        incidents=plant.latest_incidents,
+        confidence=list(plant.latest_confidence.values()),
+        verification_tokens=plant.verification_tokens,
+        confidence_debt=plant.latest_confidence_debt,
+        now=now,
+    )
+    return {"status": "updated", "task": updated, "handover_debt": plant.latest_handover_debt}
+
+    allowed = {"REQUESTED", "ASSIGNED", "FIELD_CHECK_DONE", "ACCEPTED", "REJECTED", "EXPIRED"}
     state = request.state.upper()
     if state not in allowed:
         raise HTTPException(status_code=400, detail=f"state must be one of {sorted(allowed)}")
@@ -1460,24 +1500,61 @@ def get_verification_task_audit(
     }
 
 
+@app.get("/api/verification-tasks/{task_id:path}")
+def get_verification_task_detail(
+    task_id: str,
+    plant_id: str = Query(default="plant-a"),
+    db: Session = Depends(get_db),
+):
+    """Return one durable field-verification task by id."""
+    plant_manager.get(plant_id)
+    tasks = list_verification_tasks(db, plant_id=plant_id, include_closed=True)
+    for task in tasks:
+        if task.get("task_id") == task_id or task.get("token_id") == task_id:
+            return {"plant_id": plant_id, "task": task}
+    raise HTTPException(status_code=404, detail=f"No verification task '{task_id}'")
+
+
 @app.get("/api/verification-tokens")
 def get_verification_tokens(
     plant_id: str = Query(default="plant-a"),
     active_only: bool = Query(default=False),
+    include_closed: bool = Query(default=True),
+    db: Session = Depends(get_db),
 ):
-    """Return manual verification tokens. Tokens never override confidence."""
-    plant = plant_manager.get(plant_id)
-    now = time.time()
-    tokens = []
-    for token in plant.verification_tokens:
-        tokens.append(normalize_verification_task(token, now))
-    if active_only:
-        tokens = [item for item in tokens if item["active"]]
+    """Return compatibility token-shaped field verification tasks. Tasks never override confidence."""
+    plant_manager.get(plant_id)
+    tokens = list_verification_tasks(
+        db,
+        plant_id=plant_id,
+        active_only=active_only,
+        include_closed=include_closed,
+    )
     return {
         "plant_id": plant_id,
         "tokens": tokens,
         "active_count": sum(1 for item in tokens if item.get("active")),
         "confidence_override": False,
+    }
+
+
+@app.get("/api/verification-tasks")
+def get_verification_tasks(
+    plant_id: str = Query(default="plant-a"),
+    state: Optional[str] = Query(default=None),
+    include_closed: bool = Query(default=True),
+    db: Session = Depends(get_db),
+):
+    """Return durable field-verification tasks, including closed tasks by default."""
+    plant_manager.get(plant_id)
+    tasks = list_verification_tasks(db, plant_id=plant_id, include_closed=include_closed)
+    if state:
+        tasks = [task for task in tasks if task.get("state") == state.upper()]
+    return {
+        "plant_id": plant_id,
+        "tasks": tasks,
+        "count": len(tasks),
+        "active_count": sum(1 for item in tasks if item.get("active")),
     }
 
 
@@ -1557,9 +1634,10 @@ def get_latest_handover(plant_id: str = Query(default="plant-a")):
 # ─── REST: scenario control ─────────────────────────────────────────────────
 
 @app.get("/api/handover/debt")
-def get_handover_debt(plant_id: str = Query(default="plant-a")):
+def get_handover_debt(plant_id: str = Query(default="plant-a"), db: Session = Depends(get_db)):
     """Return unresolved operational debt that must survive shift handover."""
     plant = plant_manager.get(plant_id)
+    plant.verification_tokens = list_verification_tasks(db, plant_id=plant_id, include_closed=True)
     plant.latest_handover_debt = build_handover_debt(
         plant_id=plant_id,
         incidents=plant.latest_incidents,
@@ -2279,6 +2357,8 @@ def health_check():
         "plant_loops": _plant_loop_status,
         "db_status": "writing" if any(s.get("status") == "ok" for s in _plant_loop_status.values()) else "warming_up",
         "mode": plant_a.startup_manager.mode_name,
+        "scope": "judge-ready prototype; deterministic trust scoring; not a certified control or safety system",
+        "read_only_contract": "ConfidenceOS reads simulator/provider tags and generates trust-aware HMI views; it does not write control commands.",
         "modules": {
             "sensor_simulator": "active",
             "tag_provider": "active",
@@ -2297,20 +2377,28 @@ def health_check():
             "startup_manager": "active",
             "mode_inference": "active",
             "handover_generator": "active",
-            "prediction_engine": "active",
-            "nlquery_engine": "active",
+            "confidence_degradation_forecast": "demo_scope",
+            "grounded_operator_explanation": "demo_scope",
             "causal_graph": "active",
             "adaptive_thresholds": "active",
             "advisory_engine": "active",
             "incident_timeline": "active",
             "score_sensitivity": "active",
-            "verification_tokens": "active",
+            "verification_task_workflow": "sqlite_backed",
             "handover_debt": "active",
             "confidence_debt": "active",
             "trust_dependency_graph": "active",
             "compliance_pdf": "active",
             "forensics_replay": "active",
             "sandbox": "active",
-            "fleet_manager": "active",
+            "instrument_integrity_overview": "demo_scope",
+        },
+        "module_details": {
+            "hmi_compiler": "Raw tags -> asset graph -> template binding -> validation -> generated manifest -> publish readiness -> Runtime.",
+            "studio_persistence": "Active Studio state is lightweight JSON; import batches and HMI build artifacts are mirrored as immutable SQLite receipts.",
+            "confidence_engine": "Governed deterministic trust rubric, not a calibrated probability of correctness.",
+            "ai_configuration": "AI explanations are optional; deterministic rules remain authoritative; engineer approval is required before publish.",
+            "verification_workflow": "SQLite-backed task lifecycle with immutable audit events; tasks never override confidence.",
+            "industrial_integration": "Read-only trust-aware HMI layer beside existing DCS/HMI; OPC UA provider remains a planned read-only boundary.",
         },
     }

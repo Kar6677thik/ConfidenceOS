@@ -590,17 +590,30 @@ function AuditTrailTimeline({ events }) {
 const LEGAL_NEXT = {
   REQUESTED: ['ASSIGNED', 'EXPIRED'],
   ASSIGNED: ['FIELD_CHECK_DONE', 'EXPIRED'],
-  FIELD_CHECK_DONE: ['ACCEPTED', 'EXPIRED'],
+  FIELD_CHECK_DONE: ['ACCEPTED', 'REJECTED', 'EXPIRED'],
+  REJECTED: ['ASSIGNED', 'EXPIRED'],
   ACCEPTED: [],
   EXPIRED: [],
 };
-const EVIDENCE_REQUIRED_STATES = new Set(['FIELD_CHECK_DONE', 'ACCEPTED']);
+const EVIDENCE_REQUIRED_STATES = new Set(['FIELD_CHECK_DONE', 'ACCEPTED', 'REJECTED']);
 const STATE_LABEL = {
   ASSIGNED: 'Assign to me',
   FIELD_CHECK_DONE: 'Field Check Done',
   ACCEPTED: 'Accept Field Check',
+  REJECTED: 'Reject / Reopen Required',
   EXPIRED: 'Expire',
 };
+const ROLE_TRANSITIONS = {
+  Maintenance: new Set(['ASSIGNED', 'FIELD_CHECK_DONE', 'EXPIRED']),
+  Engineer: new Set(['ASSIGNED', 'ACCEPTED', 'REJECTED', 'EXPIRED']),
+  Manager: new Set(['ASSIGNED', 'ACCEPTED', 'REJECTED', 'EXPIRED']),
+};
+
+function legalTransitionsForRole(state, role) {
+  const allowedForState = LEGAL_NEXT[state] || [];
+  const allowedForRole = ROLE_TRANSITIONS[role] || new Set();
+  return allowedForState.filter((item) => allowedForRole.has(item));
+}
 
 function RoleWorkspace({ manifest, confidenceDebt, handoverDebt, verificationTasks }) {
   const sections = manifest?.role_sections || [];
@@ -672,7 +685,7 @@ function RoleWorkspace({ manifest, confidenceDebt, handoverDebt, verificationTas
             Role-scoped actions; actor identity client-supplied; immutable audit trail. ConfidenceOS never writes process controls.
           </p>
           {tasks.length ? tasks.slice(0, 4).map((task) => {
-            const legal = LEGAL_NEXT[task.state] || [];
+            const legal = legalTransitionsForRole(task.state, role);
             const owner = task.field_checked_by || task.assigned_to || task.accepted_by;
             return (
               <div key={task.task_id || task.token_id} className="border border-[var(--border-strong)] bg-[var(--surface-base)] p-3 mt-2">
@@ -737,8 +750,52 @@ function RoleWorkspace({ manifest, confidenceDebt, handoverDebt, verificationTas
     );
   } else if (role === 'Engineer') {
     const provenance = sectionItems(sections, 'build_publish_provenance')[0] || {};
+    const reviewTasks = (verificationTasks || []).filter((task) => ['FIELD_CHECK_DONE', 'REJECTED', 'ASSIGNED'].includes(task.state));
     content = (
       <>
+        <WorkspacePanel title="Verification Review" badge={`${reviewTasks.length} task(s)`}>
+          <p className="caption-mono text-[var(--text-muted)] mb-2">
+            Engineer/Manager acceptance is separate from Maintenance field check. Evidence note required for accept or reject.
+          </p>
+          {reviewTasks.length ? reviewTasks.slice(0, 4).map((task) => {
+            const legal = legalTransitionsForRole(task.state, role);
+            return (
+              <div key={task.task_id || task.token_id} className="border border-[var(--border-strong)] bg-[var(--surface-base)] p-3 mt-2">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="caption-mono status-warning">{task.sensor_id}</p>
+                  <span className="industrial-badge status-warning">{task.state}</span>
+                </div>
+                <p className="caption-mono text-[var(--data-mono)] mt-1">{task.last_evidence_summary || task.note || 'Awaiting structured field evidence.'}</p>
+                <div className="mt-3 grid grid-cols-2 gap-[1px] bg-[var(--border-strong)]">
+                  {legal.map((state) => (
+                    <button
+                      key={state}
+                      disabled={!!taskBusy}
+                      onClick={() => updateTask(task, state)}
+                      className="industrial-control bg-[var(--surface-panel)] disabled:opacity-40"
+                    >
+                      {STATE_LABEL[state] || formatText(state)}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  onClick={() => loadAudit(task.task_id || task.token_id)}
+                  className="industrial-control bg-transparent text-[var(--text-muted)] mt-2 w-full"
+                >
+                  View audit trail
+                </button>
+              </div>
+            );
+          }) : <ValueList values={[]} empty="No verification tasks awaiting engineer review." />}
+          <input
+            value={taskNote}
+            onChange={(event) => setTaskNote(event.target.value)}
+            className="industrial-input mt-3"
+            placeholder="Engineer evidence note for acceptance/rejection"
+          />
+          {taskMessage && <p className="caption-mono text-[var(--data-mono)] mt-2">{taskMessage}</p>}
+          {auditTrail.events.length > 0 && <AuditTrailTimeline events={auditTrail.events} />}
+        </WorkspacePanel>
         <WorkspacePanel title="Signal Binding" badge={`${sectionItems(sections, 'signal_mapping').length} signal(s)`}>
           <ValueList values={sectionItems(sections, 'signal_mapping').map((item) => `${item.tag}: ${item.role || item.sensor_type} -> ${item.equipment_id}`)} />
         </WorkspacePanel>
@@ -779,6 +836,7 @@ function RoleWorkspace({ manifest, confidenceDebt, handoverDebt, verificationTas
       state: handoverDebt?.handover_acceptance || 'unblocked',
       blocking_items: handoverDebt?.count || 0,
     };
+    const reviewTasks = (verificationTasks || []).filter((task) => task.handover_required || ['FIELD_CHECK_DONE', 'REJECTED', 'ASSIGNED'].includes(task.state));
     content = (
       <>
         <WorkspacePanel title="Unresolved Handover Debt" badge={`${sectionItems(sections, 'unresolved_handover_debt').length || handoverDebt?.count || 0}`}>
@@ -798,6 +856,61 @@ function RoleWorkspace({ manifest, confidenceDebt, handoverDebt, verificationTas
             empty="No verification task is blocking handover acceptance."
             status="status-warning"
           />
+        </WorkspacePanel>
+        <WorkspacePanel title="Verification Acceptance Gate" badge={`${reviewTasks.length} task(s)`}>
+          <p className="caption-mono text-[var(--text-muted)] mb-2">
+            Manager can accept or reject completed field evidence; Auditor view is read-only. Handover remains blocked while required verification is unresolved.
+          </p>
+          {reviewTasks.length ? reviewTasks.slice(0, 5).map((task) => {
+            const legal = legalTransitionsForRole(task.state, role);
+            return (
+              <div key={task.task_id || task.token_id} className="border border-[var(--border-strong)] bg-[var(--surface-base)] p-3 mt-2">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="caption-mono status-warning">{task.sensor_id}</p>
+                  <span className="industrial-badge status-warning">{task.state}</span>
+                </div>
+                <p className="caption-mono text-[var(--data-mono)] mt-1">
+                  {task.last_evidence_summary || task.note || 'No field evidence accepted yet.'}
+                </p>
+                <p className="label-caps text-[var(--text-muted)] mt-1">
+                  clears handover when ACCEPTED or EXPIRED
+                </p>
+                {legal.length ? (
+                  <div className="mt-3 grid grid-cols-2 gap-[1px] bg-[var(--border-strong)]">
+                    {legal.map((state) => (
+                      <button
+                        key={state}
+                        disabled={!!taskBusy}
+                        onClick={() => updateTask(task, state)}
+                        className="industrial-control bg-[var(--surface-panel)] disabled:opacity-40"
+                      >
+                        {STATE_LABEL[state] || formatText(state)}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="caption-mono text-[var(--text-muted)] mt-2">
+                    {role === 'Auditor' ? 'Read-only audit role.' : 'No legal transition from this state.'}
+                  </p>
+                )}
+                <button
+                  onClick={() => loadAudit(task.task_id || task.token_id)}
+                  className="industrial-control bg-transparent text-[var(--text-muted)] mt-2 w-full"
+                >
+                  View audit trail
+                </button>
+              </div>
+            );
+          }) : <ValueList values={[]} empty="No verification task is blocking handover acceptance." />}
+          {role === 'Manager' && (
+            <input
+              value={taskNote}
+              onChange={(event) => setTaskNote(event.target.value)}
+              className="industrial-input mt-3"
+              placeholder="Manager acceptance/rejection evidence note"
+            />
+          )}
+          {taskMessage && <p className="caption-mono text-[var(--data-mono)] mt-2">{taskMessage}</p>}
         </WorkspacePanel>
         <WorkspacePanel title="Timeline Evidence">
           <ValueList values={sectionItems(sections, 'timeline_evidence').map((item) => item.message)} />

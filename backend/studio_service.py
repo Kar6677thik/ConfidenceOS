@@ -11,10 +11,19 @@ from pathlib import Path
 
 from hmi_compiler import imported_tag_buckets, mapping_court, mapping_court_for_tag, run_build
 from asset_model import available_asset_models, set_active_asset_model
+from hmi_compiler import load_imported_tags
 from model_graph import equipment_signals, get_assets, get_model_graph, get_signals
 from screen_generator import generate_screen_manifest
 from template_library import get_template_catalog, validate_assignments
 from template_tests import run_template_tests
+from database import (
+    SessionLocal,
+    list_hmi_build_artifacts,
+    list_import_batches,
+    mark_hmi_build_published,
+    record_hmi_build_artifact,
+    record_import_batch,
+)
 import ai_mapping as _ai
 
 
@@ -290,6 +299,7 @@ def publish() -> dict:
         state["last_published_at"] = time.time()
         state["published_manifest"] = build.get("generated_manifest", {})
         save_state(state)
+        _mark_published_build(build.get("build_id"))
         return {
             "status": "published",
             "published_build_id": state["published_build_id"],
@@ -368,10 +378,14 @@ def run_compiler_build() -> dict:
     state = get_state()
     state["build_counter"] = int(state.get("build_counter", 0)) + 1
     build_id = f"hmi-build-{state['build_counter']:04d}"
+    import_batch_id = _record_current_import_batch(state, build_id)
     build = run_build(state, build_id=build_id)
+    build["import_batch_id"] = import_batch_id
     state["last_build_id"] = build_id
     state["last_build"] = build
+    state["last_import_batch_id"] = import_batch_id
     save_state(state)
+    _record_build_artifact(build, state, import_batch_id)
     return build
 
 
@@ -503,6 +517,15 @@ async def import_arbitrary_tags(raw_tag_list: list[str]) -> dict:
     """
     state = get_state()
     model_context = _model_context_for_ai(state)
+    import_batch_id = f"manual-import-{int(time.time())}"
+    _record_import_batch(
+        import_batch_id,
+        state.get("selected_asset_model"),
+        raw_tag_list,
+        source="studio_manual_import",
+    )
+    state["last_import_batch_id"] = import_batch_id
+    save_state(state)
 
     result = await _ai.parse_arbitrary_tags(raw_tag_list, model_context)
 
@@ -529,9 +552,33 @@ async def import_arbitrary_tags(raw_tag_list: list[str]) -> dict:
         "proposals": enriched_proposals,
         "unresolved": result.get("unresolved", []),
         "model": result.get("model"),
+        "import_batch_id": import_batch_id,
         "approval_required": True,
         "note": "All proposals require engineer approval before publish.",
     }
+
+
+def persisted_build_artifacts(model_key: str | None = None, limit: int = 20) -> dict:
+    db = SessionLocal()
+    try:
+        return {
+            "build_artifacts": list_hmi_build_artifacts(db, model_key=model_key, limit=limit),
+            "storage": "sqlite",
+            "immutable_receipts": True,
+        }
+    finally:
+        db.close()
+
+
+def persisted_import_batches(model_key: str | None = None, limit: int = 20) -> dict:
+    db = SessionLocal()
+    try:
+        return {
+            "import_batches": list_import_batches(db, model_key=model_key, limit=limit),
+            "storage": "sqlite",
+        }
+    finally:
+        db.close()
 
 
 async def suggest_template_for_asset(asset_description: str) -> dict:
@@ -660,6 +707,52 @@ def _confidence_band(confidence: float) -> str:
 def _looks_like_command(tag: str) -> bool:
     normalized = re.sub(r"[^A-Z0-9]", "", str(tag).upper())
     return any(token in normalized for token in ("CMD", "RUN", "START", "STOP", "MODE"))
+
+
+def _record_current_import_batch(state: dict, build_id: str) -> str:
+    model_key = state.get("selected_asset_model", "texas_city_vessel")
+    raw_tags = [item.get("raw_tag") for item in load_imported_tags(model_key).get("tags", []) if item.get("raw_tag")]
+    import_batch_id = f"import-{model_key}-{build_id}"
+    return _record_import_batch(import_batch_id, model_key, raw_tags, source="imported_tags_demo.json")
+
+
+def _record_import_batch(import_batch_id: str, model_key: str | None, raw_tags: list[str], source: str) -> str:
+    db = SessionLocal()
+    try:
+        record_import_batch(
+            db,
+            import_batch_id=import_batch_id,
+            model_key=model_key or "texas_city_vessel",
+            raw_tags=raw_tags,
+            source=source,
+        )
+    finally:
+        db.close()
+    return import_batch_id
+
+
+def _record_build_artifact(build: dict, state: dict, import_batch_id: str | None) -> None:
+    db = SessionLocal()
+    try:
+        record_hmi_build_artifact(
+            db,
+            build=build,
+            model_key=state.get("selected_asset_model", "texas_city_vessel"),
+            import_batch_id=import_batch_id,
+            state_revision=state.get("revision"),
+        )
+    finally:
+        db.close()
+
+
+def _mark_published_build(build_id: str | None) -> None:
+    if not build_id:
+        return
+    db = SessionLocal()
+    try:
+        mark_hmi_build_published(db, build_id)
+    finally:
+        db.close()
 
 
 def _default_state() -> dict:

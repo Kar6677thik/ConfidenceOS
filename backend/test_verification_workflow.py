@@ -11,6 +11,7 @@ Run from backend directory:
 
 import os
 import sys
+from datetime import datetime, timezone
 
 # Use an isolated SQLite file so tests never touch the demo DB. Must be set
 # before importing database/main (engine is created at import time).
@@ -20,6 +21,7 @@ from fastapi.testclient import TestClient
 
 from database import init_db
 import main
+from verification_service import sync_auto_tasks
 
 
 def check(name: str, condition: bool, info: str = ""):
@@ -123,6 +125,60 @@ def test_audit_is_append_only_across_tasks(client):
     check("task2 audit isolated (1 event)", a2["count"] == 1, f"got {a2['count']}")
 
 
+def test_fake_sensor_rejected(client):
+    resp = client.post(
+        "/api/verification-tokens",
+        params={"plant_id": "plant-a"},
+        json={"sensor_id": "FAKE-SENSOR-999", "verification_type": "field_check", "valid_minutes": 30, "note": "bad"},
+    )
+    check("fake sensor verification task rejected", resp.status_code == 422, resp.text)
+
+
+def test_auto_task_creation_is_audited(client):
+    db = next(main.get_db())
+    try:
+        tasks = sync_auto_tasks(
+            db,
+            plant_id="plant-a",
+            incidents=[],
+            confidence=[{
+                "sensor_id": "PT-3100",
+                "tier": "LOW",
+                "trust_state": "QUARANTINED",
+                "decision_basis_allowed": False,
+            }],
+            plant_context={"state": "MANUAL_VERIFICATION_REQUIRED"},
+            now=1_700_000_000,
+        )
+    finally:
+        db.close()
+    task_id = next(item["task_id"] for item in tasks if item["sensor_id"] == "PT-3100")
+    audit = client.get("/api/verification-tasks/audit", params={"plant_id": "plant-a", "task_id": task_id})
+    states = [event["to_state"] for event in audit.json()["events"]]
+    check("auto task REQUESTED event audited", states == ["REQUESTED"], f"got {states}")
+
+
+def test_expiration_is_audited(client):
+    resp = client.post(
+        "/api/verification-tokens",
+        params={"plant_id": "plant-a"},
+        json={"sensor_id": "FI-2010", "verification_type": "field_check", "valid_minutes": 1, "note": "expires"},
+    )
+    task_id = resp.json()["task_id"]
+    db = next(main.get_db())
+    try:
+        from database import VerificationTask
+        task = db.query(VerificationTask).filter(VerificationTask.task_id == task_id).one()
+        task.valid_until = datetime.fromtimestamp(0, timezone.utc).replace(tzinfo=None)
+        db.commit()
+    finally:
+        db.close()
+    client.get("/api/verification-tokens", params={"plant_id": "plant-a", "active_only": False})
+    audit = client.get("/api/verification-tasks/audit", params={"plant_id": "plant-a", "task_id": task_id})
+    states = [event["to_state"] for event in audit.json()["events"]]
+    check("expiration event audited", states[-1] == "EXPIRED", f"got {states}")
+
+
 def run_all():
     init_db()
     # No context manager → lifespan (and background tick loops) do not start.
@@ -142,6 +198,13 @@ def run_all():
 
     print("\n-- Audit trail isolation by task ------------------------")
     test_audit_is_append_only_across_tasks(client)
+
+    print("\n-- Sensor validation ------------------------------------")
+    test_fake_sensor_rejected(client)
+
+    print("\n-- Auto task and expiry audit coverage ------------------")
+    test_auto_task_creation_is_audited(client)
+    test_expiration_is_audited(client)
 
     print("\nAll verification-workflow tests passed.\n")
 

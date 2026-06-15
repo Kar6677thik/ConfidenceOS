@@ -51,8 +51,8 @@ const useStore = create((set, get) => ({
   plantContext: null,     // advisory context inferred by backend
   incidents: [],          // fused advisory incidents
   incidentTimeline: [],    // lightweight decision-integrity events
-  verificationTokens: [],  // active manual field verification tokens
-  verificationTasks: [],   // field verification task lifecycle records
+  verificationTokens: [],  // compatibility: active field verification tasks
+  verificationTasks: [],   // full field verification task lifecycle records
   handoverDebt: null,      // unresolved operational debt ledger
   confidenceDebt: [],      // confidence-hours maintenance priority data
   timestamp: null,        // last update timestamp
