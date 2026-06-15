@@ -58,7 +58,7 @@ export default function NavBar() {
           ConfidenceOS
         </NavLink>
         <div className="hidden md:block h-8 w-px bg-[var(--border-strong)]" />
-        <nav className="flex items-center gap-7 overflow-x-auto">
+        <nav className="flex items-center gap-7 overflow-x-auto min-w-0">
           {visibleItems.map((item) => (
             <NavLink
               key={item.path}
@@ -75,7 +75,7 @@ export default function NavBar() {
               onChange={(event) => {
                 if (event.target.value) navigate(event.target.value);
               }}
-              className="industrial-control bg-transparent max-w-[200px] opacity-70 hover:opacity-100 transition-opacity text-[var(--text-muted)]"
+              className="industrial-control bg-transparent max-w-[200px] shrink-0 opacity-70 hover:opacity-100 transition-opacity text-[var(--text-muted)]"
               aria-label="Analysis views"
               title="Secondary analysis views — not part of the primary demo path"
             >

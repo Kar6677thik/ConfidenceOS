@@ -51,7 +51,7 @@ export default function ShiftChannel() {
 
   return (
     <div className="industrial-page grid grid-cols-[420px_1fr] gap-[1px] bg-[var(--border-strong)] overflow-hidden">
-      <aside className="bg-[var(--surface-panel)] overflow-y-auto scrollbar-thin">
+      <aside className="bg-[var(--surface-panel)] overflow-y-auto overflow-x-hidden scrollbar-thin">
         <section className="industrial-panel border-t-0">
           <div className="industrial-panel-header">
             <div>
@@ -76,7 +76,7 @@ export default function ShiftChannel() {
             {activeTasks.map((task) => (
               <div key={task.task_id || task.token_id} className="bg-[var(--surface-panel)] p-3">
                 <div className="flex items-center justify-between gap-3">
-                  <p className="label-caps status-warning">{task.sensor_id}</p>
+                  <p className="label-caps status-warning min-w-0 truncate" title={task.sensor_id}>{task.sensor_id}</p>
                   <span className="industrial-badge status-warning">{task.state}</span>
                 </div>
                 <p className="caption-mono text-[var(--data-mono)] mt-1">{task.verification_method}</p>
@@ -138,7 +138,7 @@ export default function ShiftChannel() {
         </section>
       </aside>
 
-      <main className="bg-[var(--surface-base)] p-[1px] overflow-y-auto scrollbar-thin">
+      <main className="bg-[var(--surface-base)] p-[1px] overflow-y-auto overflow-x-hidden scrollbar-thin">
         <section className="industrial-panel mb-[1px]">
           <div className="industrial-panel-header">
             <div>
@@ -161,10 +161,10 @@ export default function ShiftChannel() {
             {(channel?.thread || []).map((item) => (
               <div key={item.id} className="bg-[var(--surface-panel)] p-4">
                 <div className="flex items-center justify-between gap-3">
-                  <p className={`label-caps ${severityClass(item.severity)}`}>{item.author || 'ConfidenceOS'} / {item.type}</p>
-                  <span className="caption-mono text-[var(--data-mono)]">{eventTime(item.timestamp)}</span>
+                  <p className={`label-caps min-w-0 truncate ${severityClass(item.severity)}`} title={`${item.author || 'ConfidenceOS'} / ${item.type}`}>{item.author || 'ConfidenceOS'} / {item.type}</p>
+                  <span className="caption-mono text-[var(--data-mono)] shrink-0">{eventTime(item.timestamp)}</span>
                 </div>
-                <p className="text-[var(--text)] mt-2">{item.message}</p>
+                <p className="text-[var(--text)] mt-2 [overflow-wrap:anywhere]">{item.message}</p>
               </div>
             ))}
             {(!channel?.thread || channel.thread.length === 0) && (

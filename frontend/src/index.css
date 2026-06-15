@@ -76,6 +76,10 @@ button:disabled { cursor: not-allowed; }
 .font-data, .caption-mono {
   font-family: Geist, ui-monospace, 'JetBrains Mono', Consolas, monospace;
   font-variant-numeric: tabular-nums;
+  /* Allow long unbroken IDs/tags to wrap instead of spilling, and let these
+     shrink when used as flex/grid children. */
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .label-caps {
@@ -84,6 +88,7 @@ button:disabled { cursor: not-allowed; }
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
+  overflow-wrap: anywhere;
 }
 
 .caption-mono {
@@ -169,6 +174,7 @@ button:disabled { cursor: not-allowed; }
   font-size: 14px;
   font-weight: 500;
   text-decoration: none;
+  white-space: nowrap;
   border-bottom: 2px solid transparent;
   transition: color 0.2s;
 }
@@ -227,6 +233,8 @@ button:disabled { cursor: not-allowed; }
   font-size: 18px;
   line-height: 24px;
   font-weight: 600;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .industrial-body { padding: 20px; }
@@ -269,6 +277,11 @@ button:disabled { cursor: not-allowed; }
   letter-spacing: 0.05em;
   text-transform: uppercase;
   border-radius: 2px;
+  /* Keep badge shape intact and force sibling text to yield instead of the
+     badge wrapping or clipping in justify-between rows. */
+  flex-shrink: 0;
+  white-space: nowrap;
+  max-width: 100%;
 }
 
 /* ── Controls ───────────────────────────────────────────────────────────── */
@@ -289,6 +302,10 @@ button:disabled { cursor: not-allowed; }
   letter-spacing: 0.04em;
   text-transform: uppercase;
   border-radius: 2px;
+  /* Button labels stay on one line; clip with ellipsis rather than wrap. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .industrial-control:hover { border-color: var(--primary); background: var(--bg-elevated); }
@@ -297,6 +314,7 @@ button:disabled { cursor: not-allowed; }
 .industrial-input {
   min-height: 36px;
   width: 100%;
+  min-width: 0;
   padding: 8px 10px;
   font-family: Geist, ui-monospace, monospace;
   font-size: 13px;

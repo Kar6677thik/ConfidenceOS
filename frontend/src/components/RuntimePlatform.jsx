@@ -153,7 +153,7 @@ function TrustMapNavigation({ navigation, faceplates, selected, onSelect, trustM
   const faceplateById = Object.fromEntries((faceplates || []).map((item) => [item.equipment_id, item]));
 
   return (
-    <aside className="bg-[var(--surface-panel)] border-r border-[var(--border-strong)] overflow-y-auto scrollbar-thin">
+    <aside className="bg-[var(--surface-panel)] border-r border-[var(--border-strong)] overflow-y-auto overflow-x-hidden scrollbar-thin">
       <div className="industrial-panel-header">
         <div>
           <p className="label-caps text-[var(--text-muted)]">Trust Map Navigation</p>
@@ -208,16 +208,16 @@ function TrustMapNavigation({ navigation, faceplates, selected, onSelect, trustM
                             className={`w-full text-left border p-3 ${selected === equipmentId ? 'border-[var(--safe)] bg-[var(--surface-elevated)]' : 'border-[var(--border-strong)] bg-[var(--surface-panel)]'}`}
                           >
                             <div className="flex items-center justify-between gap-2">
-                              <span className="caption-mono text-[var(--text)]">{equipmentId}</span>
+                              <span className="caption-mono text-[var(--text)] min-w-0 truncate" title={equipmentId}>{equipmentId}</span>
                               <span className={`industrial-badge ${hotspotCount ? 'status-warning' : 'status-safe'}`}>
                                 {hotspotCount ? `${hotspotCount} hotspot` : 'normal'}
                               </span>
                             </div>
-                            <div className="mt-2 flex flex-wrap gap-2">
+                            <div className="mt-2 flex flex-wrap gap-2 min-w-0">
                               {signals.slice(0, 4).map((signal) => {
                                 const trust = signalTrustState(signal);
                                 return (
-                                  <span key={signal.tag} className={`industrial-badge ${statusClass(trust.tier)}`}>
+                                  <span key={signal.tag} className={`industrial-badge ${statusClass(trust.tier)} max-w-full truncate`} title={signal.tag}>
                                     {signal.tag}
                                   </span>
                                 );
@@ -399,8 +399,8 @@ function GeneratedFaceplate({ faceplate, selected, onSelect }) {
           return (
             <div key={signal.tag} className="bg-[var(--surface-base)] p-3">
               <div className="flex items-center justify-between gap-2">
-                <p className="font-data text-[var(--text)]">{signal.tag}</p>
-                <div className="flex items-center gap-1">
+                <p className="font-data text-[var(--text)] min-w-0 truncate" title={signal.tag}>{signal.tag}</p>
+                <div className="flex items-center gap-1 shrink-0">
                   {/* Trust STATE is primary — % score is secondary detail */}
                   <span className={`label-caps font-semibold ${statusClass(trust.tier)}`}>{trust.label}</span>
                   {trust.detail && <span className="label-caps text-[var(--text-muted)]">({trust.detail})</span>}
@@ -442,7 +442,7 @@ function PressureModeRuntime({ manifest, situations, confidence }) {
   const singleMove = contract.operator_single_safe_move || basis.operator_single_safe_move || contract.first_safe_action || basis.first_safe_action;
 
   return (
-    <div className="industrial-page bg-[var(--surface-base)] overflow-y-auto scrollbar-thin">
+    <div className="industrial-page bg-[var(--surface-base)] overflow-y-auto overflow-x-hidden scrollbar-thin">
       <main className="max-w-6xl mx-auto p-[1px]">
         <section className="industrial-panel mb-[1px]">
           <div className="industrial-panel-header">
@@ -554,7 +554,7 @@ function WorkspacePanel({ title, children, badge }) {
   return (
     <div className="bg-[var(--surface-panel)] p-3">
       <div className="flex items-center justify-between gap-3">
-        <p className="label-caps text-[var(--text)]">{title}</p>
+        <p className="label-caps text-[var(--text)] min-w-0">{title}</p>
         {badge && <span className="industrial-badge text-[var(--data-mono)]">{badge}</span>}
       </div>
       {children}
@@ -566,14 +566,14 @@ function AuditTrailTimeline({ events }) {
   return (
     <div className="mt-3 border border-[var(--border-strong)] bg-[var(--surface-panel)] p-3">
       <p className="label-caps text-[var(--text-muted)] mb-2">Immutable Audit Trail</p>
-      <div className="space-y-[1px] bg-[var(--border-strong)]">
+      <div className="space-y-[1px] bg-[var(--border-strong)] max-h-64 overflow-y-auto overflow-x-hidden scrollbar-thin">
         {events.map((event) => (
           <div key={event.id} className="bg-[var(--surface-base)] p-2">
             <div className="flex items-center justify-between gap-2">
-              <span className="caption-mono text-[var(--text)]">
+              <span className="caption-mono text-[var(--text)] min-w-0 truncate">
                 {event.from_state ? `${event.from_state} → ` : ''}{event.to_state}
               </span>
-              <span className="label-caps text-[var(--text-muted)]">
+              <span className="label-caps text-[var(--text-muted)] shrink-0 truncate max-w-[50%]" title={`${event.actor || 'system'}${event.actor_role ? ` · ${event.actor_role}` : ''}`}>
                 {event.actor || 'system'}{event.actor_role ? ` · ${event.actor_role}` : ''}
               </span>
             </div>
@@ -690,7 +690,7 @@ function RoleWorkspace({ manifest, confidenceDebt, handoverDebt, verificationTas
             return (
               <div key={task.task_id || task.token_id} className="border border-[var(--border-strong)] bg-[var(--surface-base)] p-3 mt-2">
                 <div className="flex items-center justify-between gap-3">
-                  <p className="caption-mono status-warning">{task.sensor_id}</p>
+                  <p className="caption-mono status-warning min-w-0 truncate" title={task.sensor_id}>{task.sensor_id}</p>
                   <span className="industrial-badge status-warning">{task.state}</span>
                 </div>
                 <p className="caption-mono text-[var(--data-mono)] mt-1">{formatText(task.verification_method)}</p>
@@ -1078,7 +1078,7 @@ export default function RuntimePlatform() {
         onSelect={setSelected}
         trustMap={trustMap}
       />
-      <main className="bg-[var(--surface-base)] p-[1px] overflow-y-auto scrollbar-thin">
+      <main className="bg-[var(--surface-base)] p-[1px] overflow-y-auto overflow-x-hidden scrollbar-thin">
         <RuntimeHeader manifest={manifest} role={role} plantContext={plantContext} connected={connected} />
         <DemoPathStrip />
         <OperatingBasisLedger basisLines={basisLines} />
@@ -1103,7 +1103,7 @@ export default function RuntimePlatform() {
           </div>
         </section>
       </main>
-      <aside className="bg-[var(--surface-panel)] overflow-y-auto scrollbar-thin">
+      <aside className="bg-[var(--surface-panel)] overflow-y-auto overflow-x-hidden scrollbar-thin">
         <section className="industrial-panel border-t-0">
           <div className="industrial-panel-header">
             <div>

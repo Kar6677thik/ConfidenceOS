@@ -394,7 +394,7 @@ function PasteImportPanel({ busy, onImportResult }) {
         </button>
       </div>
       {result && !result.error && (
-        <div className="mt-4 space-y-[1px] bg-[var(--border-strong)]">
+        <div className="mt-4 space-y-[1px] bg-[var(--border-strong)] max-h-96 overflow-y-auto overflow-x-hidden scrollbar-thin">
           <div className={`p-3 ${result.ai_assisted ? 'bg-[var(--surface-raised)]' : 'bg-[var(--surface-panel)]'}`}>
             <p className="label-caps text-[var(--text-muted)]">Result</p>
             <p className="caption-mono text-[var(--data-mono)] mt-1">{result.ai_label}</p>
@@ -402,7 +402,7 @@ function PasteImportPanel({ busy, onImportResult }) {
           {result.proposals?.map((prop) => (
             <div key={prop.raw_tag} className="bg-[var(--surface-panel)] p-3">
               <div className="flex items-center justify-between gap-2">
-                <p className="caption-mono text-[var(--text)]">{prop.raw_tag}</p>
+                <p className="caption-mono text-[var(--text)] min-w-0 truncate" title={prop.raw_tag}>{prop.raw_tag}</p>
                 <span className={`industrial-badge ${prop.ai_confidence_band === 'HIGH' ? 'status-safe' : prop.ai_confidence_band === 'UNCERTAIN' ? 'status-critical' : 'status-warning'}`}>
                   {prop.ai_confidence_band || prop.ai_proposed_canonical_tag ? 'PROPOSED' : 'UNRESOLVED'}
                 </span>
@@ -675,7 +675,7 @@ function ReceiptPanel({ item, label }) {
   return (
     <div className="bg-[var(--surface-panel)] p-3">
       <div className="flex items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <p className="label-caps text-[var(--text-muted)]">{label}</p>
           <p className="caption-mono text-[var(--text)] mt-1">{item?.generated_id}</p>
         </div>
@@ -932,7 +932,7 @@ export default function StudioWorkspace() {
 
   return (
     <div className="industrial-page grid grid-cols-[380px_1fr_430px] gap-[1px] bg-[var(--border-strong)] overflow-hidden">
-      <aside className="bg-[var(--surface-panel)] overflow-y-auto scrollbar-thin">
+      <aside className="bg-[var(--surface-panel)] overflow-y-auto overflow-x-hidden scrollbar-thin">
         <Panel
           eyebrow="ConfidenceOS Studio"
           title="HMI Compiler Controls"
@@ -999,7 +999,7 @@ export default function StudioWorkspace() {
         </Panel>
       </aside>
 
-      <main className="bg-[var(--surface-base)] p-[1px] overflow-y-auto scrollbar-thin">
+      <main className="bg-[var(--surface-base)] p-[1px] overflow-y-auto overflow-x-hidden scrollbar-thin">
         <CompilerPipeline build={build} />
         <MappingCourt
           item={selectedItem}
@@ -1030,7 +1030,7 @@ export default function StudioWorkspace() {
         <RuntimePreview manifest={runtimeManifest} />
       </main>
 
-      <aside className="bg-[var(--surface-panel)] overflow-y-auto scrollbar-thin">
+      <aside className="bg-[var(--surface-panel)] overflow-y-auto overflow-x-hidden scrollbar-thin">
         <PasteImportPanel busy={busy} onImportResult={() => {}} />
         <PublishGuardrails build={build} onPublish={publish} busy={busy} result={publishResult} />
         <ScreenReceipts manifest={runtimeManifest} />
