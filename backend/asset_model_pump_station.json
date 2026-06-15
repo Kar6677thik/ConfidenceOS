@@ -1,0 +1,149 @@
+{
+  "model_id": "confidenceos_pump_station_demo_v1",
+  "read_only_trust_layer": true,
+  "integration_posture": "ConfidenceOS subscribes to pump-station tags and emits trust/evidence metadata only. It is a read-only trust layer beside existing HMI/DCS and does not write pump starts, stops, setpoints, or controller modes.",
+  "hierarchy": {
+    "plant": {
+      "id": "pump-demo",
+      "name": "Pump Station Demo",
+      "type": "plant",
+      "areas": [
+        {
+          "id": "area-transfer",
+          "name": "Transfer Area",
+          "type": "area",
+          "units": [
+            {
+              "id": "unit-pump-station",
+              "name": "Pump Station Unit",
+              "type": "unit",
+              "modules": [
+                {
+                  "id": "module-transfer",
+                  "name": "Tank and Transfer Module",
+                  "type": "module",
+                  "equipment": ["TK-100", "P-101", "FG-100"]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "equipment": {
+    "equipment_id": "TK-100",
+    "name": "Suction tank TK-100",
+    "type": "process_vessel",
+    "template_id": "vessel",
+    "parent_module": "module-transfer",
+    "criticality": "high",
+    "sensor_tags": [
+      {
+        "tag": "LIT-100",
+        "name": "Tank Level",
+        "device_id": "DEV-LIT-100",
+        "sensor_type": "level",
+        "role": "primary_level",
+        "unit": "%",
+        "range": {"min": 0, "max": 100},
+        "criticality": "safety_critical"
+      },
+      {
+        "tag": "FIT-101",
+        "name": "Tank Inflow",
+        "device_id": "DEV-FIT-101",
+        "sensor_type": "flow_in",
+        "role": "mass_balance_input",
+        "unit": "m3/h",
+        "range": {"min": 0, "max": 800},
+        "criticality": "high"
+      },
+      {
+        "tag": "FIT-102",
+        "name": "Pump Discharge Flow",
+        "device_id": "DEV-FIT-102",
+        "sensor_type": "flow_out",
+        "role": "mass_balance_output",
+        "unit": "m3/h",
+        "range": {"min": 0, "max": 800},
+        "criticality": "high"
+      },
+      {
+        "tag": "VIB-101",
+        "name": "Pump Vibration",
+        "device_id": "DEV-VIB-101",
+        "equipment_id": "P-101",
+        "sensor_type": "vibration",
+        "role": "device_health",
+        "unit": "mm/s",
+        "range": {"min": 0, "max": 25},
+        "criticality": "high"
+      }
+    ],
+    "relationships": [
+      {
+        "id": "tank_mass_balance_validation",
+        "type": "mass_balance_validation",
+        "source_tags": ["FIT-101", "FIT-102"],
+        "validated_tag": "LIT-100",
+        "inferred_variable": "tk100_implied_level",
+        "description": "Inflow and pump discharge flow validate whether indicated tank level is physically plausible."
+      },
+      {
+        "id": "pump_vibration_device_health",
+        "type": "device_health",
+        "source_tags": ["VIB-101"],
+        "validated_tag": "P-101",
+        "description": "Pump vibration is device-health context for transfer operation reliability."
+      }
+    ],
+    "affected_decisions": [
+      {
+        "id": "start_pump_decision",
+        "label": "Start or increase pump transfer",
+        "contract_decision": "increase_transfer_rate",
+        "depends_on": ["LIT-100", "tk100_implied_level", "VIB-101"],
+        "blocked_when": ["level_confidence_low", "mass_balance_divergence", "pump_health_suspect"]
+      },
+      {
+        "id": "handover_acceptance_decision",
+        "label": "Accept handover without verification",
+        "contract_decision": "accept_handover_without_verification",
+        "depends_on": ["LIT-100", "manual_level_check"],
+        "blocked_when": ["unresolved_decision_freeze", "active_handover_debt"]
+      }
+    ]
+  },
+  "additional_equipment": [
+    {
+      "equipment_id": "P-101",
+      "name": "Transfer pump P-101",
+      "type": "pump",
+      "template_id": "valve",
+      "parent_module": "module-transfer",
+      "criticality": "high",
+      "signal_tags": ["VIB-101", "FIT-102"]
+    },
+    {
+      "equipment_id": "FG-100",
+      "name": "Tank transfer balance group",
+      "type": "flow_pair",
+      "template_id": "flow_pair",
+      "parent_module": "module-transfer",
+      "criticality": "high",
+      "signal_tags": ["FIT-101", "FIT-102"]
+    }
+  ],
+  "graph_relationships": [
+    {"source": "FIT-101", "target": "TK-100", "type": "feeds"},
+    {"source": "FIT-102", "target": "TK-100", "type": "drains"},
+    {"source": "LIT-100", "target": "TK-100", "type": "measured_by"},
+    {"source": "VIB-101", "target": "P-101", "type": "measured_by"},
+    {"source": "P-101", "target": "FIT-102", "type": "controlled_by"},
+    {"source": "FIT-101", "target": "tk100_implied_level", "type": "mass_balance_group"},
+    {"source": "FIT-102", "target": "tk100_implied_level", "type": "mass_balance_group"},
+    {"source": "tk100_implied_level", "target": "LIT-100", "type": "validates"},
+    {"source": "start_pump_decision", "target": "P-101", "type": "affects_decision"}
+  ]
+}

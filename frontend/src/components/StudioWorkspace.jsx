@@ -557,6 +557,29 @@ export default function StudioWorkspace() {
     setActionMessage(`${selectedItem.raw_tag} remains blocking. Publish stays disabled.`);
   });
 
+  const switchAssetModel = (modelKey) => runAction(async () => {
+    await fetchJson('/api/studio/asset-model', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model_key: modelKey }),
+    });
+    setPreview(null);
+    setPublishResult(null);
+    setSelectedRawTag('');
+    setActionMessage('Asset model switched. Run build to compile the selected model.');
+  });
+
+  const toggleVerificationMutation = (enabled) => runAction(async () => {
+    await fetchJson('/api/studio/template-mutation', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ require_manual_verification_when_level_quarantined: enabled }),
+    });
+    setPreview(null);
+    setPublishResult(null);
+    setActionMessage('Template mutation updated. Run build to see publish diff and receipts.');
+  });
+
   return (
     <div className="industrial-page grid grid-cols-[380px_1fr_430px] gap-[1px] bg-[var(--border-strong)] overflow-hidden">
       <aside className="bg-[var(--surface-panel)] overflow-y-auto scrollbar-thin">
@@ -567,6 +590,38 @@ export default function StudioWorkspace() {
           className="border-t-0"
         >
           <div className="space-y-3">
+            <div>
+              <label className="label-caps text-[var(--text-muted)]" htmlFor="asset-model-select">Asset Model</label>
+              <select
+                id="asset-model-select"
+                value={overview?.selected_asset_model || overview?.state?.selected_asset_model || 'texas_city_vessel'}
+                onChange={(event) => switchAssetModel(event.target.value)}
+                className="industrial-input mt-2"
+                disabled={busy}
+              >
+                {(overview?.asset_models || [
+                  { key: 'texas_city_vessel', label: 'Texas City Demo Vessel' },
+                  { key: 'pump_station', label: 'Pump Station Demo' },
+                ]).map((model) => (
+                  <option key={model.key} value={model.key}>{model.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="border border-[var(--border-strong)] bg-[var(--surface-base)] p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="label-caps text-[var(--text-muted)]">Controlled Template Mutation</p>
+                  <p className="caption-mono text-[var(--text)] mt-1">Require manual verification when primary level is quarantined.</p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={!!(overview?.template_mutations || overview?.state?.template_mutations)?.require_manual_verification_when_level_quarantined}
+                  onChange={(event) => toggleVerificationMutation(event.target.checked)}
+                  disabled={busy}
+                  className="mt-1"
+                />
+              </div>
+            </div>
             <button onClick={runBuild} disabled={busy} className="industrial-control status-safe w-full disabled:opacity-40">Run Build</button>
             <button onClick={generatePreview} disabled={busy} className="industrial-control text-[var(--text)] w-full disabled:opacity-40">Generate Preview</button>
             <button onClick={publish} disabled={busy || !build?.can_publish} className="industrial-control status-warning w-full disabled:opacity-40">Publish Latest Build</button>

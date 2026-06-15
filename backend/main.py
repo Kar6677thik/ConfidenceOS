@@ -82,8 +82,10 @@ from studio_service import (
     reset as studio_reset,
     runtime_manifest as studio_runtime_manifest,
     run_compiler_build as studio_run_compiler_build,
+    select_asset_model as studio_select_asset_model,
     studio_overview,
     template_tests as studio_template_tests,
+    update_template_mutation as studio_update_template_mutation,
     validation as studio_validation,
 )
 from template_library import get_template_catalog
@@ -154,6 +156,13 @@ class StudioGenerateRequest(BaseModel):
 class StudioRawTagResolutionRequest(BaseModel):
     raw_tag: str
     reason: str = ""
+
+class StudioAssetModelRequest(BaseModel):
+    model_config = {"protected_namespaces": ()}
+    model_key: str
+
+class StudioTemplateMutationRequest(BaseModel):
+    require_manual_verification_when_level_quarantined: bool = False
 
 class ShiftNoteRequest(BaseModel):
     plant_id: str = "plant-a"
@@ -830,6 +839,18 @@ def get_runtime_equipment(
 def get_studio_imported_signals():
     """Return current imported simulator/model signals for Studio."""
     return studio_imported_signals()
+
+
+@app.post("/api/studio/asset-model")
+def post_studio_asset_model(request: StudioAssetModelRequest):
+    """Switch the active metadata model used by the read-only HMI Compiler."""
+    return studio_select_asset_model(request.model_key)
+
+
+@app.post("/api/studio/template-mutation")
+def post_studio_template_mutation(request: StudioTemplateMutationRequest):
+    """Apply the controlled vessel-template mutation demo toggle."""
+    return studio_update_template_mutation(request.require_manual_verification_when_level_quarantined)
 
 
 @app.get("/api/studio/build")

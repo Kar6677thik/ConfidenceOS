@@ -14,6 +14,19 @@ from pathlib import Path
 
 
 ASSET_MODEL_PATH = Path(__file__).with_name("asset_model.json")
+ASSET_MODEL_PUMP_STATION_PATH = Path(__file__).with_name("asset_model_pump_station.json")
+
+ASSET_MODELS = {
+    "texas_city_vessel": {
+        "label": "Texas City Demo Vessel",
+        "path": ASSET_MODEL_PATH,
+    },
+    "pump_station": {
+        "label": "Pump Station Demo",
+        "path": ASSET_MODEL_PUMP_STATION_PATH,
+    },
+}
+_active_asset_model_key = "texas_city_vessel"
 
 CRITICALITY_WEIGHTS = {
     "low": 1.0,
@@ -23,10 +36,33 @@ CRITICALITY_WEIGHTS = {
 }
 
 
-@lru_cache(maxsize=1)
-def load_asset_model() -> dict:
-    with open(ASSET_MODEL_PATH, "r", encoding="utf-8") as f:
+def available_asset_models() -> list[dict]:
+    return [
+        {"key": key, "label": meta["label"], "path": meta["path"].name}
+        for key, meta in ASSET_MODELS.items()
+    ]
+
+
+def set_active_asset_model(model_key: str | None) -> str:
+    global _active_asset_model_key
+    if model_key in ASSET_MODELS:
+        _active_asset_model_key = model_key
+    return _active_asset_model_key
+
+
+def active_asset_model_key() -> str:
+    return _active_asset_model_key
+
+
+@lru_cache(maxsize=4)
+def _load_asset_model_by_key(model_key: str) -> dict:
+    path = ASSET_MODELS.get(model_key, ASSET_MODELS["texas_city_vessel"])["path"]
+    with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
+
+
+def load_asset_model(model_key: str | None = None) -> dict:
+    return _load_asset_model_by_key(model_key or _active_asset_model_key)
 
 
 def equipment(model: dict | None = None) -> dict:

@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 
 from hmi_compiler import imported_tag_buckets, mapping_court, mapping_court_for_tag, run_build
+from asset_model import available_asset_models, set_active_asset_model
 from model_graph import get_assets, get_model_graph, get_signals
 from screen_generator import generate_screen_manifest
 from template_library import get_template_catalog, validate_assignments
@@ -24,6 +25,15 @@ DEFAULT_ASSIGNMENTS = [
     {"asset_id": "FG-2010", "template_id": "flow_pair", "approved": True, "source": "demo_default"},
 ]
 
+MODEL_ASSIGNMENTS = {
+    "texas_city_vessel": DEFAULT_ASSIGNMENTS,
+    "pump_station": [
+        {"asset_id": "TK-100", "template_id": "vessel", "approved": True, "source": "demo_default"},
+        {"asset_id": "P-101", "template_id": "valve", "approved": True, "source": "demo_default"},
+        {"asset_id": "FG-100", "template_id": "flow_pair", "approved": True, "source": "demo_default"},
+    ],
+}
+
 DEFAULT_APPROVED_BINDINGS = [
     {"raw_tag": "U15_LT_5100.PV", "source": "demo_default_engineer_approval"},
     {"raw_tag": "15-FI-2010", "source": "demo_default_engineer_approval"},
@@ -36,9 +46,13 @@ DEFAULT_APPROVED_BINDINGS = [
 
 def get_state() -> dict:
     if not STATE_PATH.exists():
-        return _default_state()
+        state = _default_state()
+        _activate_state_model(state)
+        return state
     with open(STATE_PATH, "r", encoding="utf-8") as f:
-        return _with_default_fields(json.load(f))
+        state = _with_default_fields(json.load(f))
+        _activate_state_model(state)
+        return state
 
 
 def save_state(state: dict) -> dict:
@@ -156,6 +170,7 @@ def generate_preview(role: str = "Engineer", context: str = "auto") -> dict:
         "validation_status": build.get("status", "PREVIEW"),
         "receipts": build.get("receipts", []),
         "source_tags": (build.get("generated_manifest") or {}).get("provenance", {}).get("source_tags", []),
+        "template_mutations": state.get("template_mutations", {}),
     }
     manifest = generate_screen_manifest(
         role=role,
@@ -189,6 +204,7 @@ def runtime_manifest(role: str = "Operator", context: str = "auto", live_state: 
         "source_tags": published.get("provenance", {}).get("source_tags", []),
         "published_build_id": published_build_id,
         "runtime_source": "published_build" if published else "ad_hoc_generation",
+        "template_mutations": state.get("template_mutations", {}),
     }
     manifest = generate_screen_manifest(
         role=role,
@@ -270,7 +286,7 @@ def validation() -> dict:
 def diff() -> dict:
     state = get_state()
     current = state.get("assignments", [])
-    default_by_asset = {item["asset_id"]: item for item in DEFAULT_ASSIGNMENTS}
+    default_by_asset = {item["asset_id"]: item for item in _default_assignments_for_model(state.get("selected_asset_model"))}
     current_by_asset = {item["asset_id"]: item for item in current}
     changes = []
     for asset_id, item in current_by_asset.items():
@@ -307,6 +323,28 @@ def run_compiler_build() -> dict:
     state["last_build"] = build
     save_state(state)
     return build
+
+
+def select_asset_model(model_key: str) -> dict:
+    state = get_state()
+    selected = set_active_asset_model(model_key)
+    state["selected_asset_model"] = selected
+    state["assignments"] = _default_assignments_for_model(selected)
+    state["last_build"] = None
+    state["last_build_id"] = None
+    state["published_manifest"] = {}
+    state["published_build_id"] = None
+    save_state(state)
+    return studio_overview()
+
+
+def update_template_mutation(require_manual_verification_when_level_quarantined: bool) -> dict:
+    state = get_state()
+    state.setdefault("template_mutations", {})["require_manual_verification_when_level_quarantined"] = bool(require_manual_verification_when_level_quarantined)
+    state["last_build"] = None
+    state["last_build_id"] = None
+    save_state(state)
+    return {"template_mutations": state["template_mutations"], "state": state}
 
 
 def template_tests() -> dict:
@@ -391,6 +429,9 @@ def studio_overview() -> dict:
     state = get_state()
     return {
         "state": state,
+        "asset_models": available_asset_models(),
+        "selected_asset_model": state.get("selected_asset_model"),
+        "template_mutations": state.get("template_mutations", {}),
         "graph": get_model_graph(),
         "assets": get_assets(),
         "templates": get_template_catalog(),
@@ -410,7 +451,11 @@ def _default_state() -> dict:
         "build_counter": 0,
         "last_build_id": None,
         "last_build": None,
-        "assignments": DEFAULT_ASSIGNMENTS,
+        "selected_asset_model": "texas_city_vessel",
+        "assignments": _default_assignments_for_model("texas_city_vessel"),
+        "template_mutations": {
+            "require_manual_verification_when_level_quarantined": False,
+        },
         "suggestions": [],
         "approved_bindings": DEFAULT_APPROVED_BINDINGS,
         "ignored_raw_tags": {},
@@ -426,4 +471,16 @@ def _with_default_fields(state: dict) -> dict:
             merged[key] = default[key]
     if not isinstance(merged.get("ignored_raw_tags"), dict):
         merged["ignored_raw_tags"] = {}
+    if merged.get("selected_asset_model") not in MODEL_ASSIGNMENTS:
+        merged["selected_asset_model"] = "texas_city_vessel"
+    if not isinstance(merged.get("template_mutations"), dict):
+        merged["template_mutations"] = default["template_mutations"]
     return merged
+
+
+def _default_assignments_for_model(model_key: str | None) -> list[dict]:
+    return [dict(item) for item in MODEL_ASSIGNMENTS.get(model_key or "texas_city_vessel", DEFAULT_ASSIGNMENTS)]
+
+
+def _activate_state_model(state: dict) -> None:
+    set_active_asset_model(state.get("selected_asset_model", "texas_city_vessel"))

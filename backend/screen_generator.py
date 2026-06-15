@@ -43,7 +43,7 @@ def generate_screen_manifest(
     faceplates = [
         _faceplate_for_asset(asset, live_state, role, context_state, assignments or [], build_context)
         for asset in assets
-        if asset.get("asset_type") in ("process_vessel", "valve", "flow_pair")
+        if asset.get("asset_type") in ("process_vessel", "valve", "flow_pair", "pump")
     ]
     faceplates = [item for item in faceplates if item]
     situations = _situations(live_state, build_context, role, context_state, validation_status)
@@ -189,7 +189,7 @@ def _faceplate_for_asset(
         generated_because=[
             f"{asset_id} is assigned template {template_id}.",
             "Faceplate generated from asset model signal binding and role visibility policy.",
-        ],
+        ] + _mutation_receipt_lines(build_context),
         warnings=_validation_messages(build_context.get("validation", {}), asset_id=asset_id, template_id=template_id),
     )
     return {
@@ -283,7 +283,7 @@ def _situations(
                 generated_because=[
                     "Abnormal situation generated from collapsed advisory incident.",
                     "Situation workspace requires operating basis, evidence, action contract, and timeline.",
-                ],
+                ] + _mutation_receipt_lines(build_context),
                 warnings=_validation_messages(build_context.get("validation", {}), asset_id=asset_id),
             ),
             "alarm_collapse_receipt": _alarm_collapse_receipt(incident),
@@ -431,13 +431,18 @@ def _stress_mode_panel(
             generated_because=[
                 "Stress-mode panel generated from context policy.",
                 "WARNING/CRITICAL operating context requires nonessential panels to be removed.",
-            ],
+            ] + _mutation_receipt_lines(build_context),
             warnings=_validation_messages(build_context.get("validation", {})),
         ),
         "active": active,
         "sections": [
             "abnormal_situation",
             "operator_single_safe_move",
+            *(
+                ["verification_required"]
+                if build_context.get("template_mutations", {}).get("require_manual_verification_when_level_quarantined")
+                else []
+            ),
             "do_not_trust",
             "trusted_substitute",
             "decision_freeze",
@@ -541,6 +546,13 @@ def _signal_trust_state(confidence: dict | None, reading: dict | None) -> str:
     if tier in ("LOW", "CRITICAL", "MEDIUM"):
         return "DEGRADED"
     return "TRUSTED"
+
+
+def _mutation_receipt_lines(build_context: dict) -> list[str]:
+    mutations = build_context.get("template_mutations", {}) if build_context else {}
+    if mutations.get("require_manual_verification_when_level_quarantined"):
+        return ["Template mutation active: require manual verification when primary level is quarantined."]
+    return []
 
 
 def _alarm_collapse_receipt(incident: dict) -> dict:

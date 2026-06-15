@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from model_graph import get_assets, get_model_graph
+from asset_model import active_asset_model_key, mass_balance_validation
 from screen_generator import generate_screen_manifest
 from template_library import validate_assignments
 
@@ -160,6 +161,8 @@ def run_build(
                 "validation": validation,
                 "receipts": receipts,
                 "source_tags": _source_tags(mapping_payload),
+                "template_mutations": state.get("template_mutations", {}),
+                "active_asset_model": state.get("selected_asset_model") or active_asset_model_key(),
             },
         )
         receipts.append(_receipt(
@@ -171,7 +174,7 @@ def run_build(
 
     can_publish = not blocking
     status = "FAILED" if blocking else ("PASS_WITH_WARNINGS" if warnings else "PASS")
-    publish_diff = _publish_diff(generated_manifest, validation, can_publish)
+    publish_diff = _publish_diff(generated_manifest, validation, can_publish, state.get("template_mutations", {}))
 
     return {
         "build_id": build_id,
@@ -180,6 +183,8 @@ def run_build(
         "read_only_trust_layer": True,
         "pipeline": "Raw Tags -> Asset Graph -> Template Binding -> Validation -> Screen Generation -> Publish Readiness -> Runtime",
         "suggestion_labels": dict(SUGGESTION_LABELS),
+        "active_asset_model": state.get("selected_asset_model") or active_asset_model_key(),
+        "template_mutations": state.get("template_mutations", {}),
         "stages": _stages(mapping_payload, validation, generated_manifest, can_publish),
         "validation": validation,
         "imported_tags": mapping_payload,
@@ -301,7 +306,7 @@ def _build_receipts(mapping_payload: dict, validation: dict) -> list[dict]:
     return receipts
 
 
-def _publish_diff(generated_manifest: dict, validation: dict, can_publish: bool) -> dict:
+def _publish_diff(generated_manifest: dict, validation: dict, can_publish: bool, template_mutations: dict | None = None) -> dict:
     blocking = validation.get("blocking", [])
     warnings = validation.get("warnings", [])
     if not can_publish:
@@ -323,7 +328,7 @@ def _publish_diff(generated_manifest: dict, validation: dict, can_publish: bool)
         {"type": "generated_faceplate", "equipment_id": item.get("equipment_id"), "template_id": item.get("template_id")}
         for item in faceplates
     ])
-    changes.extend(_semantic_generation_diff(generated_manifest, validation))
+    changes.extend(_semantic_generation_diff(generated_manifest, validation, template_mutations or {}))
     return {
         "status": "ready",
         "changes": changes,
@@ -400,7 +405,7 @@ def _blocked_diff_items(blocking: list[dict], warnings: list[dict]) -> list[dict
     return changes
 
 
-def _semantic_generation_diff(generated_manifest: dict, validation: dict) -> list[dict]:
+def _semantic_generation_diff(generated_manifest: dict, validation: dict, template_mutations: dict) -> list[dict]:
     changes = []
     faceplates = generated_manifest.get("faceplates", [])
     by_template = {item.get("template_id"): item for item in faceplates}
@@ -412,24 +417,45 @@ def _semantic_generation_diff(generated_manifest: dict, validation: dict) -> lis
             "description": f"Added vessel faceplate for {vessel.get('equipment_id')}.",
         })
         signal_tags = {signal.get("tag") for signal in vessel.get("signals", [])}
-        if {"FI-2010", "FO-2020", "LT-5100"}.issubset(signal_tags):
+        relationship = mass_balance_validation()
+        required_tags = set(relationship.get("source_tags", []) + [relationship.get("validated_tag")])
+        if required_tags and required_tags.issubset(signal_tags):
             changes.append({
                 "type": "generated_hmi_change",
                 "asset_id": vessel.get("equipment_id"),
-                "description": "Added mass-balance section because FI/FO validate LT.",
+                "description": f"Added mass-balance section because {', '.join(relationship.get('source_tags', []))} validate {relationship.get('validated_tag')}.",
             })
             changes.append({
                 "type": "generated_hmi_change",
                 "asset_id": vessel.get("equipment_id"),
-                "decision_id": "increase_feed",
-                "description": "Added decision freeze rule for increase_feed.",
+                "decision_id": "operating_basis_decision",
+                "description": "Added decision freeze rule from asset-model affected decisions.",
             })
             changes.append({
                 "type": "generated_hmi_change",
                 "asset_id": vessel.get("equipment_id"),
-                "sensor_id": "LT-5100",
-                "description": "Added Maintenance verification task for LT-5100.",
+                "sensor_id": relationship.get("validated_tag"),
+                "description": f"Added Maintenance verification task for {relationship.get('validated_tag')}.",
             })
+    if template_mutations.get("require_manual_verification_when_level_quarantined"):
+        changes.extend([
+            {
+                "type": "template_mutation_effect",
+                "description": "Operator stress mode includes verification-required panel.",
+            },
+            {
+                "type": "template_mutation_effect",
+                "description": "Maintenance view receives field verification task.",
+            },
+            {
+                "type": "template_mutation_effect",
+                "description": "Handover channel pins unresolved verification.",
+            },
+            {
+                "type": "template_mutation_effect",
+                "description": "Runtime receipt references the template mutation.",
+            },
+        ])
     for warning in validation.get("warnings", []):
         if warning.get("rule") == "valve_command_signal_missing":
             changes.append({
