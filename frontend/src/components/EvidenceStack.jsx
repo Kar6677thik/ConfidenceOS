@@ -12,7 +12,7 @@ const FACTOR_LABELS = {
   calibration: 'Calibration',
   stability: 'Signal Stability',
   cross_sensor: 'Cross-Sensor Check',
-  physical_plausibility: 'Physical Plausibility',
+  physical_plausibility: 'Range Plausibility',
   none: 'No Dominant Weakness',
 };
 

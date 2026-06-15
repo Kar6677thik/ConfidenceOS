@@ -1,0 +1,45 @@
+Theme 1: Next-gen control system interface
+
+Problem overview
+This project invites young innovators to rethink how small-scale industrial control systems should look, feel, and operate in the future. With increasing system complexity and a growing volume of alarms and notifications, operators often struggle to identify what truly matters. This challenge provides an opportunity to explore modern, intuitive, and intelligent UX approaches using platforms such as Raspberry Pi, Arduino, or software simulators.
+
+Problem statement
+Traditional control system interfaces (HMIs) generate a continuous stream of alerts. Operators must manually filter and interpret them, which can lead to missed critical alarms, slower response times, and operational inefficiencies. Existing HMIs often lack personalization, modern interaction patterns, and intelligent prioritization.
+
+Stakeholders
+
+    Control system operators who need clear, actionable information
+    Engineers and system designers responsible for configuring and maintaining HMIs
+    Industrial organizations that rely on safe and efficient operations
+    Students and UX designers exploring innovative interaction models
+
+Current workarounds
+Today, operators rely on:
+
+    Basic alarm lists or color-coded indicators
+    Manual filtering or sorting of notifications
+    Standard HMI screens with limited customization
+    Rule-based alarm grouping that often requires heavy manual setup
+
+​These approaches are functional but not adaptive, intelligent, or user-centric.
+
+Desired solution
+
+The ideal next-generation control interface incorporates:
+
+    Auto-generated HMI screens to reduce engineering time
+    Signal templates and reusable libraries for standardization
+    Model-based or metadata-driven engineering for efficiency and consistency
+    AI-assisted configuration to simplify setup and adapt to context
+    Low-code/no-code tools, so non-experts can modify interfaces
+    Role-based, context-aware UIs that highlight the right information to the right users
+    Modern UX patterns inspired by popular apps such as Google Maps, Microsoft Teams, or streaming services, prioritizing simplicity, clarity, and adaptability
+
+Impact and benefits
+A redesigned control system interface can produce measurable benefits:
+
+    Faster operator decision-making
+    Reduced alarm fatigue
+    Improved safety and system awareness
+    Lower engineering and configuration effort
+    Higher quality and consistency of interface designs

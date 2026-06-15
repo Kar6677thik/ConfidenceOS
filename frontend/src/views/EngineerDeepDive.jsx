@@ -164,7 +164,7 @@ export default function EngineerDeepDive() {
                 <SubScoreBar label="Calibration Age"       value={subs.calibration} />
                 <SubScoreBar label="Signal Stability"      value={subs.stability} />
                 <SubScoreBar label="Cross-Sensor Alignment" value={subs.cross_sensor} />
-                <SubScoreBar label="Physical Plausibility"  value={subs.physical_plausibility} />
+                <SubScoreBar label="Range Plausibility"  value={subs.physical_plausibility} />
               </div>
             </div>
 

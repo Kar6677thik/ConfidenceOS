@@ -18,13 +18,15 @@ from asset_model import (
     load_asset_model,
     mass_balance_validation,
 )
+from confidence import ConfidenceWeights as _CW
 
-
+# Single source of truth for weights — defined in confidence.py:ConfidenceWeights
+_DEFAULT_WEIGHTS = _CW()
 CONFIDENCE_WEIGHTS = {
-    "calibration": 0.30,
-    "stability": 0.20,
-    "cross_sensor": 0.30,
-    "physical_plausibility": 0.20,
+    "calibration": _DEFAULT_WEIGHTS.calibration,
+    "stability": _DEFAULT_WEIGHTS.stability,
+    "cross_sensor": _DEFAULT_WEIGHTS.cross_sensor,
+    "physical_plausibility": _DEFAULT_WEIGHTS.physical_plausibility,
 }
 
 TIER_WEIGHTS = {

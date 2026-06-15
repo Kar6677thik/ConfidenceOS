@@ -15,6 +15,7 @@ from model_graph import equipment_signals, get_assets, get_model_graph, get_sign
 from screen_generator import generate_screen_manifest
 from template_library import get_template_catalog, validate_assignments
 from template_tests import run_template_tests
+import ai_mapping as _ai
 
 
 STATE_PATH = Path(__file__).with_name("studio_state.json")
@@ -88,17 +89,48 @@ def imported_signals() -> dict:
     }
 
 
-def auto_map() -> dict:
+async def auto_map() -> dict:
     state = get_state()
     court = mapping_court(state)
     suggestions = _asset_mapping_suggestions(court)
+
+    # AI explanation layer — attaches Claude narrative to each court item when key present.
+    # Deterministic verdict remains authoritative; AI explains it.
+    model_context = _model_context_for_ai(state)
+    ai_assisted = False
+    ai_label = "deterministic rule active; AI explanation unavailable (no key); engineer approval required"
+    items = court.get("items", [])
+    if _ai._ai_available() and items:
+        enriched = []
+        for item in items:
+            try:
+                explanation = await _ai.explain_mapping(
+                    item.get("raw_tag", ""),
+                    item,
+                    model_context,
+                )
+                enriched.append({**item, **{
+                    "ai_narrative": explanation.get("ai_narrative", ""),
+                    "ai_evidence": explanation.get("ai_evidence", []),
+                    "ai_counter_evidence": explanation.get("ai_counter_evidence", []),
+                    "ai_assisted": explanation.get("ai_assisted", False),
+                }})
+                if explanation.get("ai_assisted"):
+                    ai_assisted = True
+            except Exception:
+                enriched.append(item)
+        court = {**court, "items": enriched}
+        if ai_assisted:
+            ai_label = "AI explanation active; deterministic rule authoritative; engineer approval required"
+
     state = get_state()
     state["suggestions"] = suggestions
     save_state(state)
     return {
         "suggestions": suggestions,
         "mapping_court": court,
-        "ai_assisted": False,
+        "ai_assisted": ai_assisted,
+        "ai_label": ai_label,
         "suggestion_labels": court.get("suggestion_labels", {}),
         "approval_required": True,
     }
@@ -459,6 +491,111 @@ def studio_overview() -> dict:
         "diff": diff(),
         "build": state.get("last_build"),
         "mapping_court": mapping_court(state),
+    }
+
+
+async def import_arbitrary_tags(raw_tag_list: list[str]) -> dict:
+    """
+    Accept an arbitrary pasted tag list, route through AI parse → Mapping Court.
+
+    Every proposal is returned for engineer review via the Mapping Court flow.
+    Nothing is auto-approved or auto-published.
+    """
+    state = get_state()
+    model_context = _model_context_for_ai(state)
+
+    result = await _ai.parse_arbitrary_tags(raw_tag_list, model_context)
+
+    # For each AI-proposed binding, inject it into the court so the engineer
+    # can approve/ignore it exactly like a deterministic suggestion.
+    proposals = result.get("proposals", [])
+    enriched_proposals = []
+    for prop in proposals:
+        court_item = mapping_court_for_tag(prop["raw_tag"], state)
+        enriched_proposals.append({
+            **court_item,
+            "ai_proposed_canonical_tag": prop.get("proposed_canonical_tag"),
+            "ai_proposed_role": prop.get("proposed_role"),
+            "ai_confidence_band": prop.get("confidence_band", "UNCERTAIN"),
+            "ai_rationale": prop.get("ai_rationale", ""),
+            "ai_assisted": result.get("ai_assisted", False),
+            "approval_required": True,
+            "source": prop.get("source", "ai_parse"),
+        })
+
+    return {
+        "ai_assisted": result.get("ai_assisted", False),
+        "ai_label": result.get("ai_label", ""),
+        "proposals": enriched_proposals,
+        "unresolved": result.get("unresolved", []),
+        "model": result.get("model"),
+        "approval_required": True,
+        "note": "All proposals require engineer approval before publish.",
+    }
+
+
+async def suggest_template_for_asset(asset_description: str) -> dict:
+    """
+    Given a plain-English asset description, Claude proposes a template from
+    the real template library. Compiler validates; engineer approves.
+    """
+    catalog = get_template_catalog()
+    available_templates = [
+        {
+            "template_id": t.get("template_id"),
+            "label": t.get("label", t.get("template_id")),
+            "required_signal_roles": t.get("required_signal_roles", []),
+        }
+        for t in catalog
+    ]
+    state = get_state()
+    signals = get_signals()
+
+    result = await _ai.suggest_template(asset_description, available_templates, signals)
+
+    # Run the compiler validation on the proposed assignment immediately so the
+    # UI can show whether the suggestion would block or pass.
+    proposed_template = result.get("proposed_template_id")
+    validation_preview = None
+    if proposed_template:
+        trial_assignments = list(state.get("assignments", []))
+        trial_assignments.append({
+            "asset_id": "__ai_suggestion_preview__",
+            "template_id": proposed_template,
+            "approved": False,
+            "source": "ai_suggestion_preview",
+        })
+        validation_preview = validate_assignments(trial_assignments)
+
+    return {
+        **result,
+        "validation_preview": validation_preview,
+        "available_templates": [t["template_id"] for t in available_templates],
+        "note": "AI proposes from real template library; compiler validates; engineer approves.",
+    }
+
+
+def _model_context_for_ai(state: dict) -> dict:
+    signals = get_signals()
+    assets = get_assets()
+    active_model = state.get("selected_asset_model", "texas_city_vessel")
+    equipment_label = active_model.replace("_", " ").title()
+    return {
+        "equipment_id": active_model,
+        "equipment_label": equipment_label,
+        "canonical_signals": [
+            {
+                "tag": s.get("tag"),
+                "sensor_type": s.get("sensor_type"),
+                "role": s.get("role"),
+                "unit": s.get("unit", ""),
+            }
+            for s in signals
+        ],
+        "assets": [
+            {"asset_id": a.get("asset_id"), "name": a.get("name"), "template_id": a.get("template_id")}
+            for a in assets
+        ],
     }
 
 

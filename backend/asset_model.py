@@ -95,6 +95,16 @@ def mass_balance_validation(model: dict | None = None) -> dict:
     return {}
 
 
+def mass_balance_engine_config(model: dict | None = None) -> dict:
+    """Return per-asset mass balance engine parameters (tolerance + flow_to_level_rate)."""
+    model = model or load_asset_model()
+    config = model.get("mass_balance_config", {})
+    return {
+        "flow_to_level_rate": float(config.get("flow_to_level_rate", 0.005)),
+        "tolerance": float(config.get("tolerance", 5.0)),
+    }
+
+
 def affected_decisions(model: dict | None = None) -> list[dict]:
     return equipment(model).get("affected_decisions", [])
 

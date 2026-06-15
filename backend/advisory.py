@@ -402,9 +402,9 @@ def _action_contract(
         substitutes.append(item)
     if kind in ("inventory_accumulation", "level_integrity"):
         substitutes.append(language["trusted_substitute_label"])
+        # Generic fallback — model-specific decisions are sourced from action_contract_decisions()
         blocked = action_contract_decisions() or [
-            "increase_feed",
-            "increase_load",
+            "change_dependent_operating_rate",
             "accept_handover_without_verification",
         ]
         exits = ["affected level trust restored to TRUSTED", f"{language['verification_method']} accepted"]

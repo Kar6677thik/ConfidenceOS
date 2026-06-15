@@ -5,6 +5,7 @@ Run:
     python -m unittest test_hmi_generation.py
 """
 
+import asyncio
 import unittest
 
 from model_graph import get_assets, get_model_graph, get_navigation, get_signals
@@ -97,7 +98,7 @@ class HmiGenerationTests(unittest.TestCase):
 
     def test_studio_automap_requires_publish_before_runtime(self):
         reset()
-        suggestions = auto_map()
+        suggestions = asyncio.run(auto_map())
         self.assertGreaterEqual(len(suggestions["suggestions"]), 1)
 
         validation_before = validation()

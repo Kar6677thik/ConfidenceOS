@@ -76,6 +76,7 @@ from studio_service import (
     diff as studio_diff,
     generate_preview as studio_generate_preview,
     ignore_raw_tag as studio_ignore_raw_tag,
+    import_arbitrary_tags as studio_import_arbitrary_tags,
     imported_signals as studio_imported_signals,
     keep_raw_tag_blocking as studio_keep_raw_tag_blocking,
     mapping_court_detail as studio_mapping_court_detail,
@@ -87,6 +88,7 @@ from studio_service import (
     run_compiler_build as studio_run_compiler_build,
     select_asset_model as studio_select_asset_model,
     studio_overview,
+    suggest_template_for_asset as studio_suggest_template,
     template_tests as studio_template_tests,
     update_template_mutation as studio_update_template_mutation,
     validation as studio_validation,
@@ -218,9 +220,9 @@ def _configured_cors_origins() -> list[str]:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_configured_cors_origins(),
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "Accept", "Authorization"],
 )
 
 
@@ -982,9 +984,43 @@ def post_studio_mapping_keep_blocking(request: StudioRawTagResolutionRequest):
 
 
 @app.post("/api/studio/auto-map")
-def post_studio_auto_map():
-    """Generate deterministic mapping suggestions. Approval is still required."""
-    return studio_auto_map()
+async def post_studio_auto_map():
+    """Generate mapping suggestions with optional AI explanation. Approval is still required."""
+    return await studio_auto_map()
+
+
+@app.post("/api/studio/import-tags")
+async def post_studio_import_tags(request: dict):
+    """
+    Accept a pasted or uploaded arbitrary tag list and route through AI parse → Mapping Court.
+
+    Body: {"tags": ["RAW_TAG_1", "RAW_TAG_2", ...]}
+
+    Every AI-proposed binding is returned for engineer review. Nothing is
+    auto-approved or published — all proposals must go through the Mapping
+    Court before the build gate.
+    """
+    raw_tags = request.get("tags", [])
+    if not isinstance(raw_tags, list):
+        raise HTTPException(status_code=422, detail="'tags' must be a list of strings.")
+    cleaned = [str(t).strip() for t in raw_tags if str(t).strip()]
+    if not cleaned:
+        raise HTTPException(status_code=422, detail="No non-empty tags provided.")
+    return await studio_import_arbitrary_tags(cleaned)
+
+
+@app.post("/api/studio/suggest-template")
+async def post_studio_suggest_template(request: dict):
+    """
+    Given a plain-English asset description, Claude proposes a template from
+    the real template library. Compiler validates; engineer approves.
+
+    Body: {"description": "A centrifugal pump with discharge pressure and vibration monitoring"}
+    """
+    description = (request.get("description") or "").strip()
+    if not description:
+        raise HTTPException(status_code=422, detail="'description' is required.")
+    return await studio_suggest_template(description)
 
 
 @app.post("/api/studio/assign-template")

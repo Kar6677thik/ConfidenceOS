@@ -207,9 +207,16 @@ const useStore = create((set, get) => ({
   disconnect: () => {
     const { _ws, _reconnectTimer } = get();
     if (_reconnectTimer) clearTimeout(_reconnectTimer);
-    set({ _intentionalDisconnect: true });
-    if (_ws) _ws.close();
-    set({ _ws: null, connected: false, _reconnectTimer: null });
+    set({ _intentionalDisconnect: true, _reconnectTimer: null });
+    if (_ws) {
+      // Null out handlers before close() to eliminate any race window
+      // where onclose fires and schedules a reconnect after intentional close.
+      _ws.onclose = null;
+      _ws.onerror = null;
+      _ws.onmessage = null;
+      _ws.close();
+    }
+    set({ _ws: null, connected: false });
   },
 
   // ── API actions ───────────────────────────────────────────────────────

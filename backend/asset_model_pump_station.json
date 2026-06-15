@@ -31,6 +31,11 @@
       ]
     }
   },
+  "mass_balance_config": {
+    "flow_to_level_rate": 0.003,
+    "tolerance": 4.0,
+    "note": "Per-asset residual check parameters for pump station tank. flow_to_level_rate: ~300-gal cross-section tank (1 gpm ≈ 0.003 ft/s). tolerance: 4.0 ft acceptable discrepancy before flagging."
+  },
   "equipment": {
     "equipment_id": "TK-100",
     "name": "Suction tank TK-100",

@@ -157,6 +157,7 @@ function DirtyTagGauntlet({ court, selectedRawTag, onSelect }) {
 
 function MappingCourt({
   item,
+  aiLabel,
   assets = [],
   signals = [],
   signalRoles = [],
@@ -179,7 +180,16 @@ function MappingCourt({
 }) {
   const evidence = asList(item?.evidence);
   const counterEvidence = asList(item?.counter_evidence);
+  const aiEvidence = asList(item?.ai_evidence);
+  const aiCounterEvidence = asList(item?.ai_counter_evidence);
+  const hasAiNarrative = !!item?.ai_narrative;
   const needsManualResolution = item && ['unmapped', 'ambiguous', 'blocking'].includes(String(item.bucket || '').toLowerCase());
+
+  const displayLabel = aiLabel
+    || (item?.ai_assisted
+      ? 'AI explanation active; deterministic rule authoritative; engineer approval required'
+      : 'Deterministic rule active · AI explanation unavailable (no key) · Engineer approval required');
+
   return (
     <Panel
       eyebrow="Mapping Court"
@@ -187,9 +197,37 @@ function MappingCourt({
       right={<span className={`industrial-badge ${item?.blocking ? 'status-critical' : statusClass(item?.bucket)}`}>{item?.blocking ? 'BLOCKING' : formatText(item?.bucket)}</span>}
       className="mb-[1px]"
     >
-      <div className="industrial-panel-subtle p-3 mb-4">
-        <p className="caption-mono text-[var(--text)]">AI suggests when available; deterministic rule active; engineer approval required.</p>
+      <div className={`industrial-panel-subtle p-3 mb-4 ${item?.ai_assisted ? 'border-l-2 border-[var(--status-safe)]' : ''}`}>
+        <p className="caption-mono text-[var(--text)]">{displayLabel}</p>
       </div>
+
+      {hasAiNarrative && (
+        <div className="mb-4 bg-[var(--surface-panel)] border border-[var(--border-strong)] p-3">
+          <p className="label-caps text-[var(--text-muted)] mb-2">AI Explanation</p>
+          <p className="caption-mono text-[var(--data-mono)]">{item.ai_narrative}</p>
+          {(aiEvidence.length > 0 || aiCounterEvidence.length > 0) && (
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-[1px] bg-[var(--border-strong)] mt-3">
+              {aiEvidence.length > 0 && (
+                <div className="bg-[var(--surface-base)] p-3">
+                  <p className="label-caps status-safe">AI Evidence</p>
+                  <ul className="mt-2 space-y-1">
+                    {aiEvidence.map((entry) => <li key={entry} className="caption-mono text-[var(--data-mono)]">{entry}</li>)}
+                  </ul>
+                </div>
+              )}
+              {aiCounterEvidence.length > 0 && (
+                <div className="bg-[var(--surface-base)] p-3">
+                  <p className="label-caps status-warning">AI Counter-Evidence</p>
+                  <ul className="mt-2 space-y-1">
+                    {aiCounterEvidence.map((entry) => <li key={entry} className="caption-mono text-[var(--data-mono)]">{entry}</li>)}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-[1px] bg-[var(--border-strong)]">
         {[
           ['Proposed Canonical Tag', item?.proposed_canonical_tag || 'none'],
@@ -302,10 +340,190 @@ function MappingCourt({
   );
 }
 
-function TemplateBindingTable({ validation }) {
+function PasteImportPanel({ busy, onImportResult }) {
+  const [tagText, setTagText] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [result, setResult] = useState(null);
+
+  const importTags = async () => {
+    const tags = tagText.split(/[\n,;]+/).map((t) => t.trim()).filter(Boolean);
+    if (!tags.length) return;
+    setImporting(true);
+    setResult(null);
+    try {
+      const payload = await fetchJson('/api/studio/import-tags', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tags }),
+      });
+      setResult(payload);
+      if (onImportResult) onImportResult(payload);
+    } catch (err) {
+      setResult({ error: err.payload?.detail || err.message });
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  return (
+    <Panel eyebrow="Arbitrary Tag Import" title="Paste Tag List" className="mb-[1px]">
+      <div className="industrial-panel-subtle p-3 mb-4">
+        <p className="caption-mono text-[var(--text)]">Paste any raw tag list — one per line, or comma-separated. AI proposes bindings; engineer approves each before publish.</p>
+      </div>
+      <textarea
+        value={tagText}
+        onChange={(e) => setTagText(e.target.value)}
+        className="industrial-input w-full font-mono text-xs min-h-[100px] resize-y"
+        placeholder={"U15_LT_5100.PV\n15-FI-2010\nPT_3100_PROCESS\nMY_CUSTOM_TAG.01"}
+        disabled={busy || importing}
+      />
+      <div className="flex gap-3 mt-3 items-center">
+        <button
+          onClick={importTags}
+          disabled={busy || importing || !tagText.trim()}
+          className="industrial-control status-safe disabled:opacity-40"
+        >
+          {importing ? 'Parsing...' : 'Parse with AI'}
+        </button>
+        <button
+          onClick={() => { setTagText(''); setResult(null); }}
+          disabled={busy || importing}
+          className="industrial-control text-[var(--data-mono)] disabled:opacity-40"
+        >
+          Clear
+        </button>
+      </div>
+      {result && !result.error && (
+        <div className="mt-4 space-y-[1px] bg-[var(--border-strong)]">
+          <div className={`p-3 ${result.ai_assisted ? 'bg-[var(--surface-raised)]' : 'bg-[var(--surface-panel)]'}`}>
+            <p className="label-caps text-[var(--text-muted)]">Result</p>
+            <p className="caption-mono text-[var(--data-mono)] mt-1">{result.ai_label}</p>
+          </div>
+          {result.proposals?.map((prop) => (
+            <div key={prop.raw_tag} className="bg-[var(--surface-panel)] p-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="caption-mono text-[var(--text)]">{prop.raw_tag}</p>
+                <span className={`industrial-badge ${prop.ai_confidence_band === 'HIGH' ? 'status-safe' : prop.ai_confidence_band === 'UNCERTAIN' ? 'status-critical' : 'status-warning'}`}>
+                  {prop.ai_confidence_band || prop.ai_proposed_canonical_tag ? 'PROPOSED' : 'UNRESOLVED'}
+                </span>
+              </div>
+              {prop.ai_proposed_canonical_tag && (
+                <p className="caption-mono text-[var(--data-mono)] mt-1">→ {prop.ai_proposed_canonical_tag}</p>
+              )}
+              {prop.ai_rationale && (
+                <p className="caption-mono text-[var(--text-muted)] mt-1 text-xs">{prop.ai_rationale}</p>
+              )}
+              <p className="label-caps text-[var(--text-muted)] mt-1">Approval required in Mapping Court</p>
+            </div>
+          ))}
+          {result.unresolved?.length > 0 && (
+            <div className="bg-[var(--surface-panel)] p-3">
+              <p className="label-caps status-critical">Unresolved Tags — Manual Mapping Required</p>
+              <ul className="mt-2 space-y-1">
+                {result.unresolved.map((tag) => <li key={tag} className="caption-mono text-[var(--data-mono)]">{tag}</li>)}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+      {result?.error && (
+        <p className="caption-mono status-critical mt-3">{result.error}</p>
+      )}
+    </Panel>
+  );
+}
+
+function DescribeAssetPanel({ busy }) {
+  const [description, setDescription] = useState('');
+  const [suggesting, setSuggesting] = useState(false);
+  const [result, setResult] = useState(null);
+
+  const suggest = async () => {
+    if (!description.trim()) return;
+    setSuggesting(true);
+    setResult(null);
+    try {
+      const payload = await fetchJson('/api/studio/suggest-template', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description }),
+      });
+      setResult(payload);
+    } catch (err) {
+      setResult({ error: err.payload?.detail || err.message });
+    } finally {
+      setSuggesting(false);
+    }
+  };
+
+  return (
+    <div className="border border-[var(--border-strong)] bg-[var(--surface-base)] p-3 mb-4">
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div>
+          <p className="label-caps text-[var(--text-muted)]">Low-Code Template Authoring</p>
+          <p className="caption-mono text-[var(--data-mono)] mt-1">Describe this asset in plain English — AI proposes a template; compiler validates; engineer approves.</p>
+        </div>
+        <span className="industrial-badge text-[var(--data-mono)]">AI proposes</span>
+      </div>
+      <div className="flex gap-3">
+        <input
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') suggest(); }}
+          className="industrial-input flex-1"
+          placeholder="e.g. A centrifugal pump with discharge pressure and vibration monitoring"
+          disabled={busy || suggesting}
+        />
+        <button
+          onClick={suggest}
+          disabled={busy || suggesting || !description.trim()}
+          className="industrial-control status-safe disabled:opacity-40 shrink-0"
+        >
+          {suggesting ? 'Asking...' : 'Suggest Template'}
+        </button>
+      </div>
+      {result && !result.error && (
+        <div className="mt-3 space-y-[1px] bg-[var(--border-strong)]">
+          <div className={`p-3 ${result.ai_assisted ? 'bg-[var(--surface-raised)]' : 'bg-[var(--surface-panel)]'}`}>
+            <p className="label-caps text-[var(--text-muted)]">AI Label</p>
+            <p className="caption-mono text-[var(--data-mono)] mt-1">{result.ai_label || result.note}</p>
+          </div>
+          {result.proposed_template_id && (
+            <div className="bg-[var(--surface-panel)] p-3">
+              <p className="label-caps text-[var(--text-muted)]">Proposed Template</p>
+              <p className="caption-mono status-safe mt-1 font-semibold">{result.proposed_template_id}</p>
+              {result.rationale && <p className="caption-mono text-[var(--data-mono)] mt-2">{result.rationale}</p>}
+              {result.required_roles?.length > 0 && (
+                <p className="label-caps text-[var(--text-muted)] mt-2">Required roles: {result.required_roles.join(', ')}</p>
+              )}
+              {result.validation_preview && (
+                <p className={`caption-mono mt-2 ${statusClass(result.validation_preview.status)}`}>
+                  Compiler validation preview: {result.validation_preview.status || 'unknown'}
+                </p>
+              )}
+              <p className="label-caps text-[var(--text-muted)] mt-2">Use the Assignment dropdown to apply this suggestion, then run build.</p>
+            </div>
+          )}
+          {!result.proposed_template_id && (
+            <div className="bg-[var(--surface-panel)] p-3">
+              <p className="label-caps status-warning">No confident template match</p>
+              <p className="caption-mono text-[var(--data-mono)] mt-1">{result.rationale}</p>
+            </div>
+          )}
+        </div>
+      )}
+      {result?.error && (
+        <p className="caption-mono status-critical mt-3">{result.error}</p>
+      )}
+    </div>
+  );
+}
+
+function TemplateBindingTable({ validation, busy }) {
   const rows = validation?.items || [];
   return (
     <Panel eyebrow="Template Binding Table" title="Asset Template Validation" className="mb-[1px]">
+      <DescribeAssetPanel busy={busy} />
       <div className="space-y-[1px] bg-[var(--border-strong)]">
         <div className="hidden xl:grid grid-cols-[120px_150px_1fr_1fr_1fr_120px] gap-[1px] bg-[var(--border-strong)]">
           {['Asset', 'Template', 'Required Signal Roles', 'Present Signal Roles', 'Missing Roles', 'Validation'].map((label) => (
@@ -514,6 +732,7 @@ export default function StudioWorkspace() {
   const [build, setBuild] = useState(null);
   const [tests, setTests] = useState(null);
   const [court, setCourt] = useState(null);
+  const [courtAiLabel, setCourtAiLabel] = useState('');
   const [preview, setPreview] = useState(null);
   const [selectedRawTag, setSelectedRawTag] = useState('');
   const [ignoreReason, setIgnoreReason] = useState('');
@@ -587,6 +806,18 @@ export default function StudioWorkspace() {
       setBusy(false);
     }
   };
+
+  const runAutoMap = () => runAction(async () => {
+    const payload = await fetchJson('/api/studio/auto-map', { method: 'POST' });
+    const newCourt = payload.mapping_court || court;
+    if (newCourt) setCourt(newCourt);
+    setCourtAiLabel(payload.ai_label || '');
+    setActionMessage(
+      payload.ai_assisted
+        ? 'AI explanations attached to Mapping Court items. Review and approve each tag.'
+        : 'Deterministic mapping complete. AI explanation unavailable (no key). Review and approve each tag.',
+    );
+  });
 
   const runBuild = () => runAction(async () => {
     const payload = await fetchJson('/api/studio/build/run', { method: 'POST' });
@@ -741,6 +972,7 @@ export default function StudioWorkspace() {
                 />
               </div>
             </div>
+            <button onClick={runAutoMap} disabled={busy} className="industrial-control w-full disabled:opacity-40" style={{borderColor: 'var(--status-safe)', color: 'var(--status-safe)'}}>AI Map Tags</button>
             <button onClick={runBuild} disabled={busy} className="industrial-control status-safe w-full disabled:opacity-40">Run Build</button>
             <button onClick={generatePreview} disabled={busy} className="industrial-control text-[var(--text)] w-full disabled:opacity-40">Generate Preview</button>
             <button onClick={publish} disabled={busy || !build?.can_publish} className="industrial-control status-warning w-full disabled:opacity-40">Publish Latest Build</button>
@@ -771,6 +1003,7 @@ export default function StudioWorkspace() {
         <CompilerPipeline build={build} />
         <MappingCourt
           item={selectedItem}
+          aiLabel={courtAiLabel}
           assets={graphAssets}
           signals={graphSignals}
           signalRoles={signalRoles}
@@ -791,13 +1024,14 @@ export default function StudioWorkspace() {
           busy={busy}
           actionMessage={actionMessage}
         />
-        <TemplateBindingTable validation={validation} />
+        <TemplateBindingTable validation={validation} busy={busy} />
         <TemplateTestSuite tests={tests} />
         <PublishDiff diff={build?.publish_diff || overview?.diff?.compiler_publish_diff} />
         <RuntimePreview manifest={runtimeManifest} />
       </main>
 
       <aside className="bg-[var(--surface-panel)] overflow-y-auto scrollbar-thin">
+        <PasteImportPanel busy={busy} onImportResult={() => {}} />
         <PublishGuardrails build={build} onPublish={publish} busy={busy} result={publishResult} />
         <ScreenReceipts manifest={runtimeManifest} />
       </aside>

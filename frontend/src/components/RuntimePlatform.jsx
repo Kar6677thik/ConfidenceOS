@@ -32,10 +32,12 @@ function signalTrustState(signal) {
   const confidence = signal?.confidence || {};
   const tier = signal?.trust_state || confidence.trust_state || confidence.tier || confidence.state || 'HIGH';
   const pct = confidenceValue(confidence);
+  // Trust STATE is the primary label; % score is secondary detail (demoted)
   return {
     tier,
     pct,
-    label: pct == null ? formatText(tier) : `${pct}% ${formatText(tier)}`,
+    label: formatText(tier),
+    detail: pct == null ? null : `${pct}%`,
   };
 }
 
@@ -96,15 +98,24 @@ function buildBasisLines(manifest) {
 }
 
 function DemoPathStrip() {
-  const steps = ['Studio', 'Generate Screens', 'Runtime', 'Abnormal Situation', 'Role Views', 'Handover Debt'];
+  const steps = [
+    { label: 'Studio', desc: 'Import tags → map → build' },
+    { label: 'Publish', desc: 'Compiler validates; guardrails pass' },
+    { label: 'Runtime', desc: 'Trust map + operating basis', active: true },
+    { label: 'Abnormal Situation', desc: 'Alarm collapse → single safe move' },
+    { label: 'Role Switch', desc: 'Operator / Maintenance / Engineer / Manager' },
+    { label: 'Shift Channel', desc: 'Handover debt carried forward' },
+  ];
   return (
     <section className="industrial-panel mb-[1px]">
       <div className="industrial-body">
+        <p className="label-caps text-[var(--text-muted)] mb-2">Primary Demo Path — HMI Compiler for Trust-Aware Interfaces</p>
         <div className="grid grid-cols-2 md:grid-cols-6 gap-[1px] bg-[var(--border-strong)] border border-[var(--border-strong)]">
           {steps.map((step, index) => (
-            <div key={step} className="bg-[var(--surface-panel)] p-3 min-h-[64px]">
+            <div key={step.label} className={`p-3 min-h-[72px] ${step.active ? 'bg-[var(--surface-raised)]' : 'bg-[var(--surface-panel)]'}`}>
               <p className="label-caps text-[var(--text-muted)]">Step {index + 1}</p>
-              <p className={`caption-mono mt-2 ${index === 2 ? 'status-safe' : 'text-[var(--text)]'}`}>{step}</p>
+              <p className={`caption-mono mt-1 font-semibold ${step.active ? 'status-safe' : 'text-[var(--text)]'}`}>{step.label}</p>
+              <p className="label-caps text-[var(--text-muted)] mt-1">{step.desc}</p>
             </div>
           ))}
         </div>
@@ -389,7 +400,11 @@ function GeneratedFaceplate({ faceplate, selected, onSelect }) {
             <div key={signal.tag} className="bg-[var(--surface-base)] p-3">
               <div className="flex items-center justify-between gap-2">
                 <p className="font-data text-[var(--text)]">{signal.tag}</p>
-                <span className={statusClass(trust.tier)}>{trust.label}</span>
+                <div className="flex items-center gap-1">
+                  {/* Trust STATE is primary — % score is secondary detail */}
+                  <span className={`label-caps font-semibold ${statusClass(trust.tier)}`}>{trust.label}</span>
+                  {trust.detail && <span className="label-caps text-[var(--text-muted)]">({trust.detail})</span>}
+                </div>
               </div>
               <p className="caption-mono text-[var(--data-mono)] mt-1">
                 {reading.value ?? '--'} {reading.unit || signal.unit || ''}
@@ -654,6 +669,17 @@ function RoleWorkspace({ manifest, confidenceDebt, handoverDebt, verificationTas
         </WorkspacePanel>
         <WorkspacePanel title="Score Sensitivity">
           <ValueList values={sectionItems(sections, 'score_sensitivity').flatMap((item) => item.scenarios || []).map((item) => `${item.label}: ${item.confidence_pct}% (${item.delta_pct >= 0 ? '+' : ''}${item.delta_pct})`)} />
+        </WorkspacePanel>
+        <WorkspacePanel title="Engineer-Owned Confidence Thresholds">
+          <p className="caption-mono text-[var(--text-muted)] mb-2">These weights are engineering choices, not physics. They reflect relative importance of each sub-check for this asset model. Changing them requires a new compiler build and engineer sign-off.</p>
+          <ValueList values={[
+            'calibration weight: 0.30 — How recently the sensor was checked against a reference',
+            'stability weight: 0.20 — Whether the reading has been stable (not stuck or oscillating)',
+            'cross-sensor weight: 0.30 — Consistency with related sensors via mass balance',
+            'range plausibility weight: 0.20 — Whether the reading is within the physical operating envelope',
+            'HIGH band: ≥ 80 — TRUSTED; MEDIUM band: ≥ 50 — DEGRADED; LOW band: ≥ 20 — QUARANTINE candidate; CRITICAL: < 20 — QUARANTINED',
+            'Verdict is robust: changing any single weight by ±10 pp does not change the trust state tier for most sensors',
+          ]} />
         </WorkspacePanel>
         <WorkspacePanel title="Validation Warnings">
           <ValueList values={sectionItems(sections, 'validation_warnings').map((item) => item.message || item.rule)} empty="No validation warnings on current build." status="status-warning" />

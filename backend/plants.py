@@ -15,6 +15,7 @@ from simulator import SensorSimulator
 from tag_provider import SimulatorProvider
 from confidence import ConfidenceEngine
 from mass_balance import MassBalanceEngine, DEFAULT_TOLERANCE
+from asset_model import mass_balance_engine_config
 from startup import StartupManager
 from handover import HandoverBriefGenerator
 from mode_inference import ModeInferenceEngine
@@ -82,7 +83,11 @@ class PlantInstance:
         self.simulator = SensorSimulator()
         self.tag_provider = SimulatorProvider(self.simulator)
         self.confidence_engine = ConfidenceEngine()
-        self.mass_balance_engine = MassBalanceEngine()
+        _mb_cfg = mass_balance_engine_config()
+        self.mass_balance_engine = MassBalanceEngine(
+            tolerance=_mb_cfg["tolerance"],
+            flow_to_level_rate=_mb_cfg["flow_to_level_rate"],
+        )
         self.startup_manager = StartupManager()
         self.mode_inference_engine = ModeInferenceEngine()
         self.handover_generator = HandoverBriefGenerator()

@@ -31,6 +31,11 @@
       ]
     }
   },
+  "mass_balance_config": {
+    "flow_to_level_rate": 0.005,
+    "tolerance": 5.0,
+    "note": "Per-asset residual check parameters. flow_to_level_rate: ~200-gal cross-section vessel (1 gpm ≈ 0.005 ft/s). tolerance: acceptable level-unit discrepancy before flagging."
+  },
   "equipment": {
     "equipment_id": "V-5100",
     "name": "Raffinate splitter demo vessel",

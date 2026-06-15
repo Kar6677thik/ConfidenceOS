@@ -10,14 +10,14 @@ const NAV_ITEMS = [
 ];
 
 const SUPPORT_ITEMS = [
-  { path: '/integrity',  label: 'Integrity',     roles: ['Operator', 'Maintenance', 'Engineer', 'Manager', 'Auditor'] },
-  { path: '/operator',   label: 'Support View',  roles: ['Operator', 'Maintenance', 'Engineer', 'Manager'] },
-  { path: '/predictions',label: 'Confidence',    roles: ['Operator', 'Maintenance', 'Engineer', 'Manager'] },
-  { path: '/forensics',  label: 'Forensics',     roles: ['Engineer', 'Manager', 'Auditor'] },
-  { path: '/graph',      label: 'Graph',         roles: ['Engineer', 'Manager'] },
-  { path: '/engineer',   label: 'Engineer',      roles: ['Engineer', 'Manager'] },
-  { path: '/compliance', label: 'Compliance',    roles: ['Manager', 'Auditor'] },
-  { path: '/sandbox',    label: 'Sandbox',       roles: ['Engineer'] },
+  { path: '/integrity',  label: 'Fleet Integrity',        roles: ['Operator', 'Maintenance', 'Engineer', 'Manager', 'Auditor'] },
+  { path: '/operator',   label: 'Operator Detail',        roles: ['Operator', 'Maintenance', 'Engineer', 'Manager'] },
+  { path: '/predictions',label: 'Degradation Forecast',   roles: ['Operator', 'Maintenance', 'Engineer', 'Manager'] },
+  { path: '/forensics',  label: 'Incident Forensics',     roles: ['Engineer', 'Manager', 'Auditor'] },
+  { path: '/graph',      label: 'Causal Graph',           roles: ['Engineer', 'Manager'] },
+  { path: '/engineer',   label: 'Engineer Analysis',      roles: ['Engineer', 'Manager'] },
+  { path: '/compliance', label: 'Compliance Report',      roles: ['Manager', 'Auditor'] },
+  { path: '/sandbox',    label: 'Simulation Sandbox',     roles: ['Engineer'] },
 ];
 
 function countActiveAlerts(confidence, massBalance, staleFlags) {
@@ -69,19 +69,22 @@ export default function NavBar() {
               {item.label}
             </NavLink>
           ))}
-          <select
-            value={activeSupport}
-            onChange={(event) => {
-              if (event.target.value) navigate(event.target.value);
-            }}
-            className="industrial-control bg-transparent max-w-[180px]"
-            aria-label="Support views"
-          >
-            <option value="">Support Views</option>
-            {supportItems.map((item) => (
-              <option key={item.path} value={item.path}>{item.label}</option>
-            ))}
-          </select>
+          {supportItems.length > 0 && (
+            <select
+              value={activeSupport}
+              onChange={(event) => {
+                if (event.target.value) navigate(event.target.value);
+              }}
+              className="industrial-control bg-transparent max-w-[200px] opacity-70 hover:opacity-100 transition-opacity text-[var(--text-muted)]"
+              aria-label="Analysis views"
+              title="Secondary analysis views — not part of the primary demo path"
+            >
+              <option value="">More / Analysis ▾</option>
+              {supportItems.map((item) => (
+                <option key={item.path} value={item.path}>{item.label}</option>
+              ))}
+            </select>
+          )}
         </nav>
       </div>
 
@@ -98,7 +101,7 @@ export default function NavBar() {
         </select>
 
         <div className={`caption-mono ${alerts > 0 ? 'status-critical' : 'status-safe'}`}>
-          Verification Required: {alerts}
+          {alerts > 0 ? `${alerts} Trust Alert${alerts > 1 ? 's' : ''}` : 'All Trusted'}
         </div>
 
         {location.pathname !== '/runtime' && location.pathname !== '/' && (
