@@ -9,11 +9,12 @@ and live-state hooks. It never writes process tags or control commands.
 from __future__ import annotations
 
 import json
+import re
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from model_graph import get_assets, get_model_graph
+from model_graph import get_assets, get_model_graph, get_signals
 from asset_model import active_asset_model_key, mass_balance_validation
 from screen_generator import generate_screen_manifest
 from template_library import validate_assignments
@@ -39,13 +40,23 @@ SUGGESTION_LABELS = {
 }
 
 
-def load_imported_tags() -> dict:
+def load_imported_tags(model_key: str | None = None) -> dict:
     with open(IMPORTED_TAGS_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)
+        payload = json.load(f)
+    if not model_key:
+        return payload
+    tags = []
+    for tag in payload.get("tags", []):
+        model_keys = tag.get("model_keys")
+        if not model_keys or model_key in model_keys or "all" in model_keys:
+            tags.append(tag)
+    return {**payload, "tags": tags}
 
 
 def imported_tag_buckets(state: dict | None = None) -> dict:
-    rows = [mapping_court_for_tag(tag["raw_tag"], state=state) for tag in load_imported_tags().get("tags", [])]
+    model_key = _active_model_key(state)
+    imported = load_imported_tags(model_key)
+    rows = [mapping_court_for_tag(tag["raw_tag"], state=state) for tag in imported.get("tags", [])]
     buckets = {
         "mapped": [],
         "ambiguous": [],
@@ -60,7 +71,7 @@ def imported_tag_buckets(state: dict | None = None) -> dict:
             buckets["blocking"].append(row)
 
     return {
-        "source": load_imported_tags().get("source"),
+        "source": imported.get("source"),
         "suggestion_labels": dict(SUGGESTION_LABELS),
         "raw_tags": rows,
         "buckets": buckets,
@@ -79,23 +90,38 @@ def mapping_court(state: dict | None = None) -> dict:
 
 
 def mapping_court_for_tag(raw_tag: str, state: dict | None = None) -> dict:
-    tag = _tag_by_raw(raw_tag)
-    if not tag:
-        return {
-            "raw_tag": raw_tag,
-            "bucket": "unmapped",
-            "blocking": True,
-            "suggestion_type": "deterministic_rule",
-            "suggestion_label": SUGGESTION_LABELS["suggestion_type"],
-            "ai_suggestion": SUGGESTION_LABELS["ai_assist"],
-            "approval_required": True,
-            "evidence": [],
-            "counter_evidence": ["Raw tag was not found in the imported tag list."],
-            "verdict": "UNKNOWN_TAG",
-        }
-
     state = state or {}
     approved = _approved_binding(raw_tag, state)
+    tag = _tag_by_raw(raw_tag, state)
+    if not tag:
+        if approved:
+            tag = {
+                "raw_tag": raw_tag,
+                "status": "mapped",
+                "evidence": [],
+                "counter_evidence": [],
+            }
+        else:
+            derived = _derive_mapping(raw_tag)
+            if derived:
+                tag = derived
+            else:
+                return {
+                    "raw_tag": raw_tag,
+                    "bucket": "unmapped",
+                    "blocking": True,
+                    "suggestion_type": "deterministic_rule",
+                    "suggestion_label": SUGGESTION_LABELS["suggestion_type"],
+                    "ai_suggestion": SUGGESTION_LABELS["ai_assist"],
+                    "approval_required": True,
+                    "evidence": [],
+                    "counter_evidence": ["Raw tag was not found in the imported tag list."],
+                    "verdict": "UNKNOWN_TAG",
+                }
+
+    derived = _derive_mapping(raw_tag, fallback=tag)
+    if derived and not approved and tag.get("status") != "ignored":
+        tag = {**tag, **derived}
     ignored_reason = _ignored_reason(raw_tag, state)
     effective = deepcopy(tag)
     if approved:
@@ -120,6 +146,7 @@ def mapping_court_for_tag(raw_tag: str, state: dict | None = None) -> dict:
         "unit": effective.get("unit"),
         "template_id": effective.get("template_id"),
         "confidence": effective.get("confidence", 0.0),
+        "confidence_band": effective.get("confidence_band") or _confidence_band(float(effective.get("confidence", 0.0))),
         "suggestion_type": "deterministic_rule",
         "suggestion_label": SUGGESTION_LABELS["suggestion_type"],
         "ai_suggestion": SUGGESTION_LABELS["ai_assist"],
@@ -347,8 +374,8 @@ def _source_tags(mapping_payload: dict) -> list[str]:
     return sorted(set(tags))
 
 
-def _tag_by_raw(raw_tag: str) -> dict | None:
-    for tag in load_imported_tags().get("tags", []):
+def _tag_by_raw(raw_tag: str, state: dict | None = None) -> dict | None:
+    for tag in load_imported_tags(_active_model_key(state)).get("tags", []):
         if tag.get("raw_tag") == raw_tag:
             return tag
     return None
@@ -367,6 +394,134 @@ def _ignored_reason(raw_tag: str, state: dict) -> str | None:
     if isinstance(reason, str) and reason.strip():
         return reason.strip()
     return None
+
+
+def _active_model_key(state: dict | None = None) -> str:
+    state = state or {}
+    return state.get("selected_asset_model") or active_asset_model_key()
+
+
+PREFIX_TO_TYPE = {
+    "LT": "level",
+    "LIT": "level",
+    "FI": "flow_in",
+    "FIT": "flow_in",
+    "FO": "flow_out",
+    "PT": "pressure",
+    "TT": "temperature",
+    "TEMP": "temperature",
+    "ZT": "valve",
+    "VIB": "vibration",
+}
+
+
+def _derive_mapping(raw_tag: str, fallback: dict | None = None) -> dict | None:
+    if raw_tag == "BAD_TAG_123":
+        return None
+    if fallback and fallback.get("status") == "ignored":
+        return fallback
+    signals = get_signals()
+    assets = {asset.get("asset_id"): asset for asset in get_assets()}
+    raw_norm = _normalize_tag(raw_tag)
+    raw_numbers = set(re.findall(r"\d+", raw_norm))
+    raw_type = _type_from_raw(raw_norm)
+    best = None
+    best_score = -1
+    best_evidence: list[str] = []
+    best_counter: list[str] = []
+
+    for signal in signals:
+        tag = signal.get("tag")
+        if not tag:
+            continue
+        tag_norm = _normalize_tag(tag)
+        signal_numbers = set(re.findall(r"\d+", tag_norm))
+        signal_type = signal.get("sensor_type")
+        score = 0.0
+        evidence = []
+        counter = []
+
+        if raw_norm == tag_norm or tag_norm in raw_norm or raw_norm in tag_norm:
+            score += 0.45
+            evidence.append(f"Raw tag normalizes close to canonical signal {tag}.")
+        if raw_numbers and raw_numbers & signal_numbers:
+            score += 0.25
+            evidence.append(f"Numeric suffix {', '.join(sorted(raw_numbers & signal_numbers))} matches {tag}.")
+        if raw_type and raw_type == signal_type:
+            score += 0.25
+            evidence.append(f"Instrument prefix indicates {signal_type}.")
+        elif raw_type and signal_type:
+            counter.append(f"Prefix suggests {raw_type}, while {tag} is modeled as {signal_type}.")
+
+        asset_id = signal.get("equipment_id")
+        asset = assets.get(asset_id, {})
+        asset_numbers = set(re.findall(r"\d+", _normalize_tag(asset_id or "")))
+        if raw_numbers and asset_numbers and raw_numbers & asset_numbers:
+            score += 0.10
+            evidence.append(f"Numeric suffix also matches equipment {asset_id}.")
+        if signal.get("role"):
+            evidence.append(f"Asset model role is {signal.get('role')}.")
+        if not evidence:
+            counter.append("No strong deterministic naming evidence found.")
+
+        if score > best_score:
+            best = (signal, asset)
+            best_score = score
+            best_evidence = evidence
+            best_counter = counter
+
+    if not best or best_score < 0.35:
+        return {
+            "raw_tag": raw_tag,
+            "status": "unmapped",
+            "proposed_canonical_tag": None,
+            "proposed_asset_id": None,
+            "proposed_role": None,
+            "confidence": round(max(best_score, 0.0), 2),
+            "confidence_band": "LOW_MAPPING_COVERAGE",
+            "evidence": best_evidence,
+            "counter_evidence": best_counter or ["No active-model signal matched the dirty tag strongly enough."],
+            "verdict": "REQUIRES_ENGINEER_MAPPING_OR_IGNORE_REASON",
+        }
+
+    signal, asset = best
+    status = "mapped" if best_score >= 0.75 else "ambiguous"
+    return {
+        "raw_tag": raw_tag,
+        "status": status,
+        "proposed_canonical_tag": signal.get("tag"),
+        "proposed_asset_id": signal.get("equipment_id"),
+        "proposed_role": signal.get("role"),
+        "sensor_type": signal.get("sensor_type"),
+        "unit": signal.get("unit"),
+        "template_id": asset.get("template_id"),
+        "confidence": round(min(best_score, 0.99), 2),
+        "confidence_band": _confidence_band(min(best_score, 0.99)),
+        "evidence": best_evidence,
+        "counter_evidence": best_counter,
+        "verdict": "APPROVE_WITH_REVIEW" if status == "ambiguous" else "APPROVE_DETERMINISTIC_MAPPING",
+    }
+
+
+def _normalize_tag(value: str) -> str:
+    text = str(value or "").upper()
+    text = re.sub(r"(\.PV|_PV|\.POS|_POS|_RATE|\.RATE|_PROCESS)$", "", text)
+    return re.sub(r"[^A-Z0-9]", "", text)
+
+
+def _type_from_raw(raw_norm: str) -> str | None:
+    for prefix in sorted(PREFIX_TO_TYPE, key=len, reverse=True):
+        if raw_norm.startswith(prefix) or prefix in raw_norm:
+            return PREFIX_TO_TYPE[prefix]
+    return None
+
+
+def _confidence_band(confidence: float) -> str:
+    if confidence >= 0.85:
+        return "HIGH_DETERMINISTIC_MATCH"
+    if confidence >= 0.65:
+        return "ENGINEER_REVIEW_RECOMMENDED"
+    return "LOW_MAPPING_COVERAGE"
 
 
 def _maps_to_critical_asset_without_approval(item: dict) -> bool:

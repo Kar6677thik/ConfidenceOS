@@ -69,6 +69,29 @@
       "validation_checks": ["required_signals_present", "mass_balance_relationship_present"]
     },
     {
+      "template_id": "pump",
+      "label": "Pump / Rotating Equipment Faceplate",
+      "equipment_types": ["pump", "rotating_equipment"],
+      "required_signal_types": ["vibration"],
+      "optional_signal_types": ["flow_out", "run_status", "command", "discharge_pressure"],
+      "generated_ui_sections": ["device_health", "discharge_flow_context", "vibration_trust", "verification_task", "template_provenance"],
+      "confidence_rules_to_display": ["stability", "physical_plausibility", "calibration"],
+      "role_visibility": {
+        "Operator": ["device_health", "discharge_flow_context"],
+        "Maintenance": ["device_health", "vibration_trust", "verification_task", "confidence_debt"],
+        "Engineer": ["signal_mapping", "template_provenance", "validation_warnings"],
+        "Manager": ["handover_debt", "timeline"],
+        "Auditor": ["timeline", "template_provenance"]
+      },
+      "context_behavior": {
+        "STEADY_STATE": "show_device_health",
+        "INSTRUMENTATION_SUSPECT": "promote_vibration_trust",
+        "MANUAL_VERIFICATION_REQUIRED": "promote_verification"
+      },
+      "first_action_patterns": ["Verify pump vibration and tank level locally before increasing transfer rate."],
+      "validation_checks": ["required_signals_present", "device_health_signal_present"]
+    },
+    {
       "template_id": "abnormal_situation",
       "label": "Abnormal Situation Workspace",
       "equipment_types": ["situation"],

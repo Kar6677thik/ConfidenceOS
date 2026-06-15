@@ -5,12 +5,13 @@ studio_service.py - Lightweight low-code Studio state and deterministic mapping.
 from __future__ import annotations
 
 import json
+import re
 import time
 from pathlib import Path
 
 from hmi_compiler import imported_tag_buckets, mapping_court, mapping_court_for_tag, run_build
 from asset_model import available_asset_models, set_active_asset_model
-from model_graph import get_assets, get_model_graph, get_signals
+from model_graph import equipment_signals, get_assets, get_model_graph, get_signals
 from screen_generator import generate_screen_manifest
 from template_library import get_template_catalog, validate_assignments
 from template_tests import run_template_tests
@@ -29,7 +30,7 @@ MODEL_ASSIGNMENTS = {
     "texas_city_vessel": DEFAULT_ASSIGNMENTS,
     "pump_station": [
         {"asset_id": "TK-100", "template_id": "vessel", "approved": True, "source": "demo_default"},
-        {"asset_id": "P-101", "template_id": "valve", "approved": True, "source": "demo_default"},
+        {"asset_id": "P-101", "template_id": "pump", "approved": True, "source": "demo_default"},
         {"asset_id": "FG-100", "template_id": "flow_pair", "approved": True, "source": "demo_default"},
     ],
 }
@@ -42,6 +43,16 @@ DEFAULT_APPROVED_BINDINGS = [
     {"raw_tag": "PT_3100_PROCESS", "source": "demo_default_engineer_approval"},
     {"raw_tag": "TEMP4100", "source": "demo_default_engineer_approval"},
 ]
+
+MODEL_APPROVED_BINDINGS = {
+    "texas_city_vessel": DEFAULT_APPROVED_BINDINGS,
+    "pump_station": [
+        {"raw_tag": "TK100_LIT.PV", "source": "demo_default_engineer_approval"},
+        {"raw_tag": "FIT101_FLOW", "source": "demo_default_engineer_approval"},
+        {"raw_tag": "FIT102_RATE", "source": "demo_default_engineer_approval"},
+        {"raw_tag": "P101_VIB", "source": "demo_default_engineer_approval"},
+    ],
+}
 
 
 def get_state() -> dict:
@@ -78,60 +89,9 @@ def imported_signals() -> dict:
 
 
 def auto_map() -> dict:
-    court = mapping_court(get_state())
-    suggestions = [
-        {
-            "asset_id": "V-5100",
-            "asset_name": "Raffinate splitter demo vessel",
-            "template_id": "vessel",
-            "confidence": 0.98,
-            "source": "deterministic_rule",
-            "requires_approval": True,
-            "reason": "Level, inflow, and outflow signals match vessel template requirements.",
-            "signal_tags": ["LT-5100", "FI-2010", "FO-2020", "PT-3100", "TT-4100"],
-            "suggestion_label": "deterministic rule active",
-            "ai_suggestion": "AI suggestion optional",
-            "approval_label": "engineer approval required",
-            "evidence": [
-                "LT/FI/FO imported tags match known vessel signal roles.",
-                "Suffixes match Unit 15 demo asset metadata.",
-            ],
-            "counter_evidence": ["PT_3100_PROCESS remains ambiguous until engineer review."],
-            "verdict": "APPROVE_WITH_REVIEW",
-        },
-        {
-            "asset_id": "XV-6100",
-            "asset_name": "Feed control valve",
-            "template_id": "valve",
-            "confidence": 0.94,
-            "source": "deterministic_rule",
-            "requires_approval": True,
-            "reason": "ZT-6100 valve-position signal matches valve template.",
-            "signal_tags": ["ZT-6100"],
-            "suggestion_label": "deterministic rule active",
-            "ai_suggestion": "AI suggestion optional",
-            "approval_label": "engineer approval required",
-            "evidence": ["ZT6100.POS maps to valve-position feedback for XV-6100."],
-            "counter_evidence": ["No separate command tag was imported."],
-            "verdict": "APPROVE_WITH_COMMAND_SIGNAL_WARNING",
-        },
-        {
-            "asset_id": "FG-2010",
-            "asset_name": "Feed/outflow balance group",
-            "template_id": "flow_pair",
-            "confidence": 0.96,
-            "source": "deterministic_rule",
-            "requires_approval": True,
-            "reason": "FI-2010 and FO-2020 form a mass-balance pair.",
-            "signal_tags": ["FI-2010", "FO-2020"],
-            "suggestion_label": "deterministic rule active",
-            "ai_suggestion": "AI suggestion optional",
-            "approval_label": "engineer approval required",
-            "evidence": ["Inlet and outlet flow tags bind to the asset model mass-balance relationship."],
-            "counter_evidence": [],
-            "verdict": "APPROVE_AS_VALIDATION_PAIR",
-        }
-    ]
+    state = get_state()
+    court = mapping_court(state)
+    suggestions = _asset_mapping_suggestions(court)
     state = get_state()
     state["suggestions"] = suggestions
     save_state(state)
@@ -141,6 +101,64 @@ def auto_map() -> dict:
         "ai_assisted": False,
         "suggestion_labels": court.get("suggestion_labels", {}),
         "approval_required": True,
+    }
+
+
+def manual_map_raw_tag(raw_tag: str, canonical_tag: str, asset_id: str, signal_role: str, reason: str) -> dict:
+    reason = (reason or "").strip()
+    if not reason:
+        return {
+            "status": "not_mapped",
+            "reason": "Manual mapping requires an engineering reason.",
+            "mapping": mapping_court_for_tag(raw_tag, get_state()),
+        }
+    signals = {signal.get("tag"): signal for signal in get_signals()}
+    assets = {asset.get("asset_id"): asset for asset in get_assets()}
+    signal = signals.get(canonical_tag)
+    asset = assets.get(asset_id)
+    if not signal or not asset:
+        return {
+            "status": "not_mapped",
+            "reason": "Manual mapping requires a known canonical signal and asset.",
+            "mapping": mapping_court_for_tag(raw_tag, get_state()),
+        }
+
+    state = get_state()
+    approved = [
+        item for item in state.get("approved_bindings", [])
+        if item.get("raw_tag") != raw_tag
+    ]
+    approved.append({
+        "raw_tag": raw_tag,
+        "proposed_canonical_tag": canonical_tag,
+        "proposed_asset_id": asset_id,
+        "proposed_role": signal_role,
+        "sensor_type": signal.get("sensor_type"),
+        "unit": signal.get("unit"),
+        "template_id": asset.get("template_id"),
+        "confidence": 0.72,
+        "confidence_band": "ENGINEER_APPROVED",
+        "source": "studio_manual_mapping",
+        "approved_at": time.time(),
+        "evidence": [
+            f"Engineer manually bound {raw_tag} to {canonical_tag}.",
+            f"Mapped to {asset_id} as {signal_role}.",
+            reason,
+        ],
+        "counter_evidence": ["Manual mapping bypasses deterministic naming confidence and is retained as an engineering receipt."],
+        "verdict": "MANUAL_ENGINEER_MAPPING_APPROVED",
+    })
+    ignored = dict(state.get("ignored_raw_tags", {}))
+    ignored.pop(raw_tag, None)
+    state["approved_bindings"] = approved
+    state["ignored_raw_tags"] = ignored
+    state["last_build"] = None
+    state["last_build_id"] = None
+    save_state(state)
+    return {
+        "status": "manual_mapped",
+        "mapping": mapping_court_for_tag(raw_tag, get_state()),
+        "build_invalidated": True,
     }
 
 
@@ -330,6 +348,8 @@ def select_asset_model(model_key: str) -> dict:
     selected = set_active_asset_model(model_key)
     state["selected_asset_model"] = selected
     state["assignments"] = _default_assignments_for_model(selected)
+    state["approved_bindings"] = _default_approved_bindings_for_model(selected)
+    state["ignored_raw_tags"] = {}
     state["last_build"] = None
     state["last_build_id"] = None
     state["published_manifest"] = {}
@@ -442,6 +462,69 @@ def studio_overview() -> dict:
     }
 
 
+def _asset_mapping_suggestions(court: dict) -> list[dict]:
+    rows = [
+        item for item in court.get("items", [])
+        if item.get("proposed_canonical_tag") and not item.get("ignored")
+    ]
+    rows_by_tag = {item.get("proposed_canonical_tag"): item for item in rows}
+    suggestions = []
+    for asset in get_assets():
+        template_id = asset.get("template_id")
+        if template_id not in {"vessel", "valve", "pump", "flow_pair"}:
+            continue
+        signals = equipment_signals(asset.get("asset_id"))
+        signal_tags = [signal.get("tag") for signal in signals if signal.get("tag")]
+        mapped_rows = [rows_by_tag[tag] for tag in signal_tags if tag in rows_by_tag]
+        confidence_values = [float(row.get("confidence") or 0) for row in mapped_rows]
+        confidence = round(sum(confidence_values) / len(confidence_values), 2) if confidence_values else 0.62
+        missing = [tag for tag in signal_tags if tag not in rows_by_tag]
+        evidence = [
+            f"{len(mapped_rows)} imported tag(s) bind to {asset.get('asset_id')} through the active asset model.",
+            f"{asset.get('asset_id')} is assigned reusable template {template_id}.",
+        ]
+        if signal_tags:
+            evidence.append(f"Modeled source signals: {', '.join(signal_tags)}.")
+        counter_evidence = []
+        if missing:
+            counter_evidence.append(f"No dirty-import mapping was found for: {', '.join(missing)}.")
+        if template_id in {"valve", "pump"} and not any(_looks_like_command(tag) for tag in signal_tags):
+            counter_evidence.append("No separate command/run-status signal is present in the imported tag set.")
+        suggestions.append({
+            "asset_id": asset.get("asset_id"),
+            "asset_name": asset.get("name"),
+            "template_id": template_id,
+            "confidence": confidence,
+            "confidence_band": _confidence_band(confidence),
+            "source": "deterministic_rule",
+            "suggestion_type": "deterministic_rule",
+            "requires_approval": True,
+            "approval_required": True,
+            "reason": f"Active asset model binds {len(signal_tags)} signal(s) to {asset.get('asset_id')}.",
+            "signal_tags": signal_tags,
+            "suggestion_label": "deterministic rule active",
+            "ai_suggestion": "AI suggestion optional",
+            "approval_label": "engineer approval required",
+            "evidence": evidence,
+            "counter_evidence": counter_evidence,
+            "verdict": "APPROVE_WITH_REVIEW" if counter_evidence else "APPROVE_TEMPLATE_BINDING",
+        })
+    return suggestions
+
+
+def _confidence_band(confidence: float) -> str:
+    if confidence >= 0.85:
+        return "HIGH_DETERMINISTIC_MATCH"
+    if confidence >= 0.65:
+        return "ENGINEER_REVIEW_RECOMMENDED"
+    return "LOW_MAPPING_COVERAGE"
+
+
+def _looks_like_command(tag: str) -> bool:
+    normalized = re.sub(r"[^A-Z0-9]", "", str(tag).upper())
+    return any(token in normalized for token in ("CMD", "RUN", "START", "STOP", "MODE"))
+
+
 def _default_state() -> dict:
     return {
         "revision": 1,
@@ -480,6 +563,10 @@ def _with_default_fields(state: dict) -> dict:
 
 def _default_assignments_for_model(model_key: str | None) -> list[dict]:
     return [dict(item) for item in MODEL_ASSIGNMENTS.get(model_key or "texas_city_vessel", DEFAULT_ASSIGNMENTS)]
+
+
+def _default_approved_bindings_for_model(model_key: str | None) -> list[dict]:
+    return [dict(item) for item in MODEL_APPROVED_BINDINGS.get(model_key or "texas_city_vessel", DEFAULT_APPROVED_BINDINGS)]
 
 
 def _activate_state_model(state: dict) -> None:

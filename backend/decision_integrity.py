@@ -12,6 +12,7 @@ import time
 from datetime import datetime, timezone
 
 from asset_model import (
+    affected_decisions,
     affected_decision_by_contract,
     criticality_weight,
     load_asset_model,
@@ -382,9 +383,17 @@ def build_trust_dependency_graph(
     level_tag = relationship.get("validated_tag", "LT-5100")
     flow_tags = relationship.get("source_tags", ["FI-2010", "FO-2020"])
     inferred_variable = relationship.get("inferred_variable", "implied_level")
-    feed_decision = affected_decision_by_contract("increase_feed", asset_model)
-    feed_decision_id = feed_decision.get("id", "feed_increase_decision")
-    feed_decision_label = feed_decision.get("label", "Feed increase decision")
+    model_decisions = affected_decisions(asset_model)
+    primary_decision = next(
+        (
+            item for item in model_decisions
+            if item.get("contract_decision") != "accept_handover_without_verification"
+        ),
+        affected_decision_by_contract("increase_feed", asset_model) or {},
+    )
+    decision_id = primary_decision.get("id", "primary_operating_decision")
+    decision_label = primary_decision.get("label", "Primary operating decision")
+    decision_contract = primary_decision.get("contract_decision", decision_id)
     confidence_by_id = {item.get("sensor_id"): item for item in confidence or []}
     readings_by_id = {item.get("sensor_id"): item for item in readings or []}
     level = confidence_by_id.get(level_tag, {})
@@ -411,12 +420,12 @@ def build_trust_dependency_graph(
             "asset_relationship": relationship.get("id"),
         },
         {
-            "id": feed_decision_id,
+            "id": decision_id,
             "type": "affected_decision",
-            "label": feed_decision_label,
-            "status": "blocked_until_verified" if "increase_feed" in blocked else "allowed_with_monitoring",
-            "handover_required": "increase_feed" in blocked,
-            "depends_on": feed_decision.get("depends_on", []),
+            "label": decision_label,
+            "status": "blocked_until_verified" if decision_contract in blocked else "allowed_with_monitoring",
+            "handover_required": decision_contract in blocked,
+            "depends_on": primary_decision.get("depends_on", []),
         },
     ]
 
@@ -426,15 +435,15 @@ def build_trust_dependency_graph(
             {"source": tag, "target": inferred_variable, "relationship": "supports"}
             for tag in flow_tags
         ],
-        {"source": inferred_variable, "target": feed_decision_id, "relationship": "affects_decision"},
+        {"source": inferred_variable, "target": decision_id, "relationship": "affects_decision"},
     ]
 
     return {
         "plant_id": plant_id,
-        "focus": "LT/FI/FO to implied level to feed increase decision",
+        "focus": f"{level_tag}/{','.join(flow_tags)} to {inferred_variable} to {decision_label}",
         "nodes": nodes,
         "edges": edges,
-        "summary": _trust_graph_summary(level, flow_in, flow_out, mb_flags, blocked),
+        "summary": _trust_graph_summary(level, flow_in, flow_out, mb_flags, blocked, decision_contract, decision_label),
         "asset_model_id": asset_model.get("model_id"),
         "equipment_id": asset_model.get("equipment", {}).get("equipment_id"),
         "read_only_trust_layer": asset_model.get("read_only_trust_layer", True),
@@ -502,9 +511,9 @@ def _is_high(confidence: dict) -> bool:
     return confidence.get("tier") == "HIGH"
 
 
-def _trust_graph_summary(level: dict, flow_in: dict, flow_out: dict, mb_flags: list[dict], blocked: list[str]) -> str:
-    if "increase_feed" in blocked:
-        return "Feed increase is blocked until level integrity is verified."
+def _trust_graph_summary(level: dict, flow_in: dict, flow_out: dict, mb_flags: list[dict], blocked: list[str], decision_contract: str, decision_label: str) -> str:
+    if decision_contract in blocked:
+        return f"{decision_label} is blocked until level integrity is verified."
     if level.get("tier") in ("LOW", "CRITICAL") and _is_high(flow_in) and _is_high(flow_out):
         return "Level indication is less trusted than independent flow evidence."
     if mb_flags:

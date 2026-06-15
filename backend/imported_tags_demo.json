@@ -4,6 +4,7 @@
   "tags": [
     {
       "raw_tag": "U15_LT_5100.PV",
+      "model_keys": ["texas_city_vessel"],
       "status": "mapped",
       "proposed_canonical_tag": "LT-5100",
       "proposed_asset_id": "V-5100",
@@ -24,6 +25,7 @@
     },
     {
       "raw_tag": "15-FI-2010",
+      "model_keys": ["texas_city_vessel"],
       "status": "mapped",
       "proposed_canonical_tag": "FI-2010",
       "proposed_asset_id": "V-5100",
@@ -42,6 +44,7 @@
     },
     {
       "raw_tag": "FO2020_RATE",
+      "model_keys": ["texas_city_vessel"],
       "status": "mapped",
       "proposed_canonical_tag": "FO-2020",
       "proposed_asset_id": "V-5100",
@@ -60,6 +63,7 @@
     },
     {
       "raw_tag": "ZT6100.POS",
+      "model_keys": ["texas_city_vessel"],
       "status": "mapped",
       "proposed_canonical_tag": "ZT-6100",
       "proposed_asset_id": "XV-6100",
@@ -80,6 +84,7 @@
     },
     {
       "raw_tag": "PT_3100_PROCESS",
+      "model_keys": ["texas_city_vessel"],
       "status": "ambiguous",
       "proposed_canonical_tag": "PT-3100",
       "proposed_asset_id": "V-5100",
@@ -99,6 +104,7 @@
     },
     {
       "raw_tag": "TEMP4100",
+      "model_keys": ["texas_city_vessel"],
       "status": "mapped",
       "proposed_canonical_tag": "TT-4100",
       "proposed_asset_id": "V-5100",
@@ -117,7 +123,83 @@
       "verdict": "APPROVE_AS_PROCESS_CONTEXT"
     },
     {
+      "raw_tag": "TK100_LIT.PV",
+      "model_keys": ["pump_station"],
+      "status": "mapped",
+      "proposed_canonical_tag": "LIT-100",
+      "proposed_asset_id": "TK-100",
+      "proposed_role": "primary_level",
+      "sensor_type": "level",
+      "unit": "%",
+      "template_id": "vessel",
+      "confidence": 0.96,
+      "evidence": [
+        "Tag contains LIT, common abbreviation for level indicator transmitter.",
+        "Numeric suffix 100 matches tank TK-100.",
+        "PV suffix indicates process value."
+      ],
+      "counter_evidence": [],
+      "verdict": "APPROVE_AS_PRIMARY_LEVEL"
+    },
+    {
+      "raw_tag": "FIT101_FLOW",
+      "model_keys": ["pump_station"],
+      "status": "mapped",
+      "proposed_canonical_tag": "FIT-101",
+      "proposed_asset_id": "TK-100",
+      "proposed_role": "mass_balance_input",
+      "sensor_type": "flow_in",
+      "unit": "m3/h",
+      "template_id": "vessel",
+      "confidence": 0.94,
+      "evidence": [
+        "Tag contains FIT, common abbreviation for flow transmitter.",
+        "101 suffix matches tank inflow FIT-101."
+      ],
+      "counter_evidence": [],
+      "verdict": "APPROVE_AS_INFLOW"
+    },
+    {
+      "raw_tag": "FIT102_RATE",
+      "model_keys": ["pump_station"],
+      "status": "mapped",
+      "proposed_canonical_tag": "FIT-102",
+      "proposed_asset_id": "TK-100",
+      "proposed_role": "mass_balance_output",
+      "sensor_type": "flow_out",
+      "unit": "m3/h",
+      "template_id": "vessel",
+      "confidence": 0.94,
+      "evidence": [
+        "Tag contains FIT and RATE, indicating flow rate.",
+        "102 suffix matches pump discharge flow FIT-102."
+      ],
+      "counter_evidence": [],
+      "verdict": "APPROVE_AS_OUTFLOW"
+    },
+    {
+      "raw_tag": "P101_VIB",
+      "model_keys": ["pump_station"],
+      "status": "mapped",
+      "proposed_canonical_tag": "VIB-101",
+      "proposed_asset_id": "P-101",
+      "proposed_role": "device_health",
+      "sensor_type": "vibration",
+      "unit": "mm/s",
+      "template_id": "pump",
+      "confidence": 0.93,
+      "evidence": [
+        "Tag contains VIB, matching pump vibration.",
+        "101 suffix matches pump P-101 and vibration tag VIB-101."
+      ],
+      "counter_evidence": [
+        "No pump command/run-status tag was imported."
+      ],
+      "verdict": "APPROVE_AS_DEVICE_HEALTH"
+    },
+    {
       "raw_tag": "BAD_TAG_123",
+      "model_keys": ["all"],
       "status": "unmapped",
       "proposed_canonical_tag": null,
       "proposed_asset_id": null,
@@ -137,6 +219,7 @@
     },
     {
       "raw_tag": "UNUSED_SPARE_AI_09",
+      "model_keys": ["all"],
       "status": "ignored",
       "proposed_canonical_tag": null,
       "proposed_asset_id": null,

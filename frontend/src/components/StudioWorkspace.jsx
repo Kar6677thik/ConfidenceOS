@@ -155,9 +155,31 @@ function DirtyTagGauntlet({ court, selectedRawTag, onSelect }) {
   );
 }
 
-function MappingCourt({ item, ignoreReason, onIgnoreReason, onApprove, onIgnore, onKeepBlocking, busy, actionMessage }) {
+function MappingCourt({
+  item,
+  assets = [],
+  signals = [],
+  signalRoles = [],
+  ignoreReason,
+  onIgnoreReason,
+  manualCanonical,
+  onManualCanonical,
+  manualAsset,
+  onManualAsset,
+  manualRole,
+  onManualRole,
+  manualReason,
+  onManualReason,
+  onManualMap,
+  onApprove,
+  onIgnore,
+  onKeepBlocking,
+  busy,
+  actionMessage,
+}) {
   const evidence = asList(item?.evidence);
   const counterEvidence = asList(item?.counter_evidence);
+  const needsManualResolution = item && ['unmapped', 'ambiguous', 'blocking'].includes(String(item.bucket || '').toLowerCase());
   return (
     <Panel
       eyebrow="Mapping Court"
@@ -218,6 +240,63 @@ function MappingCourt({ item, ignoreReason, onIgnoreReason, onApprove, onIgnore,
           <button disabled={busy || !item} onClick={onKeepBlocking} className="industrial-control status-critical w-full disabled:opacity-40">Keep Blocking</button>
         </div>
       </div>
+      {needsManualResolution && (
+        <div className="mt-4 border border-[var(--border-strong)] bg-[var(--surface-base)] p-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="label-caps status-warning">Manual Mapping Workflow</p>
+              <p className="caption-mono text-[var(--data-mono)] mt-1">Engineer-approved binding; removes ignored state and invalidates the previous build.</p>
+            </div>
+            <span className="industrial-badge text-[var(--data-mono)]">approval required</span>
+          </div>
+          <div className="grid grid-cols-1 xl:grid-cols-4 gap-[1px] bg-[var(--border-strong)] mt-3">
+            <div className="bg-[var(--surface-panel)] p-3">
+              <label className="label-caps text-[var(--text-muted)]" htmlFor="manual-canonical">Canonical Signal</label>
+              <select id="manual-canonical" value={manualCanonical} onChange={(event) => onManualCanonical(event.target.value)} className="industrial-input mt-2">
+                <option value="">Select signal</option>
+                {signals.map((signal) => (
+                  <option key={signal.tag || signal.id} value={signal.tag || signal.id}>
+                    {signal.tag || signal.id} - {formatText(signal.sensor_type || signal.role)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="bg-[var(--surface-panel)] p-3">
+              <label className="label-caps text-[var(--text-muted)]" htmlFor="manual-asset">Asset</label>
+              <select id="manual-asset" value={manualAsset} onChange={(event) => onManualAsset(event.target.value)} className="industrial-input mt-2">
+                <option value="">Select asset</option>
+                {assets.map((asset) => (
+                  <option key={asset.asset_id} value={asset.asset_id}>
+                    {asset.asset_id} - {formatText(asset.asset_type)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="bg-[var(--surface-panel)] p-3">
+              <label className="label-caps text-[var(--text-muted)]" htmlFor="manual-role">Signal Role</label>
+              <select id="manual-role" value={manualRole} onChange={(event) => onManualRole(event.target.value)} className="industrial-input mt-2">
+                <option value="">Select role</option>
+                {signalRoles.map((role) => (
+                  <option key={role} value={role}>{formatText(role)}</option>
+                ))}
+              </select>
+            </div>
+            <div className="bg-[var(--surface-panel)] p-3 flex items-end">
+              <button disabled={busy || !item || !manualCanonical || !manualAsset || !manualRole || !manualReason} onClick={onManualMap} className="industrial-control status-safe w-full disabled:opacity-40">Submit Manual Map</button>
+            </div>
+          </div>
+          <div className="bg-[var(--surface-panel)] p-3 mt-[1px]">
+            <label className="label-caps text-[var(--text-muted)]" htmlFor="manual-reason">Engineering Reason</label>
+            <input
+              id="manual-reason"
+              value={manualReason}
+              onChange={(event) => onManualReason(event.target.value)}
+              className="industrial-input mt-2"
+              placeholder="Why this raw tag belongs to this asset/signal"
+            />
+          </div>
+        </div>
+      )}
       {actionMessage && <p className="caption-mono text-[var(--data-mono)] mt-3">{actionMessage}</p>}
     </Panel>
   );
@@ -438,6 +517,10 @@ export default function StudioWorkspace() {
   const [preview, setPreview] = useState(null);
   const [selectedRawTag, setSelectedRawTag] = useState('');
   const [ignoreReason, setIgnoreReason] = useState('');
+  const [manualCanonical, setManualCanonical] = useState('');
+  const [manualAsset, setManualAsset] = useState('');
+  const [manualRole, setManualRole] = useState('');
+  const [manualReason, setManualReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [actionMessage, setActionMessage] = useState('');
   const [publishResult, setPublishResult] = useState(null);
@@ -480,6 +563,17 @@ export default function StudioWorkspace() {
   const runtimeManifest = (build?.generated_manifest && Object.keys(build.generated_manifest).length > 0)
     ? build.generated_manifest
     : preview;
+  const graphSignals = overview?.graph?.signals || [];
+  const graphAssets = (overview?.graph?.assets || overview?.assets || []).filter((asset) => ['process_vessel', 'valve', 'flow_pair', 'pump'].includes(asset.asset_type));
+  const signalRoles = [...new Set(graphSignals.map((signal) => signal.role || signal.sensor_type).filter(Boolean))];
+
+  useEffect(() => {
+    if (!selectedItem) return;
+    setManualCanonical(selectedItem.proposed_canonical_tag || '');
+    setManualAsset(selectedItem.proposed_asset_id || '');
+    setManualRole(selectedItem.proposed_role || '');
+    setManualReason('');
+  }, [selectedItem?.raw_tag]);
 
   const runAction = async (fn) => {
     setBusy(true);
@@ -526,6 +620,10 @@ export default function StudioWorkspace() {
     setPublishResult(null);
     setIgnoreReason('');
     setSelectedRawTag('');
+    setManualCanonical('');
+    setManualAsset('');
+    setManualRole('');
+    setManualReason('');
   });
 
   const approveSelected = () => runAction(async () => {
@@ -558,6 +656,22 @@ export default function StudioWorkspace() {
     setActionMessage(`${selectedItem.raw_tag} remains blocking. Publish stays disabled.`);
   });
 
+  const manualMapSelected = () => runAction(async () => {
+    if (!selectedItem) return;
+    const payload = await fetchJson('/api/studio/mapping-court/manual-map', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        raw_tag: selectedItem.raw_tag,
+        canonical_tag: manualCanonical,
+        asset_id: manualAsset,
+        signal_role: manualRole,
+        reason: manualReason,
+      }),
+    });
+    setActionMessage(`${payload.mapping?.raw_tag || selectedItem.raw_tag} manually mapped. Run build again.`);
+  });
+
   const switchAssetModel = (modelKey) => runAction(async () => {
     await fetchJson('/api/studio/asset-model', {
       method: 'POST',
@@ -567,6 +681,10 @@ export default function StudioWorkspace() {
     setPreview(null);
     setPublishResult(null);
     setSelectedRawTag('');
+    setManualCanonical('');
+    setManualAsset('');
+    setManualRole('');
+    setManualReason('');
     setActionMessage('Asset model switched. Run build to compile the selected model.');
   });
 
@@ -653,8 +771,20 @@ export default function StudioWorkspace() {
         <CompilerPipeline build={build} />
         <MappingCourt
           item={selectedItem}
+          assets={graphAssets}
+          signals={graphSignals}
+          signalRoles={signalRoles}
           ignoreReason={ignoreReason}
           onIgnoreReason={setIgnoreReason}
+          manualCanonical={manualCanonical}
+          onManualCanonical={setManualCanonical}
+          manualAsset={manualAsset}
+          onManualAsset={setManualAsset}
+          manualRole={manualRole}
+          onManualRole={setManualRole}
+          manualReason={manualReason}
+          onManualReason={setManualReason}
+          onManualMap={manualMapSelected}
           onApprove={approveSelected}
           onIgnore={ignoreSelected}
           onKeepBlocking={keepBlocking}

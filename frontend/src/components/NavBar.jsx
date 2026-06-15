@@ -1,4 +1,4 @@
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import useStore from '../store';
 
 const ROLES = ['Operator', 'Maintenance', 'Engineer', 'Manager', 'Auditor'];
@@ -7,6 +7,9 @@ const NAV_ITEMS = [
   { path: '/runtime',    label: 'Runtime',       roles: ['Operator', 'Maintenance', 'Engineer', 'Manager', 'Auditor'] },
   { path: '/studio',     label: 'Studio',        roles: ['Engineer', 'Manager'] },
   { path: '/handover',   label: 'Shift Channel', roles: ['Operator', 'Maintenance', 'Engineer', 'Manager', 'Auditor'] },
+];
+
+const SUPPORT_ITEMS = [
   { path: '/integrity',  label: 'Integrity',     roles: ['Operator', 'Maintenance', 'Engineer', 'Manager', 'Auditor'] },
   { path: '/operator',   label: 'Support View',  roles: ['Operator', 'Maintenance', 'Engineer', 'Manager'] },
   { path: '/predictions',label: 'Confidence',    roles: ['Operator', 'Maintenance', 'Engineer', 'Manager'] },
@@ -35,7 +38,10 @@ export default function NavBar() {
     staleFlags,
   } = useStore();
   const location = useLocation();
+  const navigate = useNavigate();
   const visibleItems = NAV_ITEMS.filter((item) => item.roles.includes(role));
+  const supportItems = SUPPORT_ITEMS.filter((item) => item.roles.includes(role));
+  const activeSupport = supportItems.some((item) => item.path === location.pathname) ? location.pathname : '';
   const alerts = countActiveAlerts(confidence, massBalance, staleFlags);
   const healthClass = averageConfidence >= 80
     ? 'status-safe'
@@ -63,6 +69,19 @@ export default function NavBar() {
               {item.label}
             </NavLink>
           ))}
+          <select
+            value={activeSupport}
+            onChange={(event) => {
+              if (event.target.value) navigate(event.target.value);
+            }}
+            className="industrial-control bg-transparent max-w-[180px]"
+            aria-label="Support views"
+          >
+            <option value="">Support Views</option>
+            {supportItems.map((item) => (
+              <option key={item.path} value={item.path}>{item.label}</option>
+            ))}
+          </select>
         </nav>
       </div>
 

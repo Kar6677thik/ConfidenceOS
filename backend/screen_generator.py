@@ -598,6 +598,15 @@ def _alarm_collapse_receipt(incident: dict) -> dict:
 
 def _decision_time_score(incident: dict, confidence: list[dict]) -> dict:
     affected = set(incident.get("affected_sensors") or [])
+    collapse = _alarm_collapse_receipt(incident)
+    contract = incident.get("action_contract") or {}
+    blocked_decision_count = len(contract.get("blocked_decisions", []) or incident.get("blocked_decisions", []) or [])
+    evidence_count = len(incident.get("evidence_refs", []) or [])
+    raw_signal_count = int(collapse.get("raw_signal_count") or len(affected) or 1)
+    required_operator_action_count = 1 if (contract.get("operator_single_safe_move") or contract.get("first_safe_action") or incident.get("first_action")) else 0
+    collapsed_situation_count = 1 if incident else 0
+    traditional_steps = max(1, raw_signal_count + blocked_decision_count + evidence_count)
+    confidenceos_steps = max(1, collapsed_situation_count + required_operator_action_count)
     scores = [
         float(item.get("confidence_pct"))
         for item in confidence or []
@@ -605,9 +614,16 @@ def _decision_time_score(incident: dict, confidence: list[dict]) -> dict:
     ]
     score = round(sum(scores) / len(scores)) if scores else (35 if incident.get("severity") == "CRITICAL" else 72)
     return {
+        "metric_label": "Interaction Compression Estimate",
         "score": score,
-        "traditional_steps": 6,
-        "confidenceos_steps": 2,
-        "decision_compression": "6 -> 2",
-        "required_operator_actions": 1,
+        "raw_signal_count": raw_signal_count,
+        "suppressed_alarm_count": collapse.get("suppressed_alarm_count", 0),
+        "collapsed_situation_count": collapsed_situation_count,
+        "blocked_decision_count": blocked_decision_count,
+        "required_operator_action_count": required_operator_action_count,
+        "traditional_steps": traditional_steps,
+        "confidenceos_steps": confidenceos_steps,
+        "decision_compression": f"{traditional_steps} -> {confidenceos_steps}",
+        "required_operator_actions": required_operator_action_count,
+        "method": "Estimated from raw collapsed signals, evidence categories, blocked decisions, collapsed situations, and required operator actions.",
     }

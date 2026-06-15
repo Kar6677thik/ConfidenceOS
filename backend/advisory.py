@@ -9,7 +9,7 @@ it never changes simulator or control state.
 import time
 from typing import Any
 
-from asset_model import action_contract_decisions, trusted_substitute_tags
+from asset_model import action_contract_decisions, load_asset_model, mass_balance_validation, trusted_substitute_tags
 
 SEVERITY_RANK = {"CRITICAL": 0, "WARNING": 1, "LOW": 1, "MEDIUM": 2, "INFO": 3}
 
@@ -134,6 +134,7 @@ def build_incidents(
     startup_like = plant_context.get("state") in ("STARTUP", "STARTUP_RAMP", "MANUAL_VERIFICATION_REQUIRED")
 
     if mb_flags and (level_degraded or startup_like):
+        language = _operating_language()
         sensors = [c["sensor_id"] for c in level_degraded]
         if not sensors:
             sensors = [
@@ -145,16 +146,13 @@ def build_incidents(
             [_severity_from_tier(c.get("tier")) for c in level_degraded] +
             (["WARNING"] if startup_like else [])
         )
-        first_action = (
-            "Do not use indicated level as the sole reference; verify level by sight glass "
-            "or local indication before increasing feed."
-        )
+        first_action = language["operator_single_safe_move"]
         contract = _action_contract(
             kind="inventory_accumulation",
             do_not_use=sensors or ["measured_level_as_sole_reference"],
             first_safe_action=first_action,
             readings=readings,
-            extra_substitutes=["manual_level_check", "sight_glass"],
+            extra_substitutes=language["local_verification_references"],
         )
         consumed_alarm_types = _consumed_alarm_types(
             level_degraded=level_degraded,
@@ -175,7 +173,7 @@ def build_incidents(
                 "consumed_alarm_types": consumed_alarm_types,
                 "raw_signal_count": raw_signal_count,
                 "suppressed_alarm_count": max(0, raw_signal_count - 1),
-                "operator_question": "Can the operator trust level before increasing feed?",
+                "operator_question": language["operating_question"],
                 "collapse_reason": "All signals affect the same operating basis.",
                 "raw_signals": raw_signals,
             },
@@ -208,18 +206,19 @@ def build_incidents(
         })
 
     elif level_degraded and mb_flags:
+        language = _operating_language()
         sensors = [c["sensor_id"] for c in level_degraded]
         severity = _worst_severity(
             [f.get("severity", "INFO") for f in mb_flags] +
             [_severity_from_tier(c.get("tier")) for c in level_degraded]
         )
-        first_action = "Do not use indicated level as the sole reference; verify level by sight glass or independent field indication."
+        first_action = language["operator_single_safe_move"]
         contract = _action_contract(
             kind="level_integrity",
             do_not_use=sensors,
             first_safe_action=first_action,
             readings=readings,
-            extra_substitutes=["manual_level_check", "sight_glass"],
+            extra_substitutes=language["local_verification_references"],
         )
         incidents.append({
             "incident_id": f"{plant_id}:level-integrity",
@@ -397,17 +396,18 @@ def _action_contract(
     readings: list[dict],
     extra_substitutes: list[str] | None = None,
 ) -> dict:
+    language = _operating_language()
     substitutes = _trusted_substitutes(readings)
     for item in extra_substitutes or []:
         substitutes.append(item)
     if kind in ("inventory_accumulation", "level_integrity"):
-        substitutes.append("flow_implied_level_from_FI_2010_FO_2020")
+        substitutes.append(language["trusted_substitute_label"])
         blocked = action_contract_decisions() or [
             "increase_feed",
             "increase_load",
             "accept_handover_without_verification",
         ]
-        exits = ["affected level confidence restored above 80%", "manual level verification token active"]
+        exits = ["affected level trust restored to TRUSTED", f"{language['verification_method']} accepted"]
     elif kind == "manual_verification":
         blocked = ["accept_startup_conditions", "accept_handover_without_verification"]
         exits = ["field verification completed", "stale reading clears"]
@@ -420,13 +420,45 @@ def _action_contract(
         "trusted_substitutes": list(dict.fromkeys(substitutes)),
         "first_safe_action": first_safe_action,
         "operator_single_safe_move": (
-            "Verify level locally before increasing feed."
+            language["operator_single_safe_move"]
             if kind in ("inventory_accumulation", "level_integrity")
             else first_safe_action
         ),
+        "decision_freeze_language": language["decision_freeze_language"] if kind in ("inventory_accumulation", "level_integrity") else None,
         "blocked_decisions": blocked,
         "blocked_basis": list(dict.fromkeys(do_not_use)),
         "exit_conditions": exits,
+    }
+
+
+def _operating_language() -> dict:
+    equipment = load_asset_model().get("equipment", {})
+    rel = mass_balance_validation()
+    source_tags = rel.get("source_tags", [])
+    fallback_substitute = (
+        f"{' / '.join(source_tags)} {rel.get('inferred_variable', 'implied level')}"
+        if source_tags else
+        "independent field verification"
+    )
+    return {
+        "operator_single_safe_move": equipment.get(
+            "operator_single_safe_move",
+            "Verify the primary level locally before changing the related operating decision.",
+        ),
+        "trusted_substitute_label": equipment.get("trusted_substitute_label", fallback_substitute),
+        "verification_method": equipment.get("verification_method", "manual field verification"),
+        "decision_freeze_language": equipment.get(
+            "decision_freeze_language",
+            "Affected operating decisions remain frozen until the measurement basis is verified.",
+        ),
+        "operating_question": equipment.get(
+            "operating_question",
+            "Can the operator trust the primary indication before changing the operating rate?",
+        ),
+        "local_verification_references": equipment.get(
+            "local_verification_references",
+            ["manual_field_check", "field_operator_confirmation"],
+        ),
     }
 
 

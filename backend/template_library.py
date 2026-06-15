@@ -220,6 +220,25 @@ def _apply_guardrails(
             "message": f"{asset_id} valve template has position feedback but no command signal; publish is allowed for read-only trust monitoring.",
         })
 
+    if template_id == "pump":
+        if "vibration" not in present_types:
+            warnings.append({
+                **source,
+                "severity": "WARNING",
+                "level": "WARNING",
+                "rule": "pump_vibration_signal_missing",
+                "signal_type": "vibration",
+                "message": f"{asset_id} pump template has no vibration signal; publish is allowed only as a limited device-health faceplate.",
+            })
+        if ("flow_out" in present_types or "discharge_pressure" in present_types) and not _has_command_signal(signals):
+            warnings.append({
+                **source,
+                "severity": "WARNING",
+                "level": "WARNING",
+                "rule": "pump_command_signal_missing",
+                "message": f"{asset_id} pump template has process evidence but no run/command signal; Runtime will show read-only trust context only.",
+            })
+
     role_visibility = template.get("role_visibility", {})
     maintenance_sections = role_visibility.get("Maintenance", [])
     for signal in signals:

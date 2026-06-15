@@ -23,6 +23,7 @@ const useStore = create((set, get) => ({
   connected: false,
   _ws: null,
   _reconnectTimer: null,
+  _intentionalDisconnect: false,
 
   // ── V2: Plant & Role ──────────────────────────────────────────────────
   plantId: 'plant-a',
@@ -101,6 +102,11 @@ const useStore = create((set, get) => ({
   connect: () => {
     const state = get();
     if (state._ws) return; // already connected
+    if (state._reconnectTimer) {
+      clearTimeout(state._reconnectTimer);
+      set({ _reconnectTimer: null });
+    }
+    set({ _intentionalDisconnect: false });
 
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws/sensors?plant_id=${state.plantId}`;
@@ -175,8 +181,13 @@ const useStore = create((set, get) => ({
     };
 
     ws.onclose = () => {
-      console.log('[Store] WebSocket closed, reconnecting...');
+      const intentional = get()._intentionalDisconnect;
+      console.log('[Store] WebSocket closed', intentional ? 'intentionally' : 'unexpectedly');
       set({ connected: false, _ws: null });
+      if (intentional) {
+        set({ _intentionalDisconnect: false });
+        return;
+      }
 
       const timer = setTimeout(() => {
         set({ _reconnectTimer: null });
@@ -196,6 +207,7 @@ const useStore = create((set, get) => ({
   disconnect: () => {
     const { _ws, _reconnectTimer } = get();
     if (_reconnectTimer) clearTimeout(_reconnectTimer);
+    set({ _intentionalDisconnect: true });
     if (_ws) _ws.close();
     set({ _ws: null, connected: false, _reconnectTimer: null });
   },

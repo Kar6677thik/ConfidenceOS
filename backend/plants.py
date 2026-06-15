@@ -122,6 +122,10 @@ class PlantInstance:
         }
 
 
+class UnknownPlantError(KeyError):
+    """Raised when a requested plant id is not configured."""
+
+
 class PlantManager:
     """Manages all plant instances."""
 
@@ -131,8 +135,10 @@ class PlantManager:
             self.plants[plant_id] = PlantInstance(plant_id, config)
 
     def get(self, plant_id: str) -> PlantInstance:
-        """Get a plant instance by ID. Returns plant-a as default."""
-        return self.plants.get(plant_id, self.plants["plant-a"])
+        """Get a plant instance by ID."""
+        if plant_id not in self.plants:
+            raise UnknownPlantError(plant_id)
+        return self.plants[plant_id]
 
     def get_all(self) -> dict[str, PlantInstance]:
         """Get all plant instances."""

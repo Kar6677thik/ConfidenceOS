@@ -38,6 +38,12 @@
     "template_id": "vessel",
     "parent_module": "module-transfer",
     "criticality": "high",
+    "operator_single_safe_move": "Verify tank level locally before increasing transfer rate or starting pump operation.",
+    "trusted_substitute_label": "FIT-101 / FIT-102 tank-implied level",
+    "verification_method": "local tank level verification",
+    "decision_freeze_language": "Pump start and transfer-rate increase decisions remain frozen until tank level integrity is verified.",
+    "operating_question": "Can the operator trust tank level before increasing transfer rate?",
+    "local_verification_references": ["manual_tank_level_check", "field_operator_confirmation"],
     "sensor_tags": [
       {
         "tag": "LIT-100",
@@ -120,7 +126,7 @@
       "equipment_id": "P-101",
       "name": "Transfer pump P-101",
       "type": "pump",
-      "template_id": "valve",
+      "template_id": "pump",
       "parent_module": "module-transfer",
       "criticality": "high",
       "signal_tags": ["VIB-101", "FIT-102"]

@@ -26,14 +26,16 @@ import asyncio
 import base64
 import json
 import math
+import os
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, Depends, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -46,14 +48,14 @@ from database import (
     log_confidence, log_shift_handover,
     get_confidence_history,
 )
-from plants import PlantManager
+from plants import PlantManager, UnknownPlantError
 from mass_balance import DEFAULT_TOLERANCE
 from prediction import predict_all_sensors
 from causal_graph import get_graph_state
 from adaptive_thresholds import compute_adaptive_envelopes
 from advisory import detect_plant_context, build_incidents, build_timeline_events
 from assumptions import build_confidence_explanation, load_assumptions
-from asset_model import load_asset_model
+from asset_model import load_asset_model, mass_balance_validation
 from model_graph import get_assets, get_model_graph, get_navigation, get_signals
 from screen_generator import equipment_manifest
 from decision_integrity import (
@@ -78,6 +80,7 @@ from studio_service import (
     keep_raw_tag_blocking as studio_keep_raw_tag_blocking,
     mapping_court_detail as studio_mapping_court_detail,
     mapping_court_items as studio_mapping_court,
+    manual_map_raw_tag as studio_manual_map_raw_tag,
     publish as studio_publish,
     reset as studio_reset,
     runtime_manifest as studio_runtime_manifest,
@@ -109,6 +112,8 @@ _confidence_log_counter: dict[str, int] = {}
 CONFIDENCE_LOG_INTERVAL = 5  # Log every 5 seconds
 _plant_loop_status: dict[str, dict] = {}
 INCIDENT_TIMELINE_MAX = 80
+SCENARIO_DIR = Path(__file__).parent
+ALLOWED_SCENARIOS = {"scenario.json", "scenario_b.json", "scenario_c.json"}
 
 
 # ─── Pydantic models ────────────────────────────────────────────────────────
@@ -157,6 +162,13 @@ class StudioRawTagResolutionRequest(BaseModel):
     raw_tag: str
     reason: str = ""
 
+class StudioManualMapRequest(BaseModel):
+    raw_tag: str
+    canonical_tag: str
+    asset_id: str
+    signal_role: str
+    reason: str
+
 class StudioAssetModelRequest(BaseModel):
     model_config = {"protected_namespaces": ()}
     model_key: str
@@ -195,9 +207,17 @@ app = FastAPI(
 )
 
 # CORS — allow frontend dev server
+def _configured_cors_origins() -> list[str]:
+    configured = os.getenv(
+        "CONFIDENCEOS_CORS_ORIGINS",
+        "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174",
+    )
+    return [origin.strip() for origin in configured.split(",") if origin.strip()]
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_configured_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -206,6 +226,18 @@ app.add_middleware(
 
 # ─── Background plant tick loop ─────────────────────────────────────────────
 
+@app.exception_handler(UnknownPlantError)
+async def unknown_plant_handler(request: Request, exc: UnknownPlantError):
+    plant_id = exc.args[0] if exc.args else "unknown"
+    return JSONResponse(
+        status_code=404,
+        content={
+            "detail": f"Unknown plant_id '{plant_id}'",
+            "known_plants": sorted(plant_manager.get_all().keys()),
+        },
+    )
+
+
 async def _plant_tick_loop(plant_id: str, plant):
     """Background loop that ticks each plant at 1 Hz and caches state."""
     db = next(get_db())
@@ -213,204 +245,214 @@ async def _plant_tick_loop(plant_id: str, plant):
 
     try:
         while True:
-            now = time.time()
+            try:
+                now = time.time()
 
-            # Apply startup mode overrides
-            if plant.startup_manager.is_active:
-                plant.confidence_engine.set_tier_thresholds(
-                    plant.startup_manager.tier_thresholds
-                )
-                plant.mass_balance_engine.tolerance = (
-                    BASE_MB_TOLERANCE * plant.startup_manager.mass_balance_tolerance_multiplier
-                )
-            else:
-                plant.confidence_engine.clear_tier_thresholds()
-                plant.mass_balance_engine.tolerance = BASE_MB_TOLERANCE
+                # Apply startup mode overrides
+                if plant.startup_manager.is_active:
+                    plant.confidence_engine.set_tier_thresholds(
+                        plant.startup_manager.tier_thresholds
+                    )
+                    plant.mass_balance_engine.tolerance = (
+                        BASE_MB_TOLERANCE * plant.startup_manager.mass_balance_tolerance_multiplier
+                    )
+                else:
+                    plant.confidence_engine.clear_tier_thresholds()
+                    plant.mass_balance_engine.tolerance = BASE_MB_TOLERANCE
 
-            # Read tags through the read-only provider abstraction. ConfidenceOS
-            # observes plant state only; it does not write control commands.
-            readings = plant.tag_provider.read_tags()
-            plant.latest_readings = readings
+                # Read tags through the read-only provider abstraction. ConfidenceOS
+                # observes plant state only; it does not write control commands.
+                readings = plant.tag_provider.read_tags()
+                plant.latest_readings = readings
 
-            # Compute confidence scores
-            confidence_results = plant.confidence_engine.score_readings(readings)
-            confidence_data = [r.to_dict() for r in confidence_results]
-            for item in confidence_data:
-                item["handover_required"] = item.get("tier") in ("LOW", "CRITICAL")
+                # Compute confidence scores
+                confidence_results = plant.confidence_engine.score_readings(readings)
+                confidence_data = [r.to_dict() for r in confidence_results]
+                for item in confidence_data:
+                    item["handover_required"] = item.get("tier") in ("LOW", "CRITICAL")
 
-            # Update mass-balance
-            mb_state = plant.mass_balance_engine.update(readings)
-            plant.latest_mb_state = mb_state.to_dict()
-            confidence_data = _derive_trust_states(confidence_data, readings, plant.latest_mb_state)
+                # Update mass-balance
+                mb_state = plant.mass_balance_engine.update(readings)
+                plant.latest_mb_state = mb_state.to_dict()
+                confidence_data = _derive_trust_states(confidence_data, readings, plant.latest_mb_state)
 
-            # Update cached confidence after trust quarantine/substitution is derived.
-            for payload in confidence_data:
-                plant.latest_confidence[payload["sensor_id"]] = payload
+                # Update cached confidence after trust quarantine/substitution is derived.
+                for payload in confidence_data:
+                    plant.latest_confidence[payload["sensor_id"]] = payload
 
-            # Check stale readings
-            stale_flags = plant.startup_manager.check_stale_readings(readings, now)
+                # Check stale readings
+                stale_flags = plant.startup_manager.check_stale_readings(readings, now)
 
-            # Anomaly detection & logging
-            new_anomalies = []
-            for cr in confidence_results:
-                if cr.tier in ("LOW", "CRITICAL"):
-                    anomaly_type = f"confidence_{cr.tier.lower()}"
-                    cooldown_key = f"{plant_id}:{cr.sensor_id}:{anomaly_type}"
+                # Anomaly detection & logging
+                new_anomalies = []
+                for cr in confidence_results:
+                    if cr.tier in ("LOW", "CRITICAL"):
+                        anomaly_type = f"confidence_{cr.tier.lower()}"
+                        cooldown_key = f"{plant_id}:{cr.sensor_id}:{anomaly_type}"
+                        last_logged = _anomaly_cooldown.get(cooldown_key, 0)
+                        if now - last_logged > ANOMALY_COOLDOWN_SECONDS:
+                            description = "; ".join(cr.reasons) if cr.reasons else f"Confidence {cr.tier}: {cr.confidence_pct}%"
+                            log_anomaly(db, cr.sensor_id, anomaly_type, description, cr.tier, plant_id=plant_id)
+                            _anomaly_cooldown[cooldown_key] = now
+                            new_anomalies.append({
+                                "sensor_id": cr.sensor_id,
+                                "anomaly_type": anomaly_type,
+                                "description": description,
+                                "severity": cr.tier,
+                                "timestamp": now,
+                            })
+
+                for flag in mb_state.flags:
+                    cooldown_key = f"{plant_id}:mass_balance:{flag.severity}"
                     last_logged = _anomaly_cooldown.get(cooldown_key, 0)
                     if now - last_logged > ANOMALY_COOLDOWN_SECONDS:
-                        description = "; ".join(cr.reasons) if cr.reasons else f"Confidence {cr.tier}: {cr.confidence_pct}%"
-                        log_anomaly(db, cr.sensor_id, anomaly_type, description, cr.tier, plant_id=plant_id)
+                        log_anomaly(db, "SYSTEM", f"mass_balance_{flag.severity.lower()}", flag.message, flag.severity, plant_id=plant_id)
                         _anomaly_cooldown[cooldown_key] = now
                         new_anomalies.append({
-                            "sensor_id": cr.sensor_id,
-                            "anomaly_type": anomaly_type,
-                            "description": description,
-                            "severity": cr.tier,
+                            "sensor_id": "SYSTEM",
+                            "anomaly_type": f"mass_balance_{flag.severity.lower()}",
+                            "description": flag.message,
+                            "severity": flag.severity,
                             "timestamp": now,
                         })
 
-            for flag in mb_state.flags:
-                cooldown_key = f"{plant_id}:mass_balance:{flag.severity}"
-                last_logged = _anomaly_cooldown.get(cooldown_key, 0)
-                if now - last_logged > ANOMALY_COOLDOWN_SECONDS:
-                    log_anomaly(db, "SYSTEM", f"mass_balance_{flag.severity.lower()}", flag.message, flag.severity, plant_id=plant_id)
-                    _anomaly_cooldown[cooldown_key] = now
-                    new_anomalies.append({
-                        "sensor_id": "SYSTEM",
-                        "anomaly_type": f"mass_balance_{flag.severity.lower()}",
-                        "description": flag.message,
-                        "severity": flag.severity,
-                        "timestamp": now,
-                    })
+                for sf in stale_flags:
+                    cooldown_key = f"{plant_id}:{sf.sensor_id}:stale_reading"
+                    last_logged = _anomaly_cooldown.get(cooldown_key, 0)
+                    if now - last_logged > ANOMALY_COOLDOWN_SECONDS:
+                        desc = f"Stale reading: value {sf.last_value} unchanged for {sf.duration_seconds:.0f}s"
+                        log_anomaly(db, sf.sensor_id, "stale_reading", desc, "WARNING", plant_id=plant_id)
+                        _anomaly_cooldown[cooldown_key] = now
+                        new_anomalies.append({
+                            "sensor_id": sf.sensor_id,
+                            "anomaly_type": "stale_reading",
+                            "description": desc,
+                            "severity": "WARNING",
+                            "timestamp": now,
+                        })
 
-            for sf in stale_flags:
-                cooldown_key = f"{plant_id}:{sf.sensor_id}:stale_reading"
-                last_logged = _anomaly_cooldown.get(cooldown_key, 0)
-                if now - last_logged > ANOMALY_COOLDOWN_SECONDS:
-                    desc = f"Stale reading: value {sf.last_value} unchanged for {sf.duration_seconds:.0f}s"
-                    log_anomaly(db, sf.sensor_id, "stale_reading", desc, "WARNING", plant_id=plant_id)
-                    _anomaly_cooldown[cooldown_key] = now
-                    new_anomalies.append({
-                        "sensor_id": sf.sensor_id,
-                        "anomaly_type": "stale_reading",
-                        "description": desc,
-                        "severity": "WARNING",
-                        "timestamp": now,
-                    })
-
-            stale_payload = [sf.to_dict() for sf in stale_flags]
-            mode_payload = plant.startup_manager.to_dict()
-            inferred_mode = plant.mode_inference_engine.infer(
-                readings=readings,
-                confidence=confidence_data,
-                mass_balance=plant.latest_mb_state,
-                startup_mode=mode_payload,
-                stale_flags=stale_payload,
-            )
-            mode_payload = {
-                **mode_payload,
-                "inferred_mode": inferred_mode.get("mode"),
-                "inferred_state": inferred_mode.get("state"),
-                "mode_inference": inferred_mode,
-            }
-            plant.latest_inferred_mode = inferred_mode
-            plant.latest_mode_payload = mode_payload
-            plant.latest_context = detect_plant_context(
-                readings=readings,
-                confidence=confidence_data,
-                mass_balance=plant.latest_mb_state,
-                mode=mode_payload,
-                stale_flags=stale_payload,
-                inferred_mode=inferred_mode,
-            )
-            plant.latest_incidents = build_incidents(
-                plant_id=plant_id,
-                readings=readings,
-                confidence=confidence_data,
-                mass_balance=plant.latest_mb_state,
-                stale_flags=stale_payload,
-                plant_context=plant.latest_context,
-            )
-            plant.latest_incidents = annotate_incidents_for_handover(plant.latest_incidents)
-            plant.verification_tokens = ensure_verification_tasks(
-                plant.verification_tokens,
-                plant.latest_incidents,
-                confidence_data,
-                plant.latest_context,
-                now,
-            )
-            plant.latest_confidence_debt = update_confidence_debt(
-                plant.confidence_debt_state,
-                confidence_data,
-                readings,
-                plant.latest_context,
-                now,
-            )
-            plant.latest_handover_debt = build_handover_debt(
-                plant_id=plant_id,
-                incidents=plant.latest_incidents,
-                confidence=confidence_data,
-                verification_tokens=plant.verification_tokens,
-                confidence_debt=plant.latest_confidence_debt,
-                now=now,
-            )
-            tick_events = build_timeline_events(
-                plant_id=plant_id,
-                inferred_mode=inferred_mode,
-                confidence=confidence_data,
-                mass_balance=plant.latest_mb_state,
-                incidents=plant.latest_incidents,
-                timestamp=now,
-            )
-            tick_events.extend(_handover_debt_events(plant_id, plant.latest_handover_debt, now))
-            plant.latest_incident_timeline = _merge_incident_timeline(
-                plant.latest_incident_timeline,
-                tick_events,
-            )
-            plant.latest_new_anomalies = new_anomalies
-
-            # Persist sensor readings
-            for r in readings:
-                db_reading = SensorReadingModel(
-                    plant_id=plant_id,
-                    sensor_id=r["sensor_id"],
-                    sensor_type=r["sensor_type"],
-                    value=r["value"],
-                    unit=r["unit"],
-                    timestamp=datetime.fromtimestamp(r["timestamp"]),
-                    failure_mode=r["failure_mode"],
+                stale_payload = [sf.to_dict() for sf in stale_flags]
+                mode_payload = plant.startup_manager.to_dict()
+                inferred_mode = plant.mode_inference_engine.infer(
+                    readings=readings,
+                    confidence=confidence_data,
+                    mass_balance=plant.latest_mb_state,
+                    startup_mode=mode_payload,
+                    stale_flags=stale_payload,
                 )
-                db.add(db_reading)
+                mode_payload = {
+                    **mode_payload,
+                    "inferred_mode": inferred_mode.get("mode"),
+                    "inferred_state": inferred_mode.get("state"),
+                    "mode_inference": inferred_mode,
+                }
+                plant.latest_inferred_mode = inferred_mode
+                plant.latest_mode_payload = mode_payload
+                plant.latest_context = detect_plant_context(
+                    readings=readings,
+                    confidence=confidence_data,
+                    mass_balance=plant.latest_mb_state,
+                    mode=mode_payload,
+                    stale_flags=stale_payload,
+                    inferred_mode=inferred_mode,
+                )
+                plant.latest_incidents = build_incidents(
+                    plant_id=plant_id,
+                    readings=readings,
+                    confidence=confidence_data,
+                    mass_balance=plant.latest_mb_state,
+                    stale_flags=stale_payload,
+                    plant_context=plant.latest_context,
+                )
+                plant.latest_incidents = annotate_incidents_for_handover(plant.latest_incidents)
+                plant.verification_tokens = ensure_verification_tasks(
+                    plant.verification_tokens,
+                    plant.latest_incidents,
+                    confidence_data,
+                    plant.latest_context,
+                    now,
+                )
+                plant.latest_confidence_debt = update_confidence_debt(
+                    plant.confidence_debt_state,
+                    confidence_data,
+                    readings,
+                    plant.latest_context,
+                    now,
+                )
+                plant.latest_handover_debt = build_handover_debt(
+                    plant_id=plant_id,
+                    incidents=plant.latest_incidents,
+                    confidence=confidence_data,
+                    verification_tokens=plant.verification_tokens,
+                    confidence_debt=plant.latest_confidence_debt,
+                    now=now,
+                )
+                tick_events = build_timeline_events(
+                    plant_id=plant_id,
+                    inferred_mode=inferred_mode,
+                    confidence=confidence_data,
+                    mass_balance=plant.latest_mb_state,
+                    incidents=plant.latest_incidents,
+                    timestamp=now,
+                )
+                tick_events.extend(_handover_debt_events(plant_id, plant.latest_handover_debt, now))
+                plant.latest_incident_timeline = _merge_incident_timeline(
+                    plant.latest_incident_timeline,
+                    tick_events,
+                )
+                plant.latest_new_anomalies = new_anomalies
 
-            # V2: Log confidence scores (throttled)
-            tick_count += 1
-            if tick_count % CONFIDENCE_LOG_INTERVAL == 0:
-                for cr in confidence_results:
-                    log_confidence(
-                        db, plant_id, cr.sensor_id,
-                        cr.confidence_pct, cr.tier,
-                        sub_scores={
-                            "calibration": cr.sub_scores.calibration_score,
-                            "stability": cr.sub_scores.stability_score,
-                            "cross_sensor": cr.sub_scores.cross_sensor_score,
-                            "physical_plausibility": cr.sub_scores.physical_plausibility_score,
-                        }
+                # Persist sensor readings
+                for r in readings:
+                    db_reading = SensorReadingModel(
+                        plant_id=plant_id,
+                        sensor_id=r["sensor_id"],
+                        sensor_type=r["sensor_type"],
+                        value=r["value"],
+                        unit=r["unit"],
+                        timestamp=datetime.fromtimestamp(r["timestamp"]),
+                        failure_mode=r["failure_mode"],
                     )
+                    db.add(db_reading)
 
-            db.commit()
-            _plant_loop_status[plant_id] = {
-                "status": "ok",
-                "last_tick": now,
-                "tick_count": plant.tag_provider.tick_count,
-                "last_error": None,
-            }
+                # V2: Log confidence scores (throttled)
+                tick_count += 1
+                if tick_count % CONFIDENCE_LOG_INTERVAL == 0:
+                    for cr in confidence_results:
+                        log_confidence(
+                            db, plant_id, cr.sensor_id,
+                            cr.confidence_pct, cr.tier,
+                            sub_scores={
+                                "calibration": cr.sub_scores.calibration_score,
+                                "stability": cr.sub_scores.stability_score,
+                                "cross_sensor": cr.sub_scores.cross_sensor_score,
+                                "physical_plausibility": cr.sub_scores.physical_plausibility_score,
+                            }
+                        )
+
+                db.commit()
+                _plant_loop_status[plant_id] = {
+                    "status": "ok",
+                    "last_tick": now,
+                    "tick_count": plant.tag_provider.tick_count,
+                    "last_error": None,
+                }
+            except Exception as e:
+                db.rollback()
+                print(f"[PlantTick] Error in {plant_id}: {e}")
+                _plant_loop_status[plant_id] = {
+                    "status": "error",
+                    "last_tick": time.time(),
+                    "tick_count": getattr(plant.tag_provider, "tick_count", 0),
+                    "last_error": str(e),
+                }
             await asyncio.sleep(1.0)
     except asyncio.CancelledError:
         db.close()
     except Exception as e:
-        print(f"[PlantTick] Error in {plant_id}: {e}")
+        print(f"[PlantTick] Fatal error in {plant_id}: {e}")
         _plant_loop_status[plant_id] = {
-            "status": "error",
+            "status": "fatal",
             "last_tick": time.time(),
             "tick_count": getattr(plant.tag_provider, "tick_count", 0),
             "last_error": str(e),
@@ -469,17 +511,21 @@ def _derive_trust_states(confidence: list[dict], readings: list[dict], mass_bala
     flags = (mass_balance or {}).get("flags", [])
     contradiction_active = any(flag.get("severity") in ("WARNING", "CRITICAL") for flag in flags)
     by_id = {item.get("sensor_id"): item for item in confidence if item.get("sensor_id")}
-    lt = by_id.get("LT-5100")
+    relationship = mass_balance_validation()
+    validated_tag = relationship.get("validated_tag")
+    source_tags = relationship.get("source_tags", [])
+    inferred_variable = relationship.get("inferred_variable") or f"{validated_tag or 'signal'}_substitute"
+    validated_confidence = by_id.get(validated_tag)
     level_quarantined = bool(
-        lt
-        and lt.get("tier") in ("LOW", "CRITICAL")
+        validated_confidence
+        and validated_confidence.get("tier") in ("LOW", "CRITICAL")
         and contradiction_active
     )
     flow_substitute_valid = all(
         by_id.get(tag, {}).get("tier") in ("HIGH", "MEDIUM")
         and readings_by_id.get(tag) is not None
-        for tag in ("FI-2010", "FO-2020")
-    )
+        for tag in source_tags
+    ) if source_tags else False
 
     decorated = []
     for item in confidence:
@@ -490,19 +536,22 @@ def _derive_trust_states(confidence: list[dict], readings: list[dict], mass_bala
         trust_reason = "Confidence and availability support normal use."
         substitute_for = None
         decision_basis_allowed = True
+        quarantine_relationship_id = None
 
         if not reading_available:
             trust_state = "UNAVAILABLE"
             trust_reason = "No current reading is available for this tag."
             decision_basis_allowed = False
-        elif sensor_id == "LT-5100" and level_quarantined:
+        elif sensor_id == validated_tag and level_quarantined:
             trust_state = "QUARANTINED"
             trust_reason = "Level confidence is LOW/CRITICAL while mass-balance contradiction is active."
             decision_basis_allowed = False
-        elif sensor_id in ("FI-2010", "FO-2020") and level_quarantined and flow_substitute_valid:
+            quarantine_relationship_id = relationship.get("id")
+        elif sensor_id in source_tags and level_quarantined and flow_substitute_valid:
             trust_state = "SUBSTITUTED"
-            trust_reason = "Flow pair is valid enough to support flow-implied level as trusted substitute."
-            substitute_for = "flow_implied_level"
+            trust_reason = "Mass-balance source tag is valid enough to support the inferred level substitute."
+            substitute_for = inferred_variable
+            quarantine_relationship_id = relationship.get("id")
         elif tier in ("LOW", "CRITICAL"):
             trust_state = "DEGRADED"
             trust_reason = "Confidence tier is below operator-trusted range."
@@ -517,6 +566,7 @@ def _derive_trust_states(confidence: list[dict], readings: list[dict], mass_bala
             "trust_reason": trust_reason,
             "decision_basis_allowed": decision_basis_allowed,
             "substitute_for": substitute_for,
+            "quarantine_relationship_id": quarantine_relationship_id,
             "quarantine_active": trust_state == "QUARANTINED",
         })
     return decorated
@@ -554,8 +604,17 @@ async def sensor_stream(
     Reads from the cached state updated by the background tick loop.
     """
     await websocket.accept()
+    try:
+        plant = plant_manager.get(plant_id)
+    except UnknownPlantError:
+        await websocket.send_json({
+            "type": "error",
+            "detail": f"Unknown plant_id '{plant_id}'",
+            "known_plants": sorted(plant_manager.get_all().keys()),
+        })
+        await websocket.close(code=1008)
+        return
     active_connections.append(websocket)
-    plant = plant_manager.get(plant_id)
 
     try:
         while True:
@@ -897,6 +956,21 @@ def post_studio_mapping_ignore(request: StudioRawTagResolutionRequest):
     """Ignore an imported raw tag with an engineering reason."""
     result = studio_ignore_raw_tag(request.raw_tag, request.reason)
     if result.get("status") == "not_ignored":
+        raise HTTPException(status_code=422, detail=result)
+    return result
+
+
+@app.post("/api/studio/mapping-court/manual-map")
+def post_studio_mapping_manual_map(request: StudioManualMapRequest):
+    """Manually bind an imported raw tag to an active-model signal with an engineering reason."""
+    result = studio_manual_map_raw_tag(
+        request.raw_tag,
+        request.canonical_tag,
+        request.asset_id,
+        request.signal_role,
+        request.reason,
+    )
+    if result.get("status") == "not_mapped":
         raise HTTPException(status_code=422, detail=result)
     return result
 
@@ -1331,18 +1405,31 @@ def get_handover_debt(plant_id: str = Query(default="plant-a")):
     return plant.latest_handover_debt
 
 
+def _resolve_scenario_path(scenario_path: Optional[str]) -> Path:
+    if not scenario_path:
+        scenario_name = "scenario.json"
+    else:
+        candidate = Path(scenario_path)
+        if candidate.is_absolute() or ".." in candidate.parts or candidate.name != str(candidate):
+            raise HTTPException(status_code=400, detail="Scenario path must be a known demo scenario filename.")
+        scenario_name = candidate.name
+    if scenario_name not in ALLOWED_SCENARIOS:
+        raise HTTPException(status_code=404, detail=f"Unknown demo scenario: {scenario_name}")
+    path = SCENARIO_DIR / scenario_name
+    if not path.exists():
+        raise HTTPException(status_code=404, detail=f"Scenario file not found: {scenario_name}")
+    return path
+
+
 @app.post("/api/scenario/load")
 def load_scenario(scenario_path: Optional[str] = None, plant_id: str = Query(default="plant-a")):
     """Load a failure injection scenario."""
     plant = plant_manager.get(plant_id)
-    DEFAULT_SCENARIO = Path(__file__).parent / "scenario.json"
-    path = Path(scenario_path) if scenario_path else DEFAULT_SCENARIO
-    if not path.exists():
-        raise HTTPException(status_code=404, detail=f"Scenario file not found: {path}")
+    path = _resolve_scenario_path(scenario_path)
     plant.tag_provider.load_scenario(path)
     plant.tag_provider.reset()
     plant.mass_balance_engine.reset()
-    return {"status": "loaded", "scenario": str(path)}
+    return {"status": "loaded", "scenario": path.name}
 
 
 @app.post("/api/scenario/reset")

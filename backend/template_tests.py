@@ -7,6 +7,7 @@ process-control tests and they never write commands to the plant or simulator.
 
 from __future__ import annotations
 
+from asset_model import active_asset_model_key, set_active_asset_model
 from screen_generator import generate_screen_manifest
 from template_library import validate_assignments
 
@@ -46,6 +47,7 @@ def run_template_tests(assignments: list[dict] | None = None) -> dict:
         },
     )
     validation_messages = [item.get("message", "") for item in validation.get("warnings", [])]
+    pump_result = _pump_station_template_result()
     tests = [
         {
             "test_id": "vessel_low_level_confidence_fi_fo_contradiction_decision_freeze",
@@ -83,6 +85,27 @@ def run_template_tests(assignments: list[dict] | None = None) -> dict:
             "status": "PASS" if _has_warning(validation, "valve_command_signal_missing") and not _has_blocking(validation, "valve_command_signal_missing") else "FAIL",
             "checks": ["position feedback present", "command signal missing", "warning only"],
             "message": "Valve template has position feedback but no command signal; it warns but does not block demo publish.",
+        },
+        {
+            "test_id": "pump_with_vibration_generates_device_health_section",
+            "template_id": "pump",
+            "status": "PASS" if pump_result["has_pump_health"] else "FAIL",
+            "checks": ["pump template", "vibration signal", "device health"],
+            "message": "Pump P-101 uses the pump template and generates a device-health faceplate from VIB-101.",
+        },
+        {
+            "test_id": "pump_without_command_signal_warns_without_blocking_demo_publish",
+            "template_id": "pump",
+            "status": "PASS" if pump_result["command_warning"] and not pump_result["command_blocking"] else "FAIL",
+            "checks": ["pump flow evidence", "command missing", "warning only"],
+            "message": "Pump station flow/vibration context warns when run/command status is absent but remains publishable for the demo.",
+        },
+        {
+            "test_id": "pump_station_generates_distinct_tank_pump_flow_faceplates",
+            "template_id": "plant_model",
+            "status": "PASS" if pump_result["has_distinct_faceplates"] else "FAIL",
+            "checks": ["second asset model", "TK-100", "P-101", "FG-100"],
+            "message": "Pump Station Demo generates TK-100, P-101, and FG-100 faceplates with pump-station receipts.",
         },
     ]
     failed = [item for item in tests if item["status"] == "FAIL"]
@@ -139,6 +162,57 @@ def _contradiction_live_state() -> dict:
                 },
             }
         ],
+    }
+
+
+def _pump_station_template_result() -> dict:
+    previous = active_asset_model_key()
+    assignments = [
+        {"asset_id": "TK-100", "template_id": "vessel", "approved": True},
+        {"asset_id": "P-101", "template_id": "pump", "approved": True},
+        {"asset_id": "FG-100", "template_id": "flow_pair", "approved": True},
+    ]
+    try:
+        set_active_asset_model("pump_station")
+        validation = validate_assignments(assignments)
+        manifest = generate_screen_manifest(
+            role="Maintenance",
+            context="MANUAL_VERIFICATION_REQUIRED",
+            live_state={
+                "plant_id": "plant-a",
+                "readings": [
+                    {"sensor_id": "LIT-100", "value": 48.0, "unit": "%"},
+                    {"sensor_id": "FIT-101", "value": 180.0, "unit": "gpm"},
+                    {"sensor_id": "FIT-102", "value": 155.0, "unit": "gpm"},
+                    {"sensor_id": "VIB-101", "value": 0.21, "unit": "in/s"},
+                ],
+                "confidence": [
+                    {"sensor_id": "LIT-100", "confidence_pct": 42, "tier": "LOW", "trust_state": "QUARANTINED"},
+                    {"sensor_id": "FIT-101", "confidence_pct": 86, "tier": "HIGH", "trust_state": "SUBSTITUTED"},
+                    {"sensor_id": "FIT-102", "confidence_pct": 84, "tier": "HIGH", "trust_state": "SUBSTITUTED"},
+                    {"sensor_id": "VIB-101", "confidence_pct": 91, "tier": "HIGH", "trust_state": "TRUSTED"},
+                ],
+                "mass_balance": {"status": "DIVERGING", "discrepancy": 18.0},
+                "plant_context": {"severity": "WARNING", "state": "MANUAL_VERIFICATION_REQUIRED"},
+                "incidents": [],
+                "verification_tasks": [],
+            },
+            assignments=assignments,
+            build_context={
+                "build_id": "template-test-pump",
+                "validation_status": "PASS_WITH_WARNINGS",
+                "source_tags": ["LIT-100", "FIT-101", "FIT-102", "VIB-101"],
+            },
+        )
+    finally:
+        set_active_asset_model(previous)
+    pump_faceplate = next((item for item in manifest.get("faceplates", []) if item.get("equipment_id") == "P-101"), {})
+    faceplate_ids = {item.get("equipment_id") for item in manifest.get("faceplates", [])}
+    return {
+        "has_pump_health": pump_faceplate.get("template_id") == "pump" and "device_health" in pump_faceplate.get("sections", []),
+        "command_warning": _has_warning(validation, "pump_command_signal_missing"),
+        "command_blocking": _has_blocking(validation, "pump_command_signal_missing"),
+        "has_distinct_faceplates": {"TK-100", "P-101", "FG-100"}.issubset(faceplate_ids),
     }
 
 

@@ -38,6 +38,12 @@
     "template_id": "vessel",
     "parent_module": "module-raffinate",
     "criticality": "high",
+    "operator_single_safe_move": "Verify level locally before increasing feed.",
+    "trusted_substitute_label": "FI-2010 / FO-2020 flow-implied level",
+    "verification_method": "manual level verification or sight glass check",
+    "decision_freeze_language": "Feed and load increase decisions remain frozen until level integrity is verified.",
+    "operating_question": "Can the operator trust level before increasing feed?",
+    "local_verification_references": ["manual_level_check", "sight_glass"],
     "sensor_tags": [
       {
         "tag": "LT-5100",

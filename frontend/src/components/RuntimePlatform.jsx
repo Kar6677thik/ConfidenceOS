@@ -272,15 +272,29 @@ function decisionTimeScore(situation, confidence) {
     .filter((item) => affected.includes(item.sensor_id))
     .map((item) => Number(item.confidence_pct))
     .filter(Number.isFinite);
+  const rawSignalCount = affected.length || 1;
+  const blockedDecisionCount = asList(situation?.action_contract?.blocked_decisions || situation?.blocked_decisions).length;
+  const evidenceCategoryCount = asList(situation?.evidence_refs || situation?.evidence).length;
+  const requiredOperatorActionCount = asList(situation?.action_contract?.first_safe_action || situation?.first_action).length || 1;
+  const collapsedSituationCount = situation?.title ? 1 : 0;
+  const traditionalSteps = rawSignalCount + blockedDecisionCount + evidenceCategoryCount;
+  const confidenceosSteps = collapsedSituationCount + requiredOperatorActionCount;
   const score = scores.length
     ? Math.round(scores.reduce((sum, item) => sum + item, 0) / scores.length)
     : situation?.severity === 'critical' ? 35 : 72;
   return {
+    metric_label: 'Interaction Compression Estimate',
     score,
-    traditional_steps: 6,
-    confidenceos_steps: 2,
-    decision_compression: '6 -> 2',
-    required_operator_actions: 1,
+    raw_signal_count: rawSignalCount,
+    suppressed_alarm_count: Math.max(0, rawSignalCount - collapsedSituationCount),
+    collapsed_situation_count: collapsedSituationCount,
+    blocked_decision_count: blockedDecisionCount,
+    required_operator_action_count: requiredOperatorActionCount,
+    traditional_steps: Math.max(1, traditionalSteps),
+    confidenceos_steps: Math.max(1, confidenceosSteps),
+    decision_compression: `${Math.max(1, traditionalSteps)} -> ${Math.max(1, confidenceosSteps)}`,
+    required_operator_actions: requiredOperatorActionCount,
+    method: 'Estimated from active raw signals, collapsed situations, blocked decisions, and required operator actions.',
   };
 }
 
@@ -305,9 +319,9 @@ function SituationWorkspace({ situations, basis, confidence }) {
           <h2 className="industrial-panel-title">{lead.title || basis?.abnormal_situation || 'No abnormal situation active'}</h2>
         </div>
         <div className="text-right">
-          <p className="label-caps text-[var(--text-muted)]">Decision-Time Score</p>
+          <p className="label-caps text-[var(--text-muted)]">{score.metric_label || 'Interaction Compression Estimate'}</p>
           <p className={`text-2xl font-bold ${statusClass(score.score < 50 ? 'CRITICAL' : score.score < 75 ? 'WARNING' : 'SAFE')}`}>{score.decision_compression}</p>
-          <p className="caption-mono text-[var(--data-mono)] mt-1">{score.required_operator_actions} required operator action</p>
+          <p className="caption-mono text-[var(--data-mono)] mt-1">{score.required_operator_actions ?? score.required_operator_action_count ?? 1} required operator action</p>
         </div>
       </div>
       <div className="industrial-body">
@@ -448,7 +462,7 @@ function PressureModeRuntime({ manifest, situations, confidence }) {
               </p>
             </div>
             <div className="bg-[var(--surface-panel)] p-4">
-              <p className="label-caps text-[var(--text-muted)]">Decision-Time Score</p>
+              <p className="label-caps text-[var(--text-muted)]">{score.metric_label || 'Interaction Compression Estimate'}</p>
               <p className={`text-4xl font-bold mt-2 ${statusClass(score.score < 50 ? 'CRITICAL' : score.score < 75 ? 'WARNING' : 'SAFE')}`}>
                 {score.decision_compression || '6 -> 2'}
               </p>
@@ -457,6 +471,12 @@ function PressureModeRuntime({ manifest, situations, confidence }) {
               </p>
               <p className="caption-mono text-[var(--text)] mt-2">
                 Required operator actions: {score.required_operator_actions ?? 1}
+              </p>
+              <p className="caption-mono text-[var(--data-mono)] mt-1">
+                raw {score.raw_signal_count ?? 0} / suppressed {score.suppressed_alarm_count ?? 0} / blocked decisions {score.blocked_decision_count ?? 0}
+              </p>
+              <p className="caption-mono text-[var(--text-muted)] mt-1">
+                {score.method || 'Estimated interaction compression, not measured decision time.'}
               </p>
             </div>
           </div>
@@ -527,14 +547,46 @@ function WorkspacePanel({ title, children, badge }) {
   );
 }
 
-function RoleWorkspace({ manifest, confidenceDebt, handoverDebt }) {
+function RoleWorkspace({ manifest, confidenceDebt, handoverDebt, verificationTasks }) {
   const sections = manifest?.role_sections || [];
   const role = manifest?.role || 'Operator';
   const basis = manifest?.operating_basis || {};
+  const { plantId } = useStore();
+  const [taskNote, setTaskNote] = useState('');
+  const [taskBusy, setTaskBusy] = useState('');
+  const [taskMessage, setTaskMessage] = useState('');
+
+  const updateTask = async (task, state) => {
+    const taskId = task.task_id || task.token_id;
+    if (!taskId) return;
+    setTaskBusy(`${taskId}:${state}`);
+    setTaskMessage('');
+    try {
+      const res = await fetch(`/api/verification-tasks/state?plant_id=${plantId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          task_id: taskId,
+          state,
+          accepted_by: state === 'ACCEPTED' ? role : null,
+          note: taskNote,
+        }),
+      });
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(payload?.detail || `Request failed: ${res.status}`);
+      setTaskMessage(`${task.sensor_id || taskId} moved to ${state}.`);
+    } catch (err) {
+      setTaskMessage(err.message || 'Task update failed.');
+    } finally {
+      setTaskBusy('');
+    }
+  };
 
   let content;
   if (role === 'Maintenance') {
-    const tasks = sectionItems(sections, 'verification_task');
+    const tasks = sectionItems(sections, 'verification_task').length
+      ? sectionItems(sections, 'verification_task')
+      : (verificationTasks || []);
     content = (
       <>
         <WorkspacePanel title="Verification Task" badge={`${tasks.length} task(s)`}>
@@ -546,8 +598,32 @@ function RoleWorkspace({ manifest, confidenceDebt, handoverDebt }) {
               </div>
               <p className="caption-mono text-[var(--data-mono)] mt-1">{formatText(task.verification_method)}</p>
               <p className="caption-mono text-[var(--text)] mt-1">{asList(task.evidence_required).join(' / ')}</p>
+              <div className="mt-3 grid grid-cols-2 gap-[1px] bg-[var(--border-strong)]">
+                {[
+                  ['ASSIGNED', 'Assign'],
+                  ['FIELD_CHECK_DONE', 'Field Check Done'],
+                  ['ACCEPTED', 'Accept'],
+                  ['EXPIRED', 'Expire'],
+                ].map(([state, label]) => (
+                  <button
+                    key={state}
+                    disabled={!!taskBusy || task.state === state}
+                    onClick={() => updateTask(task, state)}
+                    className="industrial-control bg-[var(--surface-panel)] disabled:opacity-40"
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
           )) : <ValueList values={[]} empty="No active field verification task." />}
+          <input
+            value={taskNote}
+            onChange={(event) => setTaskNote(event.target.value)}
+            className="industrial-input mt-3"
+            placeholder="Field verification note for acceptance or state change"
+          />
+          {taskMessage && <p className="caption-mono text-[var(--data-mono)] mt-2">{taskMessage}</p>}
         </WorkspacePanel>
         <WorkspacePanel title="Calibration Context">
           <ValueList values={sectionItems(sections, 'calibration_context').map((item) => `${item.sensor_id}: ${item.calibration_status} - ${item.calibration_message}`)} />
@@ -608,6 +684,13 @@ function RoleWorkspace({ manifest, confidenceDebt, handoverDebt }) {
           <p className={`caption-mono mt-2 ${acceptance.blocked ? 'status-critical' : 'status-safe'}`}>
             {acceptance.blocked ? `Blocked by ${acceptance.blocking_items} item(s).` : 'Unblocked.'}
           </p>
+          <ValueList
+            values={(handoverDebt?.entries || [])
+              .filter((item) => item.type === 'active_verification_token' || item.task_type === 'active_verification_task')
+              .map((item) => `${item.title} clears when ${item.sensor_id || 'field verification'} is ACCEPTED or EXPIRED`)}
+            empty="No verification task is blocking handover acceptance."
+            status="status-warning"
+          />
         </WorkspacePanel>
         <WorkspacePanel title="Timeline Evidence">
           <ValueList values={sectionItems(sections, 'timeline_evidence').map((item) => item.message)} />
@@ -666,6 +749,9 @@ function RuntimeHeader({ manifest, role, plantContext, connected }) {
           <h1 className="industrial-panel-title">Read-Only Trust-Aware HMI Layer Beside Existing DCS/HMI</h1>
           <p className="caption-mono text-[var(--data-mono)] mt-2">
             build {manifest.build_id} / {manifest.runtime_source === 'published_build' ? 'latest published build' : 'ad hoc unpublished preview'}
+          </p>
+          <p className="caption-mono text-[var(--text-muted)] mt-1">
+            Trust state is a governed deterministic rubric, not a probability of correctness.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 justify-end">
