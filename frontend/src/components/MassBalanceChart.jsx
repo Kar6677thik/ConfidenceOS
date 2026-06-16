@@ -132,6 +132,14 @@ export default function MassBalanceChart({ chartHistory, massBalance, flags }) {
             {massBalance.flags[0].message}
           </div>
         )}
+
+        {/* Honest method + engineer-owned parameters (no hidden magic numbers). */}
+        {massBalance?.config && (
+          <p className="mt-3 caption-mono text-[var(--text-dim)] leading-relaxed">
+            Configurable single-vessel volumetric residual check · tolerance {massBalance.config.tolerance} ft ·
+            flow→level {massBalance.config.flow_to_level_rate} · {massBalance.config.assumptions}
+          </p>
+        )}
       </div>
     </section>
   );

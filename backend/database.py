@@ -534,6 +534,38 @@ def _ensure_schema():
     Base.metadata.create_all(bind=engine)
 
 
+def prune_timeseries(db, keep_hours=72.0):
+    """
+    Delete high-frequency time-series rows older than keep_hours.
+
+    ConfidenceLog and SensorReading are written every tick and would otherwise
+    grow unbounded (the single most concrete SQLite scaling bug). Workflow and
+    audit tables (verification_events, hmi_build_artifacts, shift_handover_log)
+    are intentionally NOT pruned — they are the durable record.
+
+    Returns a dict of {table: rows_deleted}. Idempotent and safe to call often.
+    """
+    cutoff = datetime.utcnow() - timedelta(hours=keep_hours)
+    deleted = {}
+    try:
+        deleted["confidence_log"] = (
+            db.query(ConfidenceLog).filter(ConfidenceLog.timestamp < cutoff).delete(synchronize_session=False)
+        )
+        deleted["sensor_readings"] = (
+            db.query(SensorReading).filter(SensorReading.timestamp < cutoff).delete(synchronize_session=False)
+        )
+        deleted["flag_events"] = (
+            db.query(FlagEvent)
+            .filter(FlagEvent.started_at < cutoff, FlagEvent.resolved_at.isnot(None))
+            .delete(synchronize_session=False)
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return deleted
+
+
 def get_sensor_readings_history(db, plant_id, sensor_id=None, hours=24.0, limit=None):
     """Get sensor reading history — used by forensics engine."""
     cutoff = datetime.utcnow() - timedelta(hours=hours)

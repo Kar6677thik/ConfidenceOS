@@ -38,26 +38,23 @@ const SENSOR_LABELS = {
   valve: 'Valve Position',
 };
 
-const NAMUR_CLASS = {
-  NORMAL: 'status-safe',
-  MAINTENANCE_REQUIRED: 'status-caution',
-  OUT_OF_SPECIFICATION: 'status-warning',
-  FAILURE: 'status-critical',
-  FUNCTION_CHECK: 'status-warning',
+// NAMUR NE107 diagnostic state — sourced from the confidence engine's `namur_state`
+// (confidence.py:_namur_state), so the card and the engine agree instead of the card
+// re-deriving its own label from the percentage.
+const NAMUR_STATE_META = {
+  NORMAL:               { label: 'Normal (N)',               className: 'status-safe' },
+  MAINTENANCE_REQUIRED: { label: 'Maintenance Required (M)', className: 'status-caution' },
+  OUT_OF_SPECIFICATION: { label: 'Out of Specification (S)', className: 'status-warning' },
+  FUNCTION_CHECK:       { label: 'Function Check (C)',       className: 'status-warning' },
+  FAILURE:              { label: 'Failure (F)',              className: 'status-critical' },
 };
 
-function getNamurLabel(pct) {
-  if (pct < 20) return 'Failure (F)';
-  if (pct < 50) return 'Out of Specification (S)';
-  if (pct < 80) return 'Maintenance Required (M)';
-  return 'Function Check (C)';
-}
-
-function getNamurClass(pct) {
-  if (pct < 20) return 'status-critical';
-  if (pct < 50) return 'status-warning';
-  if (pct < 80) return 'status-caution';
-  return 'status-safe';
+// Fallback only when the engine did not supply a namur_state (e.g. replay frames).
+function namurFromPct(pct) {
+  if (pct < 20) return 'FAILURE';
+  if (pct < 50) return 'OUT_OF_SPECIFICATION';
+  if (pct < 80) return 'MAINTENANCE_REQUIRED';
+  return 'NORMAL';
 }
 
 export default function SensorCard({ reading, confidence, isSelected, onSelect }) {
@@ -70,8 +67,10 @@ export default function SensorCard({ reading, confidence, isSelected, onSelect }
   const primaryReason = primaryEvidence?.message || confidence.reasons?.[0] || 'Operating within design threshold.';
   const value = typeof reading.value === 'number' ? reading.value.toFixed(1) : '--';
   const sensorType = SENSOR_LABELS[reading.sensor_type] || reading.sensor_type || 'Sensor';
-  const namurLabel = getNamurLabel(pct);
-  const namurClass = getNamurClass(pct);
+  const namurState = confidence.namur_state || namurFromPct(pct);
+  const namurMeta = NAMUR_STATE_META[namurState] || NAMUR_STATE_META.NORMAL;
+  const namurLabel = namurMeta.label;
+  const namurClass = namurMeta.className;
 
   return (
     <button

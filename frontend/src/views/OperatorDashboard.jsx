@@ -493,7 +493,7 @@ export default function OperatorDashboard() {
             <HandoverDebtLedger />
           </div>
 
-          {/* Engineer deep-dive (role-gated) */}
+          {/* Engineer deep-dive (role-scoped, advisory) */}
           {role === 'Engineer' && selectedSensorId && (
             <>
               <div className="industrial-card p-0 overflow-hidden shrink-0">

@@ -1,8 +1,17 @@
 """
-opc_ua_adapter.py — OPC UA Adapter Client Stub for ConfidenceOS.
+opc_ua_adapter.py — OPC UA reference adapter for ConfidenceOS (read-only).
 
 Illustrates how to connect to a live industrial OPC UA server, subscribe to
-process tags, and feed them into the read-only ConfidenceOS Trust Layer.
+process tags, and feed them into the read-only ConfidenceOS Trust Layer. It does
+real `asyncua` subscriptions and now captures data quality (StatusCode) and the
+server SourceTimestamp — but it is a REFERENCE adapter, NOT production-hardened.
+
+TODO production (explicitly not implemented here):
+  - reconnect with exponential backoff + connection-state surfacing on comms loss
+  - OPC UA security: SecurityPolicy + message signing/encryption + client/server certs
+  - namespace browse + dynamic node discovery (mappings below are hardcoded ns=2;s=...)
+  - DataType/EUInformation-driven sensor type + engineering units (not id-prefix guesses)
+  - out-of-order / late sample handling and historian (HDA) backfill
 """
 
 from __future__ import annotations
@@ -42,9 +51,26 @@ class SubscriptionHandler:
         # Node variable names can be parsed or mapped back to the database sensor IDs
         node_id_str = str(node)
         logger.debug(f"OPC UA DataChange received: {node_id_str} = {val}")
-        
+
+        # Extract the OPC UA DataValue's quality (StatusCode) and SourceTimestamp.
+        # A real trust layer MUST honour bad/uncertain quality and the source clock,
+        # not the local wall clock — otherwise a stale or bad-quality tag looks fresh.
+        quality = "good"
+        source_ts = None
+        try:
+            dv = getattr(data, "monitored_item", None)
+            dv = getattr(dv, "Value", None) if dv is not None else None
+            status = getattr(dv, "StatusCode", None)
+            if status is not None and not status.is_good():
+                quality = "bad" if status.value else "uncertain"
+            src = getattr(dv, "SourceTimestamp", None)
+            if src is not None:
+                source_ts = src.timestamp()
+        except Exception:  # never let quality extraction break ingestion
+            pass
+
         # Update our adapter's internal tag cache thread-safely
-        self.adapter.update_cached_tag(node_id_str, val)
+        self.adapter.update_cached_tag(node_id_str, val, quality=quality, source_ts=source_ts)
 
 
 class OpcUaAdapter(TagProvider):
@@ -91,13 +117,23 @@ class OpcUaAdapter(TagProvider):
         self._tick_count = 0
         self._start_time = time.time()
 
-    def update_cached_tag(self, node_id_str: str, value: Any) -> None:
-        """Helper to thread-safely cache raw values in ConfidenceOS structure."""
+    def update_cached_tag(self, node_id_str: str, value: Any, quality: str = "good", source_ts: float | None = None) -> None:
+        """
+        Helper to thread-safely cache raw values in ConfidenceOS structure.
+
+        Args:
+            quality:   OPC UA-derived data quality ("good"/"uncertain"/"bad"). A real
+                       trust layer must not treat bad/uncertain quality as a clean reading.
+            source_ts: SourceTimestamp from the server. We prefer it over the local clock
+                       so stale data is visible as stale (timestamp_source records which).
+        """
         sensor_id = self.node_mappings.get(node_id_str)
         if not sensor_id:
             return  # ignore unmapped node variables
 
-        # Infer sensor type based on id pattern
+        # NOTE: sensor_type/unit are inferred from id prefix only as a demo convenience.
+        # TODO production: derive type + engineering unit from the OPC UA node's DataType /
+        # EUInformation, not from a tag-name prefix convention.
         sensor_type = "level"
         if sensor_id.startswith("LT"): sensor_type = "level"
         elif sensor_id.startswith("FI"): sensor_type = "flow_in"
@@ -119,7 +155,9 @@ class OpcUaAdapter(TagProvider):
                 "sensor_type": sensor_type,
                 "value": float(value) if value is not None else 0.0,
                 "unit": unit,
-                "timestamp": time.time(),
+                "timestamp": source_ts if source_ts is not None else time.time(),
+                "timestamp_source": "opcua_source" if source_ts is not None else "local_clock",
+                "quality": quality,
                 "failure_mode": None,
             }
 

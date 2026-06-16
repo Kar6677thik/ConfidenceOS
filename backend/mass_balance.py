@@ -1,16 +1,28 @@
 """
-mass_balance.py — Mass-Balance Cross-Check Engine for ConfidenceOS (Module 3).
+mass_balance.py — Configurable single-vessel volumetric residual check (Module 3).
 
-Applies conservation of mass:
-    implied_level_delta = integral(inflow_rate - outflow_rate, dt)
+Scope (stated honestly): this is a configurable *single-vessel volumetric residual
+check*, not a first-principles process model. It assumes ONE inflow and ONE outflow,
+a single linear flow→level conversion factor (`flow_to_level_rate`, per-asset), and no
+density / phase / recycle / transport-delay / unmeasured-stream compensation. A process
+engineer should read it as "trapezoidal-integrated volumetric balance with a per-vessel
+calibration constant," which is exactly what it is.
+
+    implied_level_delta = integral(inflow_rate - outflow_rate, dt) * flow_to_level_rate
     measured_level_delta = current_level - level_at_window_start
     discrepancy = |implied_level_delta - measured_level_delta|
 
 Rolling integration window (default 15 min). Three escalation levels:
     INFO     — discrepancy > tolerance (small divergence detected)
     WARNING  — discrepancy > 2x tolerance (significant divergence)
-    CRITICAL — discrepancy > 4x tolerance (physical impossibility)
+    CRITICAL — discrepancy > 4x tolerance (large, likely-instrument divergence)
 """
+
+# Honest, UI-surfaceable statement of what this residual check does and does not model.
+ASSUMPTIONS = (
+    "Single inflow/outflow, linear per-vessel flow→level factor; "
+    "no density, phase, recycle, transport-delay, or unmeasured-stream compensation."
+)
 
 from dataclasses import dataclass, asdict
 from collections import deque
@@ -129,6 +141,19 @@ class MassBalanceEngine:
 
         # Active flags
         self.active_flags: list[MassBalanceFlag] = []
+
+    def config_dict(self) -> dict:
+        """
+        Expose the (engineer-owned) residual-check parameters so the UI can show
+        them as configurable assumptions rather than hidden magic numbers.
+        """
+        return {
+            "tolerance": round(self.tolerance, 3),
+            "flow_to_level_rate": self.flow_to_level_rate,
+            "window_seconds": self.window_seconds,
+            "method": "trapezoidal volumetric integration (single vessel)",
+            "assumptions": ASSUMPTIONS,
+        }
 
     def reset(self) -> None:
         """Reset all state."""

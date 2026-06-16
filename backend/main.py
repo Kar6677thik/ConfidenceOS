@@ -24,6 +24,7 @@ V2 endpoints (new):
 
 import asyncio
 import base64
+import hashlib
 import json
 import math
 import os
@@ -48,6 +49,7 @@ from database import (
     log_confidence, log_shift_handover,
     get_confidence_history,
     get_verification_audit,
+    prune_timeseries,
 )
 from plants import PlantManager, UnknownPlantError
 from mass_balance import DEFAULT_TOLERANCE
@@ -214,10 +216,33 @@ async def lifespan(app: FastAPI):
     for pid, plant in plant_manager.get_all().items():
         task = asyncio.create_task(_plant_tick_loop(pid, plant))
         tasks.append(task)
+    # Start time-series retention loop (prevents unbounded ConfidenceLog growth)
+    tasks.append(asyncio.create_task(_retention_loop()))
     yield
     # Cancel background tasks
     for task in tasks:
         task.cancel()
+
+
+# Retention: keep this many hours of high-frequency time-series rows (env-tunable).
+TIMESERIES_RETENTION_HOURS = float(os.getenv("CONFIDENCEOS_RETENTION_HOURS", "72"))
+RETENTION_SWEEP_SECONDS = float(os.getenv("CONFIDENCEOS_RETENTION_SWEEP_SECONDS", "1800"))
+
+
+async def _retention_loop():
+    """Periodically prune old ConfidenceLog/SensorReading rows so SQLite stays bounded."""
+    while True:
+        try:
+            db = next(get_db())
+            try:
+                deleted = prune_timeseries(db, keep_hours=TIMESERIES_RETENTION_HOURS)
+                if any(deleted.values()):
+                    print(f"[retention] pruned {deleted} (keep {TIMESERIES_RETENTION_HOURS}h)")
+            finally:
+                db.close()
+        except Exception as exc:  # never let retention kill the app
+            print(f"[retention] sweep failed: {exc}")
+        await asyncio.sleep(RETENTION_SWEEP_SECONDS)
 
 
 app = FastAPI(
@@ -295,6 +320,8 @@ async def _plant_tick_loop(plant_id: str, plant):
                 # Update mass-balance
                 mb_state = plant.mass_balance_engine.update(readings)
                 plant.latest_mb_state = mb_state.to_dict()
+                # Surface the (engineer-owned) residual-check parameters + honest assumptions.
+                plant.latest_mb_state["config"] = plant.mass_balance_engine.config_dict()
                 confidence_data = _derive_trust_states(confidence_data, readings, plant.latest_mb_state)
 
                 # Update cached confidence after trust quarantine/substitution is derived.
@@ -2127,6 +2154,7 @@ async def generate_compliance_report(request: ComplianceRequest, db: Session = D
     report = {
         "plant_id": request.plant_id,
         "plant_name": plant.name,
+        "title": "Operational Summary Report",
         "report_type": request.report_type,
         "period_hours": request.hours,
         "generated_at": datetime.utcnow().isoformat(),
@@ -2146,6 +2174,17 @@ async def generate_compliance_report(request: ComplianceRequest, db: Session = D
             "recommendations": recommendations,
         },
     }
+    # Honest provenance: a SHA-256 content hash + generator identity. This is NOT a
+    # cryptographic signature — it lets a reader verify the report wasn't altered, without
+    # claiming a trusted authority signed it. (UI must not say "Digitally Signed".)
+    canonical = json.dumps(report, sort_keys=True, default=str).encode("utf-8")
+    report["provenance"] = {
+        "content_sha256": hashlib.sha256(canonical).hexdigest(),
+        "generator": "ConfidenceOS Advisory Engine",
+        "signed": False,
+        "note": "Unsigned operational summary. Content hash allows tamper-evidence, not authority of signature.",
+    }
+
     pdf_text = _format_compliance_report_text(report)
     return {
         **report,
@@ -2204,7 +2243,7 @@ def _format_compliance_report_text(report: dict) -> str:
     recommendations = sections.get("recommendations", [])
 
     lines = [
-        "ConfidenceOS Compliance Report",
+        "ConfidenceOS Operational Summary Report",
         f"Plant: {report.get('plant_name')} ({report.get('plant_id')})",
         f"Report type: {report.get('report_type')}",
         f"Period: {report.get('period_hours')} hours",
@@ -2224,7 +2263,14 @@ def _format_compliance_report_text(report: dict) -> str:
     ]
     for rec in recommendations:
         lines.append(f"- {rec.get('priority', 'info').upper()}: {rec.get('action', '')}")
-    lines.extend(["", "Digital signature: ConfidenceOS Demo Authority", "Signature status: simulated"])
+    provenance = report.get("provenance", {})
+    lines.extend([
+        "",
+        "Provenance (unsigned)",
+        f"Content SHA-256: {provenance.get('content_sha256', 'n/a')}",
+        f"Generator: {provenance.get('generator', 'ConfidenceOS Advisory Engine')}",
+        "Note: tamper-evident content hash, not a cryptographic signature.",
+    ])
     return "\n".join(lines)
 
 
