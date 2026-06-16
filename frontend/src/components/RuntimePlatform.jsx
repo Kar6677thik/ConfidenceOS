@@ -99,17 +99,17 @@ function buildBasisLines(manifest) {
 
 function DemoPathStrip() {
   const steps = [
-    { label: 'Studio', desc: 'Import tags → map → build' },
+    { label: 'Studio', desc: 'Import tags -> map -> build' },
     { label: 'Publish', desc: 'Compiler validates; guardrails pass' },
     { label: 'Runtime', desc: 'Trust map + operating basis', active: true },
-    { label: 'Abnormal Situation', desc: 'Alarm collapse → single safe move' },
+    { label: 'Abnormal Situation', desc: 'Alarm collapse -> single safe move' },
     { label: 'Role Switch', desc: 'Operator / Maintenance / Engineer / Manager' },
     { label: 'Shift Channel', desc: 'Handover debt carried forward' },
   ];
   return (
     <section className="industrial-panel mb-[1px]">
       <div className="industrial-body">
-        <p className="label-caps text-[var(--text-muted)] mb-2">Primary Demo Path — HMI Compiler for Trust-Aware Interfaces</p>
+        <p className="label-caps text-[var(--text-muted)] mb-2">Primary Demo Path - HMI Compiler for Trust-Aware Interfaces</p>
         <div className="grid grid-cols-2 md:grid-cols-6 gap-[1px] bg-[var(--border-strong)] border border-[var(--border-strong)]">
           {steps.map((step, index) => (
             <div key={step.label} className={`p-3 min-h-[72px] ${step.active ? 'bg-[var(--surface-raised)]' : 'bg-[var(--surface-panel)]'}`}>
@@ -235,6 +235,58 @@ function TrustMapNavigation({ navigation, faceplates, selected, onSelect, trustM
         ))}
       </div>
     </aside>
+  );
+}
+
+function ProcessTrustMimic({ mimic }) {
+  if (!mimic) return null;
+  const validated = mimic.validated_signal || {};
+  const substitutes = asList(mimic.substitute_signals);
+  const equipment = asList(mimic.equipment);
+  return (
+    <section className="industrial-panel mb-[1px]">
+      <div className="industrial-panel-header">
+        <div>
+          <p className="label-caps text-[var(--text-muted)]">Generated Process Trust Mimic</p>
+          <h2 className="industrial-panel-title text-base">{mimic.relationship_label || 'Asset-model validation relationship'}</h2>
+        </div>
+        <span className="industrial-badge text-[var(--data-mono)]">{mimic.asset_model_id || 'asset model'}</span>
+      </div>
+      <div className="industrial-body">
+        <div className="grid grid-cols-1 xl:grid-cols-[1fr_1.4fr_1fr] gap-[1px] bg-[var(--border-strong)] border border-[var(--border-strong)]">
+          <div className="bg-[var(--surface-panel)] p-4">
+            <p className="label-caps text-[var(--text-muted)]">Validated Indication</p>
+            <p className={`text-2xl font-bold mt-2 ${statusClass(validated.trust_state)}`}>{validated.sensor_id || 'primary signal'}</p>
+            <p className="caption-mono text-[var(--data-mono)] mt-1">{formatText(validated.trust_state || 'UNAVAILABLE')} {validated.confidence_pct != null ? `(${validated.confidence_pct}%)` : ''}</p>
+            <p className="caption-mono text-[var(--text)] mt-2">{validated.decision_basis_allowed === false ? 'Disconnected from decision basis.' : 'Allowed as decision basis.'}</p>
+          </div>
+          <div className="bg-[var(--surface-base)] p-4">
+            <p className="label-caps text-[var(--text-muted)]">Trusted Substitute Path</p>
+            <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-[1px] bg-[var(--border-strong)]">
+              {substitutes.length ? substitutes.map((signal) => (
+                <div key={signal.sensor_id} className="bg-[var(--surface-panel)] p-3">
+                  <p className={`caption-mono font-semibold ${statusClass(signal.trust_state)}`}>{signal.sensor_id}</p>
+                  <p className="caption-mono text-[var(--data-mono)] mt-1">{formatText(signal.trust_state || 'UNAVAILABLE')} {signal.confidence_pct != null ? `(${signal.confidence_pct}%)` : ''}</p>
+                  <p className="caption-mono text-[var(--text-muted)] mt-1">{signal.value ?? '--'} {signal.unit || ''}</p>
+                </div>
+              )) : <div className="bg-[var(--surface-panel)] p-3 caption-mono text-[var(--data-mono)]">No substitute relationship available.</div>}
+            </div>
+          </div>
+          <div className="bg-[var(--surface-panel)] p-4">
+            <p className="label-caps text-[var(--text-muted)]">Frozen Decision Basis</p>
+            <ValueList values={mimic.decision_freezes} empty="No decision freeze active." status="status-warning" />
+            {mimic.single_safe_move && <p className="caption-mono status-safe mt-3">{formatText(mimic.single_safe_move)}</p>}
+          </div>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {equipment.map((item) => (
+            <span key={item.equipment_id} className="industrial-badge text-[var(--data-mono)]">
+              {item.equipment_id} / {item.template_id}
+            </span>
+          ))}
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -401,7 +453,7 @@ function GeneratedFaceplate({ faceplate, selected, onSelect }) {
               <div className="flex items-center justify-between gap-2">
                 <p className="font-data text-[var(--text)] min-w-0 truncate" title={signal.tag}>{signal.tag}</p>
                 <div className="flex items-center gap-1 shrink-0">
-                  {/* Trust STATE is primary — % score is secondary detail */}
+                  {/* Trust state is primary; percent score is secondary detail. */}
                   <span className={`label-caps font-semibold ${statusClass(trust.tier)}`}>{trust.label}</span>
                   {trust.detail && <span className="label-caps text-[var(--text-muted)]">({trust.detail})</span>}
                 </div>
@@ -416,6 +468,48 @@ function GeneratedFaceplate({ faceplate, selected, onSelect }) {
       </div>
       <ReceiptSummary item={faceplate} />
     </button>
+  );
+}
+
+function TrustRubricPanel({ receipts, selectedFaceplate }) {
+  const selectedTags = new Set(asList(selectedFaceplate?.signals).map((signal) => signal.tag));
+  const rows = (receipts || []).filter((item) => !selectedTags.size || selectedTags.has(item.sensor_id));
+  const visible = rows.length ? rows : (receipts || []).slice(0, 4);
+  if (!visible.length) return null;
+  return (
+    <section className="industrial-panel mb-[1px]">
+      <div className="industrial-panel-header">
+        <div>
+          <p className="label-caps text-[var(--text-muted)]">Trust Rubric Receipt</p>
+          <h2 className="industrial-panel-title text-base">Deterministic confidence basis, not probability</h2>
+        </div>
+      </div>
+      <div className="industrial-body space-y-[1px] bg-[var(--border-strong)]">
+        {visible.slice(0, 4).map((item) => (
+          <div key={item.sensor_id} className="grid grid-cols-1 xl:grid-cols-[170px_1.2fr_1fr_1fr] gap-[1px] bg-[var(--border-strong)]">
+            <div className="bg-[var(--surface-panel)] p-3">
+              <p className={`label-caps ${statusClass(item.trust_state || item.tier)}`}>{formatText(item.trust_state || item.tier)}</p>
+              <p className="caption-mono text-[var(--text)] mt-1">{item.sensor_id}</p>
+              <p className="caption-mono text-[var(--data-mono)] mt-1">{item.confidence_pct ?? '--'}%</p>
+            </div>
+            <div className="bg-[var(--surface-base)] p-3">
+              <p className="label-caps text-[var(--text-muted)]">Formula</p>
+              <p className="caption-mono text-[var(--data-mono)] mt-1">{item.formula}</p>
+              <p className="caption-mono text-[var(--text)] mt-2">Dominant factor: {formatText(item.dominant_factor)}</p>
+            </div>
+            <div className="bg-[var(--surface-base)] p-3">
+              <p className="label-caps status-safe">Strongest Evidence</p>
+              <ValueList values={item.strongest_evidence} empty="No supporting evidence attached." />
+            </div>
+            <div className="bg-[var(--surface-base)] p-3">
+              <p className="label-caps status-warning">Counter-Evidence / Action</p>
+              <ValueList values={item.counter_evidence} empty={item.recommended_action || 'Continue normal monitoring.'} />
+              <p className="caption-mono text-[var(--data-mono)] mt-2">{item.recommended_action}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -470,7 +564,7 @@ function PressureModeRuntime({ manifest, situations, confidence }) {
               <p className="caption-mono text-[var(--text)] mt-2">
                 Raw signals: {collapse.raw_signal_count ?? 0} / suppressed alarms: {collapse.suppressed_alarm_count ?? 0}
               </p>
-              <p className="caption-mono text-[var(--text)] mt-2">{collapse.operator_question || 'Can the operator trust level before increasing feed?'}</p>
+              <p className="caption-mono text-[var(--text)] mt-2">{collapse.operator_question || 'Can the operator trust the primary indication before changing the operating rate?'}</p>
               <p className="caption-mono text-[var(--data-mono)] mt-1">{collapse.collapse_reason || 'All signals affect the same operating basis.'}</p>
               <p className="caption-mono text-[var(--data-mono)] mt-2">
                 {asList(collapse.raw_signals).join(', ') || 'No raw signals reported.'}
@@ -571,10 +665,10 @@ function AuditTrailTimeline({ events }) {
           <div key={event.id} className="bg-[var(--surface-base)] p-2">
             <div className="flex items-center justify-between gap-2">
               <span className="caption-mono text-[var(--text)] min-w-0 truncate">
-                {event.from_state ? `${event.from_state} → ` : ''}{event.to_state}
+                {event.from_state ? `${event.from_state} -> ` : ''}{event.to_state}
               </span>
-              <span className="label-caps text-[var(--text-muted)] shrink-0 truncate max-w-[50%]" title={`${event.actor || 'system'}${event.actor_role ? ` · ${event.actor_role}` : ''}`}>
-                {event.actor || 'system'}{event.actor_role ? ` · ${event.actor_role}` : ''}
+              <span className="label-caps text-[var(--text-muted)] shrink-0 truncate max-w-[50%]" title={`${event.actor || 'system'}${event.actor_role ? ` / ${event.actor_role}` : ''}`}>
+                {event.actor || 'system'}{event.actor_role ? ` / ${event.actor_role}` : ''}
               </span>
             </div>
             {event.evidence_note && <p className="caption-mono text-[var(--data-mono)] mt-1">{event.evidence_note}</p>}
@@ -714,7 +808,7 @@ function RoleWorkspace({ manifest, confidenceDebt, handoverDebt, verificationTas
                     ))}
                   </div>
                 ) : (
-                  <p className="caption-mono status-safe mt-2">Terminal state — no further action.</p>
+                  <p className="caption-mono status-safe mt-2">Terminal state - no further action.</p>
                 )}
                 <button
                   onClick={() => loadAudit(task.task_id || task.token_id)}
@@ -811,12 +905,12 @@ function RoleWorkspace({ manifest, confidenceDebt, handoverDebt, verificationTas
         <WorkspacePanel title="Engineer-Owned Confidence Thresholds">
           <p className="caption-mono text-[var(--text-muted)] mb-2">These weights are engineering choices, not physics. They reflect relative importance of each sub-check for this asset model. Changing them requires a new compiler build and engineer sign-off.</p>
           <ValueList values={[
-            'calibration weight: 0.30 — How recently the sensor was checked against a reference',
-            'stability weight: 0.20 — Whether the reading has been stable (not stuck or oscillating)',
-            'cross-sensor weight: 0.30 — Consistency with related sensors via mass balance',
-            'range plausibility weight: 0.20 — Whether the reading is within the physical operating envelope',
-            'HIGH band: ≥ 80 — TRUSTED; MEDIUM band: ≥ 50 — DEGRADED; LOW band: ≥ 20 — QUARANTINE candidate; CRITICAL: < 20 — QUARANTINED',
-            'Verdict is robust: changing any single weight by ±10 pp does not change the trust state tier for most sensors',
+            'calibration weight: 0.30 - how recently the sensor was checked against a reference',
+            'stability weight: 0.20 - whether the reading has been stable, not stuck or oscillating',
+            'cross-sensor weight: 0.30 - consistency with related sensors via mass balance',
+            'range plausibility weight: 0.20 - whether the reading is within the physical operating envelope',
+            'HIGH band: >= 80 - TRUSTED; MEDIUM band: >= 50 - DEGRADED; LOW band: >= 20 - QUARANTINE candidate; CRITICAL: < 20 - QUARANTINED',
+            'Verdict is robust: changing any single weight by +/-10 pp does not change the trust state tier for most sensors',
           ]} />
         </WorkspacePanel>
         <WorkspacePanel title="Validation Warnings">
@@ -972,6 +1066,7 @@ function RoleWorkspace({ manifest, confidenceDebt, handoverDebt, verificationTas
 }
 
 function RuntimeHeader({ manifest, role, plantContext, connected }) {
+  const worst = manifest?.worst_trust_exception || {};
   return (
     <section className="industrial-panel mb-[1px]">
       <div className="industrial-panel-header">
@@ -986,6 +1081,7 @@ function RuntimeHeader({ manifest, role, plantContext, connected }) {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 justify-end">
+          <span className={`industrial-badge ${statusClass(worst.trust_state)}`}>{worst.label || formatText(worst.trust_state || 'Awaiting trust evidence')}</span>
           <span className={`industrial-badge ${statusClass(plantContext?.severity || manifest.context)}`}>{formatText(manifest.context)}</span>
           <span className={`industrial-badge ${statusClass(manifest.validation_status)}`}>{manifest.validation_status}</span>
           <span className={`industrial-badge ${connected ? 'status-safe' : 'status-critical'}`}>{connected ? 'LIVE' : 'OFFLINE'}</span>
@@ -1036,7 +1132,7 @@ export default function RuntimePlatform() {
     };
   }, [plantId, role]);
 
-  const faceplates = manifest?.faceplates || [];
+  const faceplates = useMemo(() => manifest?.faceplates || [], [manifest]);
   const selectedFaceplate = useMemo(
     () => faceplates.find((item) => item.equipment_id === selected) || faceplates[0],
     [faceplates, selected],
@@ -1082,7 +1178,9 @@ export default function RuntimePlatform() {
         <RuntimeHeader manifest={manifest} role={role} plantContext={plantContext} connected={connected} />
         <DemoPathStrip />
         <OperatingBasisLedger basisLines={basisLines} />
+        <ProcessTrustMimic mimic={manifest.process_mimic} />
         <SituationWorkspace situations={situations} basis={manifest.operating_basis} confidence={confidence} />
+        <TrustRubricPanel receipts={manifest.trust_rubric_receipts} selectedFaceplate={selectedFaceplate} />
         <section className="industrial-panel">
           <div className="industrial-panel-header">
             <div>

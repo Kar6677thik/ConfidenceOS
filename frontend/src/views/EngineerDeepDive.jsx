@@ -1,8 +1,8 @@
 /**
- * views/EngineerDeepDive.jsx — Adaptive Envelope & Sub-Score Analysis
+ * views/EngineerDeepDive.jsx - Adaptive Envelope & Sub-Score Analysis
  *
  * Endpoints:
- *   GET /api/adaptive-thresholds/:plant_id — dynamically learned 3-sigma envelopes
+ *   GET /api/adaptive-thresholds/:plant_id - dynamically learned 3-sigma envelopes
  *
  * Stitch mockup: 6engineer-deepdive.html
  */
@@ -25,7 +25,7 @@ function SubScoreBar({ label, value }) {
       <div className="flex justify-between mb-1">
         <span className="label-caps text-[var(--text-muted)]">{label}</span>
         <span className="label-caps font-bold" style={{ color }}>
-          {pct != null ? `${pct}%` : '—'}
+          {pct != null ? `${pct}%` : '-'}
         </span>
       </div>
       <div className="h-1.5 rounded-full bg-[var(--bg-elevated)] overflow-hidden">
@@ -57,7 +57,6 @@ function IndustrialTooltip({ active, payload, label }) {
 export default function EngineerDeepDive() {
   const { plantId, confidence, selectedSensorId, selectSensor, readings } = useStore();
   const [adaptive, setAdaptive]   = useState(null);
-  const [history,  setHistory]    = useState([]);
 
   // Fetch adaptive thresholds
   useEffect(() => {
@@ -87,7 +86,7 @@ export default function EngineerDeepDive() {
   return (
     <div className="industrial-page flex overflow-hidden">
 
-      {/* ── Left sidebar — sensor selector ── */}
+      {/* -- Left sidebar - sensor selector -- */}
       <aside className="w-56 flex flex-col bg-[var(--bg-low)] border-r border-[var(--border)] overflow-y-auto scrollbar-thin">
         <div className="industrial-card-header px-4 py-3 border-b border-[var(--border)]">
           <span className="text-[14px] font-semibold text-[var(--text)]">Sensors</span>
@@ -106,7 +105,7 @@ export default function EngineerDeepDive() {
                 ${selectedSensorId === sid ? 'bg-[var(--bg-elevated)] border-l-2 border-l-[var(--primary)]' : 'hover:bg-[var(--bg-elevated)]'}`}>
               <span className="font-data text-[13px] text-[var(--text)]">{sid}</span>
               <span className="label-caps font-bold" style={{ color }}>
-                {pct != null ? `${pct}%` : '—'}
+                {pct != null ? `${pct}%` : '-'}
               </span>
             </button>
           );
@@ -118,7 +117,7 @@ export default function EngineerDeepDive() {
         )}
       </aside>
 
-      {/* ── Main — deep dive panels ── */}
+      {/* -- Main - deep dive panels -- */}
       <main className="flex-1 min-w-0 overflow-y-auto scrollbar-thin p-6 space-y-6 bg-[var(--bg-base)]">
         {!selectedSensorId ? (
           <div className="h-full flex flex-col items-center justify-center gap-4 text-center">
@@ -130,7 +129,7 @@ export default function EngineerDeepDive() {
           </div>
         ) : (
           <>
-            {/* ── Header ── */}
+            {/* -- Header -- */}
             <div className="flex items-end justify-between">
               <div>
                 <p className="label-caps text-[var(--primary)]">Engineer Deep-Dive</p>
@@ -144,7 +143,7 @@ export default function EngineerDeepDive() {
                     (selected?.confidence_pct ?? 100) >= 80 ? 'text-[var(--safe-text)]'
                     : (selected?.confidence_pct ?? 100) >= 50 ? 'text-[var(--caution)]'
                     : 'text-[var(--critical)]'
-                  }`}>{selected?.confidence_pct ?? '—'}%</p>
+                  }`}>{selected?.confidence_pct ?? '-'}%</p>
                 </div>
                 <span className="industrial-badge mb-1" style={{
                   color: selected?.tier === 'CRITICAL' ? 'var(--critical)'
@@ -158,9 +157,9 @@ export default function EngineerDeepDive() {
               </div>
             </div>
 
-            {/* ── Sub-score breakdown ── */}
+            {/* -- Sub-score breakdown -- */}
             <div className="industrial-card p-5">
-              <p className="label-caps text-[var(--text-muted)] mb-4">Evidence Stack — Sub-Scores</p>
+              <p className="label-caps text-[var(--text-muted)] mb-4">Evidence Stack - Sub-Scores</p>
               <div className="space-y-4">
                 <SubScoreBar label="Calibration Age"       value={subs.calibration} />
                 <SubScoreBar label="Signal Stability"      value={subs.stability} />
@@ -169,7 +168,7 @@ export default function EngineerDeepDive() {
               </div>
             </div>
 
-            {/* ── Adaptive envelope ── */}
+            {/* -- Adaptive envelope -- */}
             <div className="industrial-card p-5">
               <div className="flex items-start justify-between mb-4">
                 <div>
@@ -188,7 +187,7 @@ export default function EngineerDeepDive() {
                     ].map(({ label, value }) => (
                       <div key={label} className="industrial-card px-3 py-2 text-center">
                         <p className="label-caps text-[var(--text-muted)]">{label}</p>
-                        <p className="font-data text-[14px] text-[var(--primary)] mt-1">{value ?? '—'}</p>
+                        <p className="font-data text-[14px] text-[var(--primary)] mt-1">{value ?? '-'}</p>
                       </div>
                     ))}
                   </div>
@@ -223,7 +222,7 @@ export default function EngineerDeepDive() {
               )}
             </div>
 
-            {/* ── Failure reasons ── */}
+            {/* -- Failure reasons -- */}
             {(selected?.reasons || []).length > 0 && (
               <div className="industrial-card p-5">
                 <p className="label-caps text-[var(--text-muted)] mb-3">Active Diagnostic Flags</p>

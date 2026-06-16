@@ -1,5 +1,5 @@
 /**
- * App.jsx — ConfidenceOS V2 Root Router
+ * App.jsx - ConfidenceOS Root Router
  *
  * All page-level views are in frontend/src/views/.
  * Shared utility components remain in frontend/src/components/.
@@ -9,14 +9,14 @@ import { useEffect, useState } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import useStore from './store';
 
-// ── Navigation ──────────────────────────────────────────────────────────────
+// Navigation
 import NavBar from './components/NavBar';
 import ErrorBoundary from './components/ErrorBoundary';
 import RuntimePlatform from './components/RuntimePlatform';
 import StudioWorkspace from './components/StudioWorkspace';
 import ShiftChannel from './components/ShiftChannel';
 
-// ── Page views (modular — matched to Stitch HTML mockups) ───────────────────
+// Secondary support views
 import FleetOverview      from './views/FleetOverview';
 import OperatorDashboard  from './views/OperatorDashboard';
 import PredictiveTimeline from './views/PredictiveTimeline';
@@ -26,23 +26,7 @@ import CompliancePortal   from './views/CompliancePortal';
 import SandboxSimulator   from './views/SandboxSimulator';
 import EngineerDeepDive   from './views/EngineerDeepDive';
 
-// ── Shared utility functions ────────────────────────────────────────────────
-export function statusClass(status) {
-  const s = String(status || '').toUpperCase();
-  if (s === 'CRITICAL')                                     return 'status-critical';
-  if (s === 'WARNING' || s === 'STARTUP' || s === 'MEDIUM') return 'status-warning';
-  if (s === 'LOW' || s === 'LOW RISK' || s === 'OK' || s === 'NOMINAL') return 'status-safe';
-  return 'text-[var(--text-muted)]';
-}
-
-export function healthClass(value) {
-  if (value >= 80) return 'status-safe';
-  if (value >= 50) return 'status-caution';
-  if (value >= 20) return 'status-warning';
-  return 'status-critical';
-}
-
-// ── Bottom status bar ────────────────────────────────────────────────────────
+// Bottom status bar
 function BottomStatus() {
   const { connected, timestamp } = useStore();
   const [clock, setClock] = useState(() => new Date());
@@ -54,12 +38,12 @@ function BottomStatus() {
 
   return (
     <footer className="bottom-status">
-      <span>ConfidenceOS Industrial Intelligence v2.0.0</span>
+      <span>ConfidenceOS read-only trust-aware HMI layer</span>
       <div className="flex items-center gap-6">
         <span className="hidden md:block">System Logs</span>
         <span>UTC: {clock.toLocaleTimeString()}</span>
         <span className={connected ? 'status-safe' : 'status-critical'}>
-          {connected ? '● API Online' : '● API Offline'}
+          {connected ? 'API Online' : 'API Offline'}
         </span>
         {timestamp && (
           <span className="hidden lg:block">
@@ -71,7 +55,7 @@ function BottomStatus() {
   );
 }
 
-// ── App root ─────────────────────────────────────────────────────────────────
+// App root
 export default function App() {
   return (
     <div className="industrial-app">

@@ -1,8 +1,8 @@
 /**
- * views/PredictiveTimeline.jsx — Confidence Degradation Timeline
+ * views/PredictiveTimeline.jsx - Confidence Degradation Timeline
  *
  * Endpoints:
- *   GET /api/predictions/:plant_id — degradation forecasts for all sensors
+ *   GET /api/predictions/:plant_id - degradation forecasts for all sensors
  *
  * Stitch mockup: 3predictive_maintanance.html
  */
@@ -42,11 +42,11 @@ export default function PredictiveTimeline() {
   return (
     <div className="industrial-page flex flex-col overflow-hidden">
 
-      {/* ── Context header ── */}
+      {/* -- Context header -- */}
       <header className="px-6 py-4 border-b border-[var(--border)] flex items-center justify-between flex-shrink-0 bg-[var(--bg-low)]">
         <div>
           <h1 className="text-[24px] font-semibold text-[var(--text)]">Confidence Degradation Timeline</h1>
-          <p className="label-caps text-[var(--text-muted)] mt-1">12-Hour Trust Forecast Window · Sorted by Criticality</p>
+          <p className="label-caps text-[var(--text-muted)] mt-1">12-Hour Trust Forecast Window / Sorted by Criticality</p>
         </div>
         <div className="flex gap-3 items-center">
           {avgPLT && (
@@ -59,12 +59,12 @@ export default function PredictiveTimeline() {
             </div>
           )}
           <button onClick={() => fetchPredictions(plantId)} className="industrial-control text-[var(--safe-text)]">
-            {predictionsLoading ? 'Refreshing…' : '↻ Refresh'}
+            {predictionsLoading ? 'Refreshing...' : 'Refresh Refresh'}
           </button>
         </div>
       </header>
 
-      {/* ── Main body split ── */}
+      {/* -- Main body split -- */}
       <div className="flex flex-1 overflow-hidden">
 
         {/* Timeline canvas */}
@@ -89,7 +89,7 @@ export default function PredictiveTimeline() {
             {rows.length === 0 && (
               <div className="p-8 text-center">
                 <p className="caption-mono text-[var(--text-muted)]">
-                  {predictionsLoading ? 'Loading predictions…' : 'Waiting for confidence history data.'}
+                  {predictionsLoading ? 'Loading predictions...' : 'Waiting for confidence history data.'}
                 </p>
               </div>
             )}
@@ -112,7 +112,7 @@ export default function PredictiveTimeline() {
                           {pred.sensor_id}
                         </p>
                         <p className="caption-mono text-[10px] text-[var(--text-muted)]">
-                          {pred.model_type || '—'}
+                          {pred.model_type || '-'}
                         </p>
                       </div>
                     </div>
@@ -155,7 +155,7 @@ export default function PredictiveTimeline() {
           </div>
         </div>
 
-        {/* ── Action queue & Confidence Debt sidebar ── */}
+        {/* -- Action queue & Confidence Debt sidebar -- */}
         <aside className="w-[360px] flex flex-col bg-[var(--bg-low)] shrink-0 overflow-y-auto scrollbar-thin p-4 gap-4">
           
           {/* Confidence Debt Ledger */}
@@ -184,7 +184,7 @@ export default function PredictiveTimeline() {
                       <div className="flex justify-between items-start mb-1">
                         <span className="label-caps px-1.5 py-0.5 rounded"
                           style={{ color: confColor, background: `${confColor}1a` }}>
-                          TTC: {hours != null ? `${isCrit ? '< 4h' : `~${hours}h`}` : '—'}
+                          TTC: {hours != null ? `${isCrit ? '< 4h' : `~${hours}h`}` : '-'}
                         </span>
                         <ConfidenceBadge conf={pred.current_confidence} />
                       </div>

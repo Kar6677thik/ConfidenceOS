@@ -27,7 +27,7 @@ export function LoadFailed({ message, onRetry }) {
     <div className="flex flex-col items-center justify-center gap-3 p-6 text-center">
       <span className="material-symbols-outlined text-[36px] text-[var(--critical)]">cloud_off</span>
       <p className="caption-mono text-[var(--text-muted)]">
-        {message || 'Data unavailable — check API connection.'}
+        {message || 'Data unavailable - check API connection.'}
       </p>
       {onRetry && (
         <button onClick={onRetry} className="industrial-control text-[var(--text-muted)] text-[12px] mt-1">

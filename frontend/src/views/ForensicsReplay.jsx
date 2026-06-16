@@ -1,10 +1,10 @@
 /**
- * views/ForensicsReplay.jsx — Incident Forensics / Replay Terminal
+ * views/ForensicsReplay.jsx - Incident Forensics / Replay Terminal
  *
  * Endpoints:
- *   GET /api/forensics/presets             — list available replay presets
- *   GET /api/forensics/presets/:preset_id  — load a preset (texas-city default)
- *   GET /api/forensics/:plant_id           — live forensics for a plant
+ *   GET /api/forensics/presets             - list available replay presets
+ *   GET /api/forensics/presets/:preset_id  - load a preset (texas-city default)
+ *   GET /api/forensics/:plant_id           - live forensics for a plant
  *
  * Stitch mockup: 5incident-forencies.html
  */
@@ -73,7 +73,7 @@ export default function ForensicsReplay() {
   return (
     <div className="industrial-page flex flex-col overflow-hidden">
 
-      {/* ── Replay control bar ── */}
+      {/* -- Replay control bar -- */}
       <div className="flex-shrink-0 bg-[var(--bg-surface)] border-b border-[var(--warning)] px-5 py-3 flex items-center gap-5">
         {/* Mode badge */}
         <span className="industrial-badge text-[var(--warning)] border-[var(--warning)]">
@@ -90,7 +90,7 @@ export default function ForensicsReplay() {
             <option key={p.id} value={p.id}>{p.name}</option>
           ))}
           {presets.length === 0 && (
-            <option value={DEFAULT_PRESET}>Texas City — 2005</option>
+            <option value={DEFAULT_PRESET}>Texas City - 2005</option>
           )}
         </select>
 
@@ -102,9 +102,9 @@ export default function ForensicsReplay() {
         {/* Timeline scrubber */}
         <div className="flex-1 min-w-0">
           <div className="flex justify-between caption-mono text-[10px] text-[var(--text-muted)] mb-1">
-            <span>MAR 23, 2005 — 00:00</span>
+            <span>MAR 23, 2005 - 00:00</span>
             <span className="text-[var(--primary)]">T+{frame?.minute ?? 0}m</span>
-            <span>MAR 23, 2005 — 12:00</span>
+            <span>MAR 23, 2005 - 12:00</span>
           </div>
           <div className="relative">
             <div className="h-2 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-full overflow-hidden">
@@ -136,7 +136,7 @@ export default function ForensicsReplay() {
         </button>
       </div>
 
-      {/* ── Main body ── */}
+      {/* -- Main body -- */}
       <div className="flex-1 flex overflow-hidden">
 
         {/* Main canvas */}
@@ -185,7 +185,7 @@ export default function ForensicsReplay() {
           </div>
         </main>
 
-        {/* ── Right sidebar — annotations + counterfactual ── */}
+        {/* -- Right sidebar - annotations + counterfactual -- */}
         <aside className="w-96 bg-[var(--bg-surface)] border-l border-[var(--border)] flex flex-col overflow-hidden">
           <div className="industrial-card-header px-4 py-3 border-b border-[var(--border)]">
             <span className="text-[14px] font-semibold text-[var(--text)]">Counterfactual Analysis</span>
@@ -211,7 +211,7 @@ export default function ForensicsReplay() {
                     <div key={note.minute}
                       className={`border-l-2 pl-3 ${isPast ? 'border-[var(--warning)]' : 'border-[var(--border)]'}`}>
                       <p className={`caption-mono font-bold ${isPast ? 'text-[var(--warning)]' : 'text-[var(--text-muted)]'}`}>
-                        T+{note.minute}m — {note.title}
+                        T+{note.minute}m - {note.title}
                       </p>
                       <p className={`caption-mono mt-1 leading-relaxed ${isPast ? 'text-[var(--text)]' : 'text-[var(--text-muted)]'}`}>
                         {note.body}

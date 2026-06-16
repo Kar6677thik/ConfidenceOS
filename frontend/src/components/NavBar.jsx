@@ -10,7 +10,7 @@ const NAV_ITEMS = [
 ];
 
 const SUPPORT_ITEMS = [
-  { path: '/integrity',  label: 'Fleet Integrity',        roles: ['Operator', 'Maintenance', 'Engineer', 'Manager', 'Auditor'] },
+  { path: '/integrity',  label: 'Instrument Integrity',   roles: ['Operator', 'Maintenance', 'Engineer', 'Manager', 'Auditor'] },
   { path: '/operator',   label: 'Operator Detail',        roles: ['Operator', 'Maintenance', 'Engineer', 'Manager'] },
   { path: '/predictions',label: 'Degradation Forecast',   roles: ['Operator', 'Maintenance', 'Engineer', 'Manager'] },
   { path: '/forensics',  label: 'Incident Forensics',     roles: ['Engineer', 'Manager', 'Auditor'] },
@@ -25,6 +25,28 @@ function countActiveAlerts(confidence, massBalance, staleFlags) {
   const massAlerts = massBalance?.flags?.length || 0;
   const staleAlerts = staleFlags?.length || 0;
   return confidenceAlerts + massAlerts + staleAlerts;
+}
+
+function worstTrustException(confidence, connected) {
+  if (!connected) {
+    return { label: 'Live trust state unavailable', status: 'status-critical' };
+  }
+  const rank = { QUARANTINED: 0, UNAVAILABLE: 1, DEGRADED: 2, SUBSTITUTED: 3, TRUSTED: 4, HIGH: 4 };
+  const rows = (confidence || [])
+    .map((item) => {
+      const fallback = item.tier === 'LOW' || item.tier === 'CRITICAL' ? 'DEGRADED' : item.tier || 'TRUSTED';
+      const trust = String(item.trust_state || fallback).toUpperCase();
+      return { ...item, trust, rank: rank[trust] ?? 5 };
+    })
+    .sort((a, b) => a.rank - b.rank || (a.confidence_pct ?? 100) - (b.confidence_pct ?? 100));
+  const lead = rows[0];
+  if (!lead) {
+    return { label: 'Awaiting live trust evidence', status: 'status-caution' };
+  }
+  if ((lead.rank ?? 5) <= 2) {
+    return { label: `${lead.trust} ${lead.sensor_id || ''}`.trim(), status: lead.rank <= 1 ? 'status-critical' : 'status-warning' };
+  }
+  return { label: 'No active trust exceptions', status: 'status-safe' };
 }
 
 export default function NavBar() {
@@ -43,6 +65,7 @@ export default function NavBar() {
   const supportItems = SUPPORT_ITEMS.filter((item) => item.roles.includes(role));
   const activeSupport = supportItems.some((item) => item.path === location.pathname) ? location.pathname : '';
   const alerts = countActiveAlerts(confidence, massBalance, staleFlags);
+  const trustException = worstTrustException(confidence, connected);
   const healthClass = averageConfidence >= 80
     ? 'status-safe'
     : averageConfidence >= 50
@@ -76,10 +99,10 @@ export default function NavBar() {
                 if (event.target.value) navigate(event.target.value);
               }}
               className="industrial-control bg-transparent max-w-[200px] shrink-0 opacity-70 hover:opacity-100 transition-opacity text-[var(--text-muted)]"
-              aria-label="Analysis views"
-              title="Secondary analysis views — not part of the primary demo path"
+              aria-label="Support views"
+              title="Secondary support views - not part of the primary demo path"
             >
-              <option value="">More / Analysis ▾</option>
+              <option value="">Support Views</option>
               {supportItems.map((item) => (
                 <option key={item.path} value={item.path}>{item.label}</option>
               ))}
@@ -100,8 +123,8 @@ export default function NavBar() {
           ))}
         </select>
 
-        <div className={`caption-mono ${alerts > 0 ? 'status-critical' : 'status-safe'}`}>
-          {alerts > 0 ? `${alerts} Trust Alert${alerts > 1 ? 's' : ''}` : 'All Trusted'}
+        <div className={`caption-mono ${alerts > 0 ? 'status-critical' : trustException.status}`}>
+          {alerts > 0 ? `${alerts} Trust Alert${alerts > 1 ? 's' : ''}` : trustException.label}
         </div>
 
         {location.pathname !== '/runtime' && location.pathname !== '/' && (

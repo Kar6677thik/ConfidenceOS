@@ -1,13 +1,13 @@
 /**
- * chartTheme.js — single source of truth for data-visualization colors and
+ * chartTheme.js - single source of truth for data-visualization colors and
  * Recharts/SVG styling, aligned to the NAMUR NE107 design tokens in index.css.
  *
  * Why this exists: charts and hand-built SVGs previously hardcoded hex that
- * drifted from (and contradicted) the design tokens — e.g. a neon `#00FF41`
+ * drifted from (and contradicted) the design tokens - e.g. a neon `#00FF41`
  * "nominal" green and pure `#FF0000` "failure" red, when the tokens are
  * `--safe: #00bfff` and `--critical: #ffb4ab`. A NE107-claiming HMI must speak
  * one color language. Resolve tokens to concrete hex once (SVG presentation
- * attributes set by Recharts don't reliably honor `var(--…)`), with the
+ * attributes set by Recharts don't reliably honor `var(--...)`), with the
  * canonical token values as fallbacks so colors are correct even pre-paint.
  */
 
@@ -17,7 +17,7 @@ function token(name, fallback) {
   return value || fallback;
 }
 
-// NAMUR NE107-aligned trust tiers → canonical token colors.
+// NAMUR NE107-aligned trust tiers -> canonical token colors.
 export const TRUST_COLOR = {
   HIGH: token('--safe', '#00bfff'),        // Good / Normal
   MEDIUM: token('--caution', '#c3c6cd'),   // Maintenance / Attention
@@ -30,7 +30,7 @@ export function trustColor(tier) {
   return TRUST_COLOR[String(tier || '').toUpperCase()] || TRUST_COLOR.HIGH;
 }
 
-// Map a 0–100 integrity percentage to the same tier palette.
+// Map a 0-100 integrity percentage to the same tier palette.
 export function pctColor(pct) {
   if (pct >= 80) return TRUST_COLOR.HIGH;
   if (pct >= 50) return TRUST_COLOR.MEDIUM;

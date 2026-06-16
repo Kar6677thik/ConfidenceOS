@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import useStore from '../store';
 
 function formatExpiry(value) {
@@ -24,21 +24,22 @@ export default function VerificationTokens({ selectedSensorId, confidence = [] }
     ? selectedSensorId
     : lowSensors[0]?.sensor_id;
 
-  const refreshTokens = () => {
+  const refreshTokens = useCallback(() => {
     fetch(`/api/verification-tokens?plant_id=${plantId}`)
       .then((res) => (res.ok ? res.json() : null))
       .then((payload) => setTokens(payload?.tokens || []))
       .catch(() => setTokens([]));
-  };
-
-  useEffect(() => {
-    refreshTokens();
   }, [plantId]);
 
   useEffect(() => {
-    if (verificationTasks?.length) setTokens(verificationTasks);
-    else if (verificationTokens?.length) setTokens(verificationTokens);
-  }, [verificationTokens, verificationTasks]);
+    refreshTokens();
+  }, [refreshTokens]);
+
+  const visibleTokens = verificationTasks?.length
+    ? verificationTasks
+    : verificationTokens?.length
+    ? verificationTokens
+    : tokens;
 
   const createToken = async () => {
     if (!targetSensorId) return;
@@ -86,7 +87,7 @@ export default function VerificationTokens({ selectedSensorId, confidence = [] }
           <p className="label-caps text-[var(--text-muted)]">Temporary Field Evidence</p>
           <h2 className="industrial-panel-title text-base">Field Verification Tasks</h2>
         </div>
-        <span className="industrial-badge text-[var(--data-mono)]">{tokens.length}</span>
+        <span className="industrial-badge text-[var(--data-mono)]">{visibleTokens.length}</span>
       </div>
       <div className="industrial-body space-y-4">
         <div className="border border-[var(--border-strong)] bg-[var(--surface-base)] p-3">
@@ -111,7 +112,7 @@ export default function VerificationTokens({ selectedSensorId, confidence = [] }
         </div>
 
         <div className="space-y-[1px] bg-[var(--border-strong)] border border-[var(--border-strong)]">
-          {tokens.map((token) => (
+          {visibleTokens.map((token) => (
             <div key={token.task_id || token.token_id || `${taskSensor(token)}-${token.valid_until}`} className="bg-[var(--surface-panel)] p-3">
               <div className="flex items-center justify-between gap-3">
                 <p className="font-data status-safe">{taskSensor(token)}</p>
@@ -131,7 +132,7 @@ export default function VerificationTokens({ selectedSensorId, confidence = [] }
               )}
             </div>
           ))}
-          {tokens.length === 0 && (
+          {visibleTokens.length === 0 && (
             <p className="bg-[var(--surface-panel)] p-3 caption-mono text-[var(--data-mono)]">No active or recent field verification tasks.</p>
           )}
         </div>

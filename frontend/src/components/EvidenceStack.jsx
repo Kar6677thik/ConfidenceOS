@@ -133,6 +133,7 @@ export default function EvidenceStack({ selectedSensorId, confidence, incidents 
 
   useEffect(() => {
     if (!selectedSensorId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setExplanation(null);
       return undefined;
     }

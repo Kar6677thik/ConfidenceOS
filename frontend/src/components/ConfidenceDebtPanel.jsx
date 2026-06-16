@@ -19,11 +19,8 @@ export default function ConfidenceDebtPanel({ compact = false }) {
       .catch(() => setItems([]));
   }, [plantId]);
 
-  useEffect(() => {
-    if (confidenceDebt?.length) setItems(confidenceDebt);
-  }, [confidenceDebt]);
-
-  const rows = [...items].sort((a, b) => (b.confidence_debt || 0) - (a.confidence_debt || 0));
+  const sourceItems = confidenceDebt?.length ? confidenceDebt : items;
+  const rows = [...sourceItems].sort((a, b) => (b.confidence_debt || 0) - (a.confidence_debt || 0));
   const body = (
     <div className="space-y-[1px] bg-[var(--border-strong)] border border-[var(--border-strong)]">
       {rows.slice(0, compact ? 4 : 8).map((item) => (

@@ -618,7 +618,7 @@ async def suggest_template_for_asset(asset_description: str) -> dict:
         **result,
         "validation_preview": validation_preview,
         "available_templates": [t["template_id"] for t in available_templates],
-        "note": "AI proposes from real template library; compiler validates; engineer approves.",
+        "note": "Deterministic template suggestion from real template library; compiler validates; engineer approves.",
     }
 
 

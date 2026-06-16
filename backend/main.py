@@ -57,7 +57,7 @@ from prediction import predict_all_sensors
 from causal_graph import get_graph_state
 from adaptive_thresholds import compute_adaptive_envelopes
 from advisory import detect_plant_context, build_incidents, build_timeline_events
-from assumptions import build_confidence_explanation, load_assumptions
+from assumptions import build_confidence_explanation, confidence_engine_config, load_assumptions
 from asset_model import load_asset_model, mass_balance_validation
 from model_graph import get_assets, get_model_graph, get_navigation, get_signals
 from screen_generator import equipment_manifest
@@ -2320,7 +2320,12 @@ def run_sandbox(request: SandboxRequest):
 
     # Create isolated instances
     sim = SensorSimulator()
-    ce = ConfidenceEngine()
+    confidence_cfg = confidence_engine_config()
+    ce = ConfidenceEngine(
+        weights=confidence_cfg["weights"],
+        calibration_interval_days=confidence_cfg["calibration_interval_days"],
+    )
+    ce.set_adaptive_envelopes(confidence_cfg["operating_envelopes"])
     mbe = MassBalanceEngine()
 
     # Copy calibration ages from the target plant

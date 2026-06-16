@@ -19,29 +19,29 @@ const CHART_HISTORY_MAX = 120;
 const RECONNECT_DELAY = 2000;
 
 const useStore = create((set, get) => ({
-  // ── Connection state ──────────────────────────────────────────────────
+  // -- Connection state --------------------------------------------------
   connected: false,
   _ws: null,
   _reconnectTimer: null,
   _intentionalDisconnect: false,
 
-  // ── V2: Plant & Role ──────────────────────────────────────────────────
+  // -- V2: Plant & Role --------------------------------------------------
   plantId: 'plant-a',
   role: 'Operator',  // Operator | Maintenance | Engineer | Manager | Auditor
 
-  // ── V2: Instrument integrity overview ─────────────────────────────────
+  // -- V2: Instrument integrity overview ---------------------------------
   fleetData: [],
   fleetLoading: false,
 
-  // ── V2: Confidence degradation forecasts ──────────────────────────────
+  // -- V2: Confidence degradation forecasts ------------------------------
   predictions: {},
   predictionsLoading: false,
 
-  // ── V2: Grounded operator explanation ─────────────────────────────────
+  // -- V2: Grounded operator explanation ---------------------------------
   queryHistory: [],
   queryLoading: false,
 
-  // ── Live data from WebSocket ──────────────────────────────────────────
+  // -- Live data from WebSocket ------------------------------------------
   readings: [],           // raw sensor readings (latest tick)
   confidence: [],         // confidence results (latest tick)
   massBalance: null,      // mass-balance state (latest tick)
@@ -57,16 +57,16 @@ const useStore = create((set, get) => ({
   confidenceDebt: [],      // confidence-hours maintenance priority data
   timestamp: null,        // last update timestamp
 
-  // ── Derived / computed ────────────────────────────────────────────────
+  // -- Derived / computed ------------------------------------------------
   averageConfidence: 0,   // overall plant health score
 
-  // ── Chart history (rolling window) ────────────────────────────────────
+  // -- Chart history (rolling window) ------------------------------------
   chartHistory: [],       // array of { time, implied, measured, discrepancy }
 
-  // ── UI state ──────────────────────────────────────────────────────────
+  // -- UI state ----------------------------------------------------------
   selectedSensorId: null,
 
-  // ── Actions ───────────────────────────────────────────────────────────
+  // -- Actions -----------------------------------------------------------
 
   selectSensor: (sensorId) => set({ selectedSensorId: sensorId }),
 
@@ -219,7 +219,7 @@ const useStore = create((set, get) => ({
     set({ _ws: null, connected: false });
   },
 
-  // ── API actions ───────────────────────────────────────────────────────
+  // -- API actions -------------------------------------------------------
 
   toggleStartupMode: async (active) => {
     try {
@@ -247,7 +247,7 @@ const useStore = create((set, get) => ({
     }
   },
 
-  // ── V2: Integrity overview actions ────────────────────────────────────
+  // -- V2: Integrity overview actions ------------------------------------
 
   fetchFleet: async () => {
     set({ fleetLoading: true });
@@ -262,7 +262,7 @@ const useStore = create((set, get) => ({
     }
   },
 
-  // ── V2: Confidence forecast actions ───────────────────────────────────
+  // -- V2: Confidence forecast actions -----------------------------------
 
   fetchPredictions: async (plantId) => {
     const pid = plantId || get().plantId;
@@ -278,7 +278,7 @@ const useStore = create((set, get) => ({
     }
   },
 
-  // ── V2: Grounded explanation actions ──────────────────────────────────
+  // -- V2: Grounded explanation actions ----------------------------------
 
   askQuestion: async (question) => {
     const { plantId } = get();

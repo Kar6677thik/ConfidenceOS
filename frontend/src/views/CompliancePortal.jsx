@@ -1,8 +1,8 @@
 /**
- * views/CompliancePortal.jsx — Compliance Audit Report Generator
+ * views/CompliancePortal.jsx - Compliance Audit Report Generator
  *
  * Endpoints:
- *   POST /api/compliance/generate — generate report, returns { pdf_base64, sections, … }
+ *   POST /api/compliance/generate - generate report, returns { pdf_base64, sections, ... }
  *
  * Stitch mockup: 4compilance_portal.html
  */
@@ -57,7 +57,7 @@ export default function CompliancePortal() {
   return (
     <div className="industrial-page flex overflow-hidden">
 
-      {/* ── Left sidebar — config panel ── */}
+      {/* -- Left sidebar - config panel -- */}
       <aside className="w-80 flex flex-col bg-[var(--bg-low)] border-r border-[var(--border)] overflow-y-auto scrollbar-thin">
         {/* Header */}
         <div className="industrial-card-header px-5 py-4 border-b border-[var(--border)]">
@@ -98,7 +98,7 @@ export default function CompliancePortal() {
             disabled={loading}
             className="w-full industrial-control text-[var(--safe-text)] border-[var(--safe-text)]/60 disabled:opacity-40"
           >
-            {loading ? 'Generating…' : '⬡ Generate Report'}
+            {loading ? 'Generating...' : '⬡ Generate Report'}
           </button>
 
           <button
@@ -134,7 +134,7 @@ export default function CompliancePortal() {
         </div>
       </aside>
 
-      {/* ── Main — report preview ── */}
+      {/* -- Main - report preview -- */}
       <main className="flex-1 min-w-0 overflow-y-auto scrollbar-thin bg-[var(--bg-base)] p-6">
         {!report ? (
           <div className="h-full flex flex-col items-center justify-center gap-4 text-center">
@@ -152,7 +152,7 @@ export default function CompliancePortal() {
                 <div>
                   <h2 className="text-[32px] font-bold text-[var(--text)]">Operational Summary Report</h2>
                   <p className="caption-mono text-[var(--text-muted)] mt-2">
-                    {report.plant_name} · {report.period_hours}h window · {new Date().toLocaleDateString()}
+                    {report.plant_name} / {report.period_hours}h window / {new Date().toLocaleDateString()}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -190,17 +190,17 @@ export default function CompliancePortal() {
               </div>
             ))}
 
-            {/* Provenance block — tamper-evident content hash, NOT a cryptographic signature */}
+            {/* Provenance block - tamper-evident content hash, NOT a cryptographic signature */}
             <div className="industrial-card p-4 border-[var(--border)]">
               <div className="flex items-start gap-3">
                 <span className="material-symbols-outlined text-[var(--text-muted)]">tag</span>
                 <div className="min-w-0">
-                  <p className="label-caps text-[var(--text-muted)]">Provenance · Unsigned</p>
+                  <p className="label-caps text-[var(--text-muted)]">Provenance / Unsigned</p>
                   <p className="caption-mono text-[var(--text-muted)] mt-0.5 break-all">
                     SHA-256 {report.provenance?.content_sha256 || 'n/a'}
                   </p>
                   <p className="caption-mono text-[var(--text-dim)] mt-1">
-                    {report.provenance?.generator || 'ConfidenceOS Advisory Engine'} · tamper-evident content hash, not a cryptographic signature.
+                    {report.provenance?.generator || 'ConfidenceOS Advisory Engine'} / tamper-evident content hash, not a cryptographic signature.
                   </p>
                 </div>
               </div>

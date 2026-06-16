@@ -1,9 +1,9 @@
 /**
- * views/FleetOverview.jsx — Instrument Integrity Overview
+ * views/FleetOverview.jsx - Instrument Integrity Overview
  *
  * Endpoints:
- *   GET /api/fleet          — fleet summary (auto-polls every 5s)
- *   GET /api/fleet/history  — 24h health trend data
+ *   GET /api/fleet          - fleet summary (auto-polls every 5s)
+ *   GET /api/fleet/history  - 24h health trend data
  *
  * Stitch mockup: 1fleet_overview.html
  */
@@ -81,7 +81,7 @@ export default function FleetOverview() {
     <div className="industrial-page page-scroll">
       <div className="p-8 space-y-8">
 
-        {/* ── Page header + KPI chips ── */}
+        {/* -- Page header + KPI chips -- */}
         <div className="flex flex-col lg:flex-row gap-6 justify-between items-start lg:items-end">
           <div>
             <h1 className="text-[48px] leading-none font-bold text-[var(--text)] tracking-tight">Instrument Integrity Overview</h1>
@@ -113,7 +113,7 @@ export default function FleetOverview() {
           </div>
         </div>
 
-        {/* ── Best / Worst banner ── */}
+        {/* -- Best / Worst banner -- */}
         {best && worst && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-1">
             <div className="bg-[var(--bg-card)] border border-[var(--border-subtle)] px-4 py-2 flex items-center justify-between rounded-l">
@@ -133,7 +133,7 @@ export default function FleetOverview() {
           </div>
         )}
 
-        {/* ── Plant integrity cards ── */}
+        {/* -- Plant integrity cards -- */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           {fleetData.map((plant) => {
             const color = tierColor(plant.health_pct);
@@ -215,7 +215,7 @@ export default function FleetOverview() {
           )}
         </div>
 
-        {/* ── 24h fleet health trend chart ── */}
+        {/* -- 24h fleet health trend chart -- */}
         <div className="industrial-card p-4">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-[18px] font-semibold text-[var(--text)]">24h Instrument Integrity Trend</h2>

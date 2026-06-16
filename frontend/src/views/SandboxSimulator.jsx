@@ -1,10 +1,10 @@
 /**
- * views/SandboxSimulator.jsx — Failure Scenario Sandbox
+ * views/SandboxSimulator.jsx - Failure Scenario Sandbox
  *
  * Endpoints:
- *   POST /api/sandbox/run — inject failure, returns simulated sensor trajectory
+ *   POST /api/sandbox/run - inject failure, returns simulated sensor trajectory
  *
- * Stitch mockup: (no dedicated HTML — uses App.jsx logic)
+ * Stitch mockup: (no dedicated HTML - uses App.jsx logic)
  */
 
 import { useState } from 'react';
@@ -86,16 +86,16 @@ export default function SandboxSimulator() {
   return (
     <div className="industrial-page flex overflow-hidden">
 
-      {/* ── Left controls sidebar ── */}
+      {/* -- Left controls sidebar -- */}
       <aside className="w-80 flex flex-col bg-[var(--bg-low)] border-r border-[var(--border)]">
         <div className="industrial-card-header px-5 py-4 border-b border-[var(--border)]">
-          <h1 className="text-[18px] font-semibold text-[var(--text)]">Sandbox Simulator</h1>
+          <h1 className="text-[18px] font-semibold text-[var(--text)]">Trust Degradation Sandbox</h1>
           <span className="industrial-badge text-[var(--warning)] border-[var(--warning)]/60">Isolated</span>
         </div>
 
         <div className="p-5 space-y-4 flex-1 overflow-y-auto scrollbar-thin">
           <p className="caption-mono text-[var(--text-muted)] leading-relaxed">
-            Inject a synthetic failure into an isolated sensor model.
+            Inject synthetic trust degradation into an isolated sensor model.
             Live plant data is never affected.
           </p>
 
@@ -111,7 +111,7 @@ export default function SandboxSimulator() {
 
           {/* Failure mode */}
           <div>
-            <label className="label-caps text-[var(--text-muted)] block mb-2">Failure Mode</label>
+            <label className="label-caps text-[var(--text-muted)] block mb-2">Degradation Mode</label>
             <select value={form.failure_mode}
               onChange={(e) => setForm({ ...form, failure_mode: e.target.value })}
               className="industrial-select">
@@ -147,7 +147,7 @@ export default function SandboxSimulator() {
 
           <button onClick={run} disabled={loading}
             className="w-full industrial-control text-[var(--warning)] border-[var(--warning)]/60 disabled:opacity-40">
-            {loading ? 'Simulating…' : '⚡ Run Sandbox'}
+            {loading ? 'Simulating...' : ' Run Sandbox'}
           </button>
 
           {error && (
@@ -158,13 +158,13 @@ export default function SandboxSimulator() {
         </div>
       </aside>
 
-      {/* ── Main — results canvas ── */}
+      {/* -- Main - results canvas -- */}
       <main className="flex-1 min-w-0 flex flex-col overflow-hidden bg-[var(--bg-base)]">
         <div className="industrial-card-header px-5 py-3 border-b border-[var(--border)] bg-[var(--bg-surface)]">
           <span className="text-[18px] font-semibold text-[var(--text)]">Sandbox Results</span>
           {result && (
             <span className="caption-mono text-[var(--text-muted)]">
-              {result.sample_count} samples · {form.sensor_id} · {form.failure_mode.replace(/_/g, ' ')}
+              {result.sample_count} samples / {form.sensor_id} / {form.failure_mode.replace(/_/g, ' ')}
             </span>
           )}
         </div>
@@ -227,7 +227,7 @@ export default function SandboxSimulator() {
                 <div className="flex gap-3">
                   <span className="material-symbols-outlined text-[var(--warning)] shrink-0">science</span>
                   <p className="caption-mono text-[var(--text-muted)] leading-relaxed">
-                    This simulation ran entirely on isolated data — no live plant tags were affected.
+                    This simulation ran entirely on isolated data - no live plant tags were affected.
                     The confidence curve shows how ConfidenceOS would respond to a <strong className="text-[var(--text)]">
                     {form.severity} {form.failure_mode.replace(/_/g, ' ')}</strong> on sensor <strong className="text-[var(--text)]">{form.sensor_id}</strong>.
                   </p>

@@ -14,6 +14,7 @@ from pathlib import Path
 from simulator import SensorSimulator
 from tag_provider import SimulatorProvider
 from confidence import ConfidenceEngine
+from assumptions import confidence_engine_config, startup_config
 from mass_balance import MassBalanceEngine, DEFAULT_TOLERANCE
 from asset_model import mass_balance_engine_config
 from startup import StartupManager
@@ -82,13 +83,18 @@ class PlantInstance:
         # Create independent instances
         self.simulator = SensorSimulator()
         self.tag_provider = SimulatorProvider(self.simulator)
-        self.confidence_engine = ConfidenceEngine()
+        _confidence_cfg = confidence_engine_config()
+        self.confidence_engine = ConfidenceEngine(
+            weights=_confidence_cfg["weights"],
+            calibration_interval_days=_confidence_cfg["calibration_interval_days"],
+        )
+        self.confidence_engine.set_adaptive_envelopes(_confidence_cfg["operating_envelopes"])
         _mb_cfg = mass_balance_engine_config()
         self.mass_balance_engine = MassBalanceEngine(
             tolerance=_mb_cfg["tolerance"],
             flow_to_level_rate=_mb_cfg["flow_to_level_rate"],
         )
-        self.startup_manager = StartupManager()
+        self.startup_manager = StartupManager(startup_config())
         self.mode_inference_engine = ModeInferenceEngine()
         self.handover_generator = HandoverBriefGenerator()
 

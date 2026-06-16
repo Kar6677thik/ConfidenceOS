@@ -187,8 +187,8 @@ function MappingCourt({
 
   const displayLabel = aiLabel
     || (item?.ai_assisted
-      ? 'AI explanation active; deterministic rule authoritative; engineer approval required'
-      : 'Deterministic rule active · AI explanation unavailable (no key) · Engineer approval required');
+      ? 'Deterministic mapping active; AI explanation optional; engineer approval required'
+      : 'Deterministic mapping active; AI explanation unavailable; engineer approval required');
 
   return (
     <Panel
@@ -368,7 +368,7 @@ function PasteImportPanel({ busy, onImportResult }) {
   return (
     <Panel eyebrow="Arbitrary Tag Import" title="Paste Tag List" className="mb-[1px]">
       <div className="industrial-panel-subtle p-3 mb-4">
-        <p className="caption-mono text-[var(--text)]">Paste any raw tag list — one per line, or comma-separated. AI proposes bindings; engineer approves each before publish.</p>
+        <p className="caption-mono text-[var(--text)]">Paste any raw tag list - one per line, or comma-separated. Deterministic mapping proposes bindings; engineer approval is required before publish.</p>
       </div>
       <textarea
         value={tagText}
@@ -408,7 +408,7 @@ function PasteImportPanel({ busy, onImportResult }) {
                 </span>
               </div>
               {prop.ai_proposed_canonical_tag && (
-                <p className="caption-mono text-[var(--data-mono)] mt-1">→ {prop.ai_proposed_canonical_tag}</p>
+                <p className="caption-mono text-[var(--data-mono)] mt-1">{'->'} {prop.ai_proposed_canonical_tag}</p>
               )}
               {prop.ai_rationale && (
                 <p className="caption-mono text-[var(--text-muted)] mt-1 text-xs">{prop.ai_rationale}</p>
@@ -418,7 +418,7 @@ function PasteImportPanel({ busy, onImportResult }) {
           ))}
           {result.unresolved?.length > 0 && (
             <div className="bg-[var(--surface-panel)] p-3">
-              <p className="label-caps status-critical">Unresolved Tags — Manual Mapping Required</p>
+              <p className="label-caps status-critical">Unresolved Tags - Manual Mapping Required</p>
               <ul className="mt-2 space-y-1">
                 {result.unresolved.map((tag) => <li key={tag} className="caption-mono text-[var(--data-mono)]">{tag}</li>)}
               </ul>
@@ -461,9 +461,9 @@ function DescribeAssetPanel({ busy }) {
       <div className="flex items-start justify-between gap-3 mb-3">
         <div>
           <p className="label-caps text-[var(--text-muted)]">Low-Code Template Authoring</p>
-          <p className="caption-mono text-[var(--data-mono)] mt-1">Describe this asset in plain English — AI proposes a template; compiler validates; engineer approves.</p>
+          <p className="caption-mono text-[var(--data-mono)] mt-1">Describe this asset in plain English. Deterministic template suggestions are compiler-validated and engineer-approved.</p>
         </div>
-        <span className="industrial-badge text-[var(--data-mono)]">AI proposes</span>
+        <span className="industrial-badge text-[var(--data-mono)]">Engineer approves</span>
       </div>
       <div className="flex gap-3">
         <input
@@ -764,6 +764,7 @@ export default function StudioWorkspace() {
   };
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     refresh().catch(() => {
       setOverview(null);
       setImported(null);
@@ -771,9 +772,13 @@ export default function StudioWorkspace() {
       setTests(null);
       setCourt(null);
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const mappingItems = court?.items || build?.imported_tags?.items || imported?.raw_tags || [];
+  const mappingItems = useMemo(
+    () => court?.items || build?.imported_tags?.items || imported?.raw_tags || [],
+    [build, court, imported],
+  );
   const selectedItem = useMemo(
     () => mappingItems.find((item) => item.raw_tag === selectedRawTag) || mappingItems[0],
     [mappingItems, selectedRawTag],
@@ -788,10 +793,13 @@ export default function StudioWorkspace() {
 
   useEffect(() => {
     if (!selectedItem) return;
+    /* eslint-disable react-hooks/set-state-in-effect */
     setManualCanonical(selectedItem.proposed_canonical_tag || '');
     setManualAsset(selectedItem.proposed_asset_id || '');
     setManualRole(selectedItem.proposed_role || '');
     setManualReason('');
+    /* eslint-enable react-hooks/set-state-in-effect */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedItem?.raw_tag]);
 
   const runAction = async (fn) => {
@@ -814,7 +822,7 @@ export default function StudioWorkspace() {
     setCourtAiLabel(payload.ai_label || '');
     setActionMessage(
       payload.ai_assisted
-        ? 'AI explanations attached to Mapping Court items. Review and approve each tag.'
+        ? 'Optional AI explanations attached to Mapping Court items. Deterministic mapping remains authoritative; review and approve each tag.'
         : 'Deterministic mapping complete. AI explanation unavailable (no key). Review and approve each tag.',
     );
   });

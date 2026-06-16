@@ -66,9 +66,16 @@ class StartupManager:
     # Startup tier boundaries — MEDIUM raised from 50 to 70 per PRD §4.5
     STARTUP_TIERS = {"HIGH": 80, "MEDIUM": 70, "LOW": 20, "CRITICAL": 0}
 
-    def __init__(self):
+    def __init__(self, config: dict | None = None):
+        config = config or {}
         self.is_active: bool = False
         self._activated_at: Optional[float] = None
+        self._stale_threshold_seconds = float(config.get("stale_threshold_seconds", self.STALE_THRESHOLD_SECONDS))
+        self._normal_tiers = dict(config.get("normal_tiers") or self.NORMAL_TIERS)
+        self._startup_tiers = dict(config.get("startup_tiers") or self.STARTUP_TIERS)
+        self._mass_balance_tolerance_multiplier = float(
+            config.get("mass_balance_tolerance_multiplier", 0.5)
+        )
 
         # Track last change time and value per sensor for stale detection
         self._last_change: dict[str, tuple[float, float]] = {}
@@ -105,7 +112,7 @@ class StartupManager:
     @property
     def tier_thresholds(self) -> dict[str, int]:
         """Get current tier thresholds based on mode."""
-        return dict(self.STARTUP_TIERS) if self.is_active else dict(self.NORMAL_TIERS)
+        return dict(self._startup_tiers) if self.is_active else dict(self._normal_tiers)
 
     @property
     def mass_balance_tolerance_multiplier(self) -> float:
@@ -114,7 +121,7 @@ class StartupManager:
         0.5 in startup mode = tolerance tightened by 50%.
         1.0 in normal mode = no change.
         """
-        return 0.5 if self.is_active else 1.0
+        return self._mass_balance_tolerance_multiplier if self.is_active else 1.0
 
     def check_stale_readings(
         self, readings: list[dict], now: float
@@ -153,7 +160,7 @@ class StartupManager:
 
             # Value unchanged — check duration
             duration = now - last_time
-            if duration >= self.STALE_THRESHOLD_SECONDS:
+            if duration >= self._stale_threshold_seconds:
                 if sid not in self._stale_flags:
                     self._stale_flags[sid] = StaleReadingFlag(
                         sensor_id=sid,
@@ -192,6 +199,6 @@ class StartupManager:
             "activated_at": self._activated_at,
             "tier_thresholds": self.tier_thresholds,
             "mass_balance_tolerance_multiplier": self.mass_balance_tolerance_multiplier,
-            "stale_threshold_seconds": self.STALE_THRESHOLD_SECONDS if self.is_active else None,
+            "stale_threshold_seconds": self._stale_threshold_seconds if self.is_active else None,
             "stale_flags": [f.to_dict() for f in self.get_stale_flags()],
         }

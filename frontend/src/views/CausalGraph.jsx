@@ -1,10 +1,10 @@
 /**
- * views/CausalGraph.jsx — Causal Propagation Graph Explorer
+ * views/CausalGraph.jsx - Causal Propagation Graph Explorer
  *
  * Endpoints:
- *   GET /api/graph/:plant_id — node/edge topology + narrative
+ *   GET /api/graph/:plant_id - node/edge topology + narrative
  *
- * Stitch mockup: (no dedicated HTML file — uses App.jsx logic)
+ * Stitch mockup: (no dedicated HTML file - uses App.jsx logic)
  */
 
 import { useEffect, useState } from 'react';
@@ -15,9 +15,9 @@ import { trustColor, chartColors } from '../lib/chartTheme';
 // Sourced from the NAMUR design tokens (chartTheme), shared with every other view.
 const confidenceColor = (tier) => trustColor(tier);
 
-// Node half-dimensions — used for both the rect and for edge-to-edge connection points.
+// Node half-dimensions - used for both the rect and for edge-to-edge connection points.
 const NODE_HW = 52; // half-width
-const NODE_HH = 38; // half-height (76px tall nodes fit 3 text lines at 11–13px)
+const NODE_HH = 38; // half-height (76px tall nodes fit 3 text lines at 11-13px)
 
 // Deterministic topological layout: nodes with no incoming edges appear left;
 // leaf nodes appear right. Within each column nodes are sorted by id for stability.
@@ -32,7 +32,7 @@ function computeHierarchicalLayout(nodes, edges, svgW, svgH) {
       inDeg[target] = (inDeg[target] || 0) + 1;
     }
   });
-  // BFS from roots — assigns longest-path depth so causal chains read left→right.
+  // BFS from roots - assigns longest-path depth so causal chains read left->right.
   const level = {};
   const queue = nodes.filter((n) => !inDeg[n.id]).map((n) => n.id);
   queue.forEach((id) => { level[id] = 0; });
@@ -73,6 +73,7 @@ export default function CausalGraph() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     fetch(`/api/graph/${plantId}`)
       .then((r) => r.json())
@@ -86,7 +87,7 @@ export default function CausalGraph() {
   return (
     <div className="industrial-page flex overflow-hidden">
 
-      {/* ── Graph canvas ── */}
+      {/* -- Graph canvas -- */}
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
         {/* Header */}
         <div className="industrial-card-header px-5 py-3 border-b border-[var(--border)] bg-[var(--bg-surface)]">
@@ -95,7 +96,7 @@ export default function CausalGraph() {
             <span className="label-caps text-[var(--text-muted)]">{plantId?.toUpperCase()}</span>
             {graph?.nodes && (
               <span className="industrial-badge text-[var(--primary)] border-[var(--primary)]/40">
-                {graph.nodes.length} nodes · {graph.edges?.length || 0} edges
+                {graph.nodes.length} nodes / {graph.edges?.length || 0} edges
               </span>
             )}
           </div>
@@ -105,7 +106,7 @@ export default function CausalGraph() {
         <div className="flex-1 overflow-hidden bg-[var(--bg-low)]">
           {loading ? (
             <div className="h-full flex items-center justify-center">
-              <p className="label-caps text-[var(--text-muted)]">Loading graph…</p>
+              <p className="label-caps text-[var(--text-muted)]">Loading graph...</p>
             </div>
           ) : !graph?.nodes?.length ? (
             <div className="h-full flex items-center justify-center">
@@ -114,7 +115,7 @@ export default function CausalGraph() {
           ) : (
             <svg viewBox="0 0 760 460" className="w-full h-full"
               style={{ background: chartColors.surface }}>
-              {/* Edges — cubic bezier from right-edge of source to left-edge of target */}
+              {/* Edges - cubic bezier from right-edge of source to left-edge of target */}
               {(graph.edges || []).map((edge) => {
                 const a = positions[edge.source];
                 const b = positions[edge.target];
@@ -145,7 +146,7 @@ export default function CausalGraph() {
                 );
               })}
 
-              {/* Nodes — taller rect (NODE_HH*2 = 76px) to fit 11px tier label */}
+              {/* Nodes - taller rect (NODE_HH*2 = 76px) to fit 11px tier label */}
               {nodes.map((node) => {
                 const pos   = positions[node.id];
                 if (!pos) return null;
@@ -164,12 +165,12 @@ export default function CausalGraph() {
                     </text>
                     <text x={pos.x} y={pos.y + 8} textAnchor="middle"
                       fill={color} fontSize="12" fontFamily="Geist, monospace">
-                      {node.confidence_pct != null ? `${node.confidence_pct}%` : '—'}
+                      {node.confidence_pct != null ? `${node.confidence_pct}%` : '-'}
                     </text>
                     <text x={pos.x} y={pos.y + 25} textAnchor="middle"
                       fill={color} fontSize="11" fontFamily="Geist, monospace"
                       style={{ letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-                      {node.tier || '—'}
+                      {node.tier || '-'}
                     </text>
                   </g>
                 );
@@ -194,7 +195,7 @@ export default function CausalGraph() {
         </div>
       </div>
 
-      {/* ── Right sidebar — narrative + causal chains ── */}
+      {/* -- Right sidebar - narrative + causal chains -- */}
       <aside className="w-96 bg-[var(--bg-surface)] border-l border-[var(--border)] flex flex-col overflow-hidden">
         <div className="industrial-card-header px-5 py-3 border-b border-[var(--border)]">
           <span className="text-[14px] font-semibold text-[var(--text)]">Root Cause Narrative</span>
@@ -209,7 +210,7 @@ export default function CausalGraph() {
               <div className="space-y-1">
                 {graph.causal_chains.map((chain, i) => (
                   <div key={i} className="industrial-card px-3 py-2 caption-mono text-[var(--text-muted)]">
-                    {chain.join(' → ')}
+                    {chain.join(' -> ')}
                   </div>
                 ))}
               </div>
@@ -222,7 +223,7 @@ export default function CausalGraph() {
                 <div key={`${e.source}-${e.target}`}
                   className="flex items-center gap-2 py-2 border-b border-[var(--border-subtle)]">
                   <span className="font-data text-[var(--warning)] text-[13px]">{e.source}</span>
-                  <span className="caption-mono text-[var(--text-muted)]">→</span>
+                  <span className="caption-mono text-[var(--text-muted)]">{'->'}</span>
                   <span className="font-data text-[var(--critical)] text-[13px]">{e.target}</span>
                 </div>
               ))}

@@ -1,7 +1,7 @@
 import { trustColor } from '../lib/chartTheme';
 
 // Sparkline stroke colors are sourced from the NAMUR design tokens (chartTheme),
-// not hardcoded — so the card matches the rest of the trust palette.
+// not hardcoded - so the card matches the rest of the trust palette.
 const TIER_META = {
   HIGH: {
     label: 'NOMINAL',
@@ -38,7 +38,7 @@ const SENSOR_LABELS = {
   valve: 'Valve Position',
 };
 
-// NAMUR NE107 diagnostic state — sourced from the confidence engine's `namur_state`
+// NAMUR NE107 diagnostic state - sourced from the confidence engine's `namur_state`
 // (confidence.py:_namur_state), so the card and the engine agree instead of the card
 // re-deriving its own label from the percentage.
 const NAMUR_STATE_META = {

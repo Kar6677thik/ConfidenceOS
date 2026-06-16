@@ -1,5 +1,5 @@
 """
-ai_mapping.py — AI-assisted tag mapping and template suggestion for ConfidenceOS.
+ai_mapping.py - optional AI explanation layer for deterministic tag mapping.
 
 This module adds genuine AI capability to the HMI Compiler pipeline:
 
@@ -427,7 +427,7 @@ async def _call_claude_suggest(
 
     return {
         "ai_assisted": True,
-        "ai_label": "AI proposes; compiler validates; engineer approves",
+        "ai_label": "Deterministic mapping active; AI suggestions optional; engineer approval required",
         "proposed_template_id": proposed,
         "rationale": parsed.get("rationale", ""),
         "required_roles": parsed.get("required_roles", []),

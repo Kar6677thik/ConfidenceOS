@@ -64,11 +64,7 @@ def build_confidence_explanation(
         "confidence_pct": confidence.get("confidence_pct"),
         "tier": confidence.get("tier"),
         "formula": {
-            "expression": (
-                "confidence_pct = 100 * "
-                "(0.30*calibration + 0.20*stability + "
-                "0.30*cross_sensor + 0.20*physical_plausibility)"
-            ),
+            "expression": _formula_expression(weights),
             "terms": formula_terms,
             "computed_confidence_pct": confidence.get("confidence_pct"),
         },
@@ -80,6 +76,53 @@ def build_confidence_explanation(
         "recommended_action": confidence.get("recommended_action"),
         "related_assumptions": _related_assumptions(dominant_factor, evidence, register),
     }
+
+
+def confidence_formula_expression(assumptions: dict | None = None) -> str:
+    """Return the governed confidence expression used in explanations and receipts."""
+    register = assumptions or load_assumptions()
+    return _formula_expression(register["confidence_weights"]["value"])
+
+
+def confidence_engine_config(assumptions: dict | None = None) -> dict:
+    """Return ConfidenceEngine constructor/config values from the governed register."""
+    from confidence import ConfidenceWeights
+
+    register = assumptions or load_assumptions()
+    weights = register["confidence_weights"]["value"]
+    return {
+        "weights": ConfidenceWeights(
+            calibration=float(weights.get("calibration", 0.30)),
+            stability=float(weights.get("stability", 0.20)),
+            cross_sensor=float(weights.get("cross_sensor", 0.30)),
+            physical_plausibility=float(weights.get("physical_plausibility", 0.20)),
+        ),
+        "calibration_interval_days": float(register["calibration_interval"]["value"]),
+        "operating_envelopes": register["operating_envelopes"]["value"],
+        "assumption_ids": [
+            "confidence_weights",
+            "calibration_interval",
+            "operating_envelopes",
+        ],
+    }
+
+
+def startup_config(assumptions: dict | None = None) -> dict:
+    """Return StartupManager config values from the governed register."""
+    register = assumptions or load_assumptions()
+    thresholds = register["startup_thresholds"]["value"]
+    return {
+        "normal_tiers": thresholds.get("normal", {}),
+        "startup_tiers": thresholds.get("startup", {}),
+        "mass_balance_tolerance_multiplier": float(thresholds.get("mass_balance_tolerance_multiplier", 0.5)),
+        "stale_threshold_seconds": float(register["stale_reading_threshold"]["value"]),
+    }
+
+
+def _formula_expression(weights: dict) -> str:
+    ordered = ["calibration", "stability", "cross_sensor", "physical_plausibility"]
+    terms = [f"{weights.get(factor, 0):.2f}*{factor}" for factor in ordered]
+    return f"confidence_pct = 100 * ({' + '.join(terms)})"
 
 
 def _strongest_evidence(evidence: list[dict]) -> dict | None:

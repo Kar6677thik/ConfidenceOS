@@ -26,11 +26,8 @@ export default function HandoverDebtLedger({ compact = false }) {
       .catch(() => setDebt(null));
   }, [plantId]);
 
-  useEffect(() => {
-    if (handoverDebt) setDebt(handoverDebt);
-  }, [handoverDebt]);
-
-  const entries = debt?.entries || [];
+  const activeDebt = handoverDebt || debt;
+  const entries = activeDebt?.entries || [];
   const body = (
     <div className="space-y-[1px] bg-[var(--border-strong)] border border-[var(--border-strong)]">
       {entries.slice(0, compact ? 5 : 10).map((item) => (

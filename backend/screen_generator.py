@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import time
 
-from assumptions import load_assumptions
+from assumptions import confidence_formula_expression, load_assumptions
 from decision_integrity import build_score_sensitivity
 from model_graph import equipment_signals, get_assets, get_model_graph, get_navigation
 from template_library import load_context_policies, load_role_policies, template_by_id, validate_assignments
@@ -96,6 +96,10 @@ def generate_screen_manifest(
         },
     ]
     role_sections = _role_sections(role, live_state, build_context, context_state, validation_status)
+    trust_rubric_receipts = _trust_rubric_receipts(live_state)
+    worst_trust_exception = _worst_trust_exception(live_state.get("confidence", []))
+    interaction_compression_estimate = _interaction_compression_estimate(situations, live_state.get("confidence", []))
+    process_mimic = _process_mimic(faceplates, live_state, situations)
     stress_mode_panel = _stress_mode_panel(
         live_state=live_state,
         situations=situations,
@@ -138,6 +142,10 @@ def generate_screen_manifest(
         "receipts": receipts,
         "situations": situations,
         "operating_basis": _operating_basis(live_state, situations),
+        "trust_rubric_receipts": trust_rubric_receipts,
+        "worst_trust_exception": worst_trust_exception,
+        "process_mimic": process_mimic,
+        "interaction_compression_estimate": interaction_compression_estimate,
         "role_sections": role_sections,
         "stress_mode_panel": stress_mode_panel,
 }
@@ -564,6 +572,136 @@ def _assumptions_used() -> list[dict]:
     ]
 
 
+def _trust_rubric_receipts(live_state: dict) -> list[dict]:
+    assumptions = _assumptions_used()
+    assumption_ids = [item.get("assumption_id") for item in assumptions if item.get("assumption_id")]
+    receipts = []
+    for item in live_state.get("confidence", []) or []:
+        evidence = item.get("evidence", []) or []
+        counter = [
+            row.get("message")
+            for row in evidence
+            if row.get("status") in ("BAD", "DEGRADED") or row.get("severity") in ("WARNING", "CRITICAL")
+        ]
+        receipts.append({
+            "sensor_id": item.get("sensor_id"),
+            "trust_state": item.get("trust_state", _signal_trust_state(item, {})),
+            "confidence_pct": item.get("confidence_pct"),
+            "tier": item.get("tier"),
+            "formula": confidence_formula_expression(),
+            "sub_scores": item.get("sub_scores", {}),
+            "dominant_factor": item.get("dominant_factor", "none"),
+            "strongest_evidence": _strongest_evidence(evidence),
+            "counter_evidence": [msg for msg in counter if msg],
+            "verdict": item.get("trust_state") or item.get("tier") or "TRUSTED",
+            "recommended_action": item.get("recommended_action", "Continue normal monitoring."),
+            "related_assumptions": assumption_ids,
+            "governed_rubric": True,
+            "not_probability": True,
+        })
+    return receipts
+
+
+def _strongest_evidence(evidence: list[dict]) -> list[str]:
+    if not evidence:
+        return []
+    ranked = sorted(
+        evidence,
+        key=lambda row: (0 if row.get("severity") in ("CRITICAL", "WARNING") else 1, row.get("score", 1.0)),
+    )
+    return [row.get("message") for row in ranked[:3] if row.get("message")]
+
+
+def _worst_trust_exception(confidence: list[dict]) -> dict:
+    rank = {"QUARANTINED": 0, "UNAVAILABLE": 1, "DEGRADED": 2, "SUBSTITUTED": 3, "TRUSTED": 4, "HIGH": 4}
+    rows = []
+    for item in confidence or []:
+        trust_state = item.get("trust_state")
+        if not trust_state:
+            trust_state = "DEGRADED" if item.get("tier") in ("MEDIUM", "LOW", "CRITICAL") else "TRUSTED"
+        rows.append({
+            "sensor_id": item.get("sensor_id"),
+            "trust_state": trust_state,
+            "confidence_pct": item.get("confidence_pct"),
+            "tier": item.get("tier"),
+            "reason": item.get("trust_reason") or (item.get("reasons") or ["No active trust exception."])[0],
+            "rank": rank.get(str(trust_state).upper(), 5),
+            "decision_basis_allowed": item.get("decision_basis_allowed", True),
+        })
+    if not rows:
+        return {
+            "trust_state": "UNAVAILABLE",
+            "label": "Awaiting live trust evidence",
+            "decision_basis_allowed": False,
+        }
+    lead = sorted(rows, key=lambda row: (row["rank"], row.get("confidence_pct") or 100))[0]
+    lead["label"] = (
+        f"{lead['trust_state']} {lead.get('sensor_id')}"
+        if lead["rank"] <= 2 else
+        "No active trust exceptions"
+    )
+    return lead
+
+
+def _interaction_compression_estimate(situations: list[dict], confidence: list[dict]) -> dict:
+    if situations:
+        return _decision_time_score(situations[0], confidence)
+    return _decision_time_score({}, confidence)
+
+
+def _process_mimic(faceplates: list[dict], live_state: dict, situations: list[dict]) -> dict:
+    graph = get_model_graph()
+    relationships = graph.get("relationships", [])
+    mass_balance = next((rel for rel in relationships if rel.get("type") == "mass_balance_validation"), {})
+    confidence_by_id = {item.get("sensor_id"): item for item in live_state.get("confidence", []) or []}
+    readings_by_id = {item.get("sensor_id"): item for item in live_state.get("readings", []) or []}
+    validated_tag = mass_balance.get("validated_tag")
+    source_tags = mass_balance.get("source_tags", [])
+    lead = situations[0] if situations else {}
+    contract = lead.get("action_contract") or {}
+    equipment = []
+    for faceplate in faceplates or []:
+        equipment.append({
+            "equipment_id": faceplate.get("equipment_id"),
+            "title": faceplate.get("title"),
+            "asset_type": faceplate.get("asset_type"),
+            "template_id": faceplate.get("template_id"),
+            "signals": [
+                _mimic_signal(signal.get("tag"), confidence_by_id, readings_by_id)
+                for signal in faceplate.get("signals", []) or []
+            ],
+        })
+    return {
+        "title": "Generated process trust mimic",
+        "asset_model_id": graph.get("model_id"),
+        "equipment": equipment,
+        "validated_signal": _mimic_signal(validated_tag, confidence_by_id, readings_by_id) if validated_tag else {},
+        "substitute_signals": [_mimic_signal(tag, confidence_by_id, readings_by_id) for tag in source_tags],
+        "decision_freezes": contract.get("blocked_decisions", []),
+        "single_safe_move": contract.get("operator_single_safe_move") or contract.get("first_safe_action"),
+        "relationship_id": mass_balance.get("id"),
+        "relationship_label": mass_balance.get("description") or "Mass-balance validation relationship",
+        "read_only_trust_layer": True,
+    }
+
+
+def _mimic_signal(sensor_id: str | None, confidence_by_id: dict, readings_by_id: dict) -> dict:
+    if not sensor_id:
+        return {}
+    confidence = confidence_by_id.get(sensor_id, {})
+    reading = readings_by_id.get(sensor_id, {})
+    return {
+        "sensor_id": sensor_id,
+        "trust_state": confidence.get("trust_state", _signal_trust_state(confidence, reading)),
+        "confidence_pct": confidence.get("confidence_pct"),
+        "tier": confidence.get("tier"),
+        "decision_basis_allowed": confidence.get("decision_basis_allowed", True),
+        "value": reading.get("value"),
+        "unit": reading.get("unit"),
+        "trust_reason": confidence.get("trust_reason"),
+    }
+
+
 def _signal_trust_state(confidence: dict | None, reading: dict | None) -> str:
     if confidence and confidence.get("trust_state"):
         return confidence["trust_state"]
@@ -589,7 +727,7 @@ def _alarm_collapse_receipt(incident: dict) -> dict:
     return {
         "raw_signal_count": raw_count,
         "suppressed_alarm_count": collapse.get("suppressed_alarm_count", max(0, raw_count - 1)),
-        "operator_question": collapse.get("operator_question", "Can the operator trust level before increasing feed?"),
+        "operator_question": collapse.get("operator_question", "Can the operator trust the primary indication before changing the operating rate?"),
         "collapse_reason": collapse.get("collapse_reason", "All signals affect the same operating basis."),
         "raw_signals": raw_signals,
         "consumed_alarm_types": collapse.get("consumed_alarm_types", []),

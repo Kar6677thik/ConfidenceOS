@@ -22,6 +22,7 @@ export default function ScoreSensitivityPanel({ selectedSensorId }) {
 
   useEffect(() => {
     if (!selectedSensorId || role !== 'Engineer') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setData(null);
       return undefined;
     }

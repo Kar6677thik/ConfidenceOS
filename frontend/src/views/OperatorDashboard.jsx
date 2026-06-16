@@ -1,11 +1,11 @@
 /**
- * views/OperatorDashboard.jsx — Secondary Runtime Support View
+ * views/OperatorDashboard.jsx - Secondary Runtime Support View
  *
  * Endpoints (via Zustand store):
- *   WS  /ws/sensors?plant_id=...  — live 1Hz sensor + confidence + mass-balance
- *   POST /api/mode/startup         — toggle startup scrutiny mode
- *   POST /api/mode/startup/acknowledge/:id — clear stale flag
- *   GET  /api/predictions/:plant_id — forecast data (sidebar)
+ *   WS  /ws/sensors?plant_id=...  - live 1Hz sensor + confidence + mass-balance
+ *   POST /api/mode/startup         - toggle startup scrutiny mode
+ *   POST /api/mode/startup/acknowledge/:id - clear stale flag
+ *   GET  /api/predictions/:plant_id - forecast data (sidebar)
  *
  * Stitch mockup: secondary operator support view
  */
@@ -82,7 +82,7 @@ function PredictionSidecard({ prediction }) {
   );
 }
 
-// ── Context Strip ──
+// -- Context Strip --
 function ContextStrip({ context, incidents = [], incidentTimeline = [] }) {
   if (!context) return null;
   const cls = statusClass(context.severity);
@@ -111,14 +111,14 @@ function ContextStrip({ context, incidents = [], incidentTimeline = [] }) {
         <div className="mt-2 flex flex-wrap items-center gap-2 caption-mono text-[12px] text-[var(--warning)]">
           <span className="flex items-center gap-1"><span className="material-symbols-outlined text-[16px]">warning</span>{leadIncident.title}</span>
           {collapsedCount != null && <span className="text-[var(--text-muted)]">(collapsed from {collapsedCount} signals)</span>}
-          {!!incidentTimeline.length && <span className="text-[var(--text-muted)]">· {incidentTimeline.length} events</span>}
+          {!!incidentTimeline.length && <span className="text-[var(--text-muted)]">/ {incidentTimeline.length} events</span>}
         </div>
       )}
     </div>
   );
 }
 
-// ── Asset Integration Strip ──
+// -- Asset Integration Strip --
 function AssetIntegrationStrip({ plantId }) {
   const [metadata, setMetadata] = useState(null);
 
@@ -169,7 +169,7 @@ function AssetIntegrationStrip({ plantId }) {
   );
 }
 
-// ── Stress Mode Layout ──
+// -- Stress Mode Layout --
 function asList(value) {
   if (Array.isArray(value)) return value.filter(Boolean);
   if (value == null || value === '') return [];
@@ -210,7 +210,6 @@ function StressRow({ label, tone = 'text-[var(--text-muted)]', children }) {
 }
 
 function StressModeLayout({
-  connected,
   plantId,
   context,
   incidents,
@@ -242,7 +241,7 @@ function StressModeLayout({
     <div className="flex flex-col gap-4">
       <div className="flex justify-between items-center border-b border-[var(--border)] pb-2">
         <div>
-          <span className="label-caps text-[var(--text-muted)]">Stress Mode · {plantId?.toUpperCase()}</span>
+          <span className="label-caps text-[var(--text-muted)]">Stress Mode / {plantId?.toUpperCase()}</span>
           <h2 className="text-[20px] font-bold text-[var(--critical)] mt-1 flex items-center gap-2">
             <span className="material-symbols-outlined text-[22px]">warning</span>
             {leadIncident?.title || context?.state || 'Abnormal Situation'}
@@ -296,7 +295,7 @@ function StressModeLayout({
   );
 }
 
-// ── Secondary Runtime Support View ──
+// -- Secondary Runtime Support View --
 export default function OperatorDashboard() {
   const {
     connect,
@@ -328,7 +327,7 @@ export default function OperatorDashboard() {
   const isStressMode = ['WARNING', 'CRITICAL'].includes(String(plantContext?.severity || '').toUpperCase());
 
   const lastUpdate = useMemo(() => {
-    if (!readings.length) return '—';
+    if (!readings.length) return '-';
     return new Date().toLocaleTimeString();
   }, [readings]);
 
@@ -339,7 +338,7 @@ export default function OperatorDashboard() {
         <div className="startup-banner shrink-0">
           <span className="material-symbols-outlined text-[var(--critical)] text-[18px]">warning</span>
           <span className="label-caps text-[var(--critical)] tracking-widest">
-            STARTUP MODE ACTIVE — ELEVATED MONITORING REQUIRED
+            STARTUP MODE ACTIVE - ELEVATED MONITORING REQUIRED
           </span>
         </div>
       )}
@@ -347,7 +346,7 @@ export default function OperatorDashboard() {
       {/* Main 3-column layout */}
       <div className="flex flex-1 overflow-hidden">
 
-        {/* ── Left Rail (Static layout helper buttons) ── */}
+        {/* -- Left Rail (Static layout helper buttons) -- */}
         <aside className="w-12 bg-[var(--bg-low)] border-r border-[var(--border)] flex flex-col justify-between items-center py-4 shrink-0">
           <div className="flex flex-col gap-4">
             {['TL', 'GR', 'SB', 'SG'].map((item, i) => (
@@ -363,16 +362,16 @@ export default function OperatorDashboard() {
           </div>
         </aside>
 
-        {/* ── Center Canvas ── */}
+        {/* -- Center Canvas -- */}
         <main className="flex-1 min-w-0 flex flex-col overflow-y-auto scrollbar-thin bg-[var(--bg-base)] p-4 gap-4">
 
           {/* Plant header */}
           <div className="flex justify-between items-end shrink-0">
             <div>
               <h1 className="text-[18px] font-semibold text-[var(--text)]">
-                {plantId?.replace('-', ' ').toUpperCase()} — Operator Support Runtime
+                {plantId?.replace('-', ' ').toUpperCase()} - Operator Support Runtime
               </h1>
-              <p className="label-caps text-[var(--text-muted)] mt-1">Live Data · 1 Hz</p>
+              <p className="label-caps text-[var(--text-muted)] mt-1">Live Data / 1 Hz</p>
             </div>
             <div className="flex items-center gap-4">
               <span className="caption-mono text-[var(--text-dim)]">
@@ -389,7 +388,6 @@ export default function OperatorDashboard() {
 
           {isStressMode ? (
             <StressModeLayout
-              connected={connected}
               plantId={plantId}
               context={plantContext}
               incidents={incidents}
@@ -449,7 +447,7 @@ export default function OperatorDashboard() {
           )}
         </main>
 
-        {/* ── Right Sidebar ── */}
+        {/* -- Right Sidebar -- */}
         <aside className="w-80 xl:w-96 bg-[var(--bg-surface)] border-l border-[var(--border)] flex flex-col overflow-y-auto scrollbar-thin shrink-0 p-4 gap-4">
           
           {/* Query assistant */}
@@ -543,7 +541,7 @@ function EngineerMini({ sensorId, confidence }) {
             <div key={key} className="industrial-card p-2 text-center">
               <p className="label-caps text-[var(--text-muted)]">{key}</p>
               <p className={`text-[16px] font-bold font-data mt-1 ${col}`}>
-                {pct != null ? `${pct}%` : '—'}
+                {pct != null ? `${pct}%` : '-'}
               </p>
             </div>
           );

@@ -2,13 +2,13 @@
 @import url("https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap");
 @import "tailwindcss";
 
-/* ── Design Tokens (matches Stitch ABB palette) ─────────────────────────── */
+/* -- Design Tokens (matches Stitch ABB palette) --------------------------- */
 :root {
   font-family: Inter, system-ui, sans-serif;
   font-synthesis: none;
   text-rendering: geometricPrecision;
 
-  /* Backgrounds — dark slate layers */
+  /* Backgrounds - dark slate layers */
   --bg-base:        #0b0e11;
   --bg-low:         #111417;
   --bg-card:        #15191e;
@@ -28,7 +28,7 @@
   --text-muted:    #bcc8d1;
   --text-dim:      #87929b;
 
-  /* Brand primary — electric blue (ABB) */
+  /* Brand primary - electric blue (ABB) */
   --primary:       #8fd6ff;
   --primary-glow:  #00bfff;
   --primary-dim:   #7ad0ff;
@@ -64,7 +64,7 @@
   --disabled:           #43474d;
 }
 
-/* ── Reset ─────────────────────────────────────────────────────────────── */
+/* -- Reset --------------------------------------------------------------- */
 *, *::before, *::after { box-sizing: border-box; }
 html, body, #root { width: 100%; height: 100%; margin: 0; }
 body { overflow: hidden; background: var(--bg-base); color: var(--text); }
@@ -72,7 +72,7 @@ button, input, select, textarea { font: inherit; }
 button { cursor: pointer; }
 button:disabled { cursor: not-allowed; }
 
-/* ── Typography scales (matches Stitch font-size config) ─────────────── */
+/* -- Typography scales (matches Stitch font-size config) --------------- */
 .font-data, .caption-mono {
   font-family: Geist, ui-monospace, 'JetBrains Mono', Consolas, monospace;
   font-variant-numeric: tabular-nums;
@@ -98,7 +98,7 @@ button:disabled { cursor: not-allowed; }
 
 .font-data { font-size: 14px; line-height: 18px; font-weight: 500; }
 
-/* ── App shell ──────────────────────────────────────────────────────────── */
+/* -- App shell ------------------------------------------------------------ */
 .industrial-app {
   height: 100vh;
   width: 100vw;
@@ -129,7 +129,7 @@ button:disabled { cursor: not-allowed; }
   scrollbar-color: var(--border) transparent;
 }
 
-/* ── Scrollbars ─────────────────────────────────────────────────────────── */
+/* -- Scrollbars ----------------------------------------------------------- */
 .page-scroll::-webkit-scrollbar,
 .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
 .page-scroll::-webkit-scrollbar-track,
@@ -139,7 +139,7 @@ button:disabled { cursor: not-allowed; }
 .page-scroll::-webkit-scrollbar-thumb:hover,
 .scrollbar-thin::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
 
-/* ── Top nav (Stitch-aligned) ──────────────────────────────────────────── */
+/* -- Top nav (Stitch-aligned) -------------------------------------------- */
 .top-nav {
   height: 64px;
   flex-shrink: 0;
@@ -191,7 +191,7 @@ button:disabled { cursor: not-allowed; }
   color: var(--primary);
 }
 
-/* ── Cards ───────────────────────────────────────────────────────────────── */
+/* -- Cards ----------------------------------------------------------------- */
 .industrial-card {
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
@@ -211,7 +211,7 @@ button:disabled { cursor: not-allowed; }
 
 .industrial-card-body { padding: 16px; }
 
-/* Legacy panel classes — kept for backward compat */
+/* Legacy panel classes - kept for backward compat */
 .industrial-panel {
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -244,7 +244,7 @@ button:disabled { cursor: not-allowed; }
 
 .industrial-body { padding: 20px; }
 
-/* ── Status / NAMUR ────────────────────────────────────────────────────── */
+/* -- Status / NAMUR ------------------------------------------------------ */
 .status-safe,  .status-high   { color: var(--safe-text); }
 .status-caution, .status-medium { color: var(--caution); }
 .status-warning, .status-low  { color: var(--warning); }
@@ -265,11 +265,11 @@ button:disabled { cursor: not-allowed; }
 
 @keyframes pip-blink { 50% { opacity: 0.3; } }
 
-/* ── Glow effects (matches Stitch .glow-critical / .glow-confidence) ─── */
+/* -- Glow effects (matches Stitch .glow-critical / .glow-confidence) --- */
 .glow-critical  { box-shadow: 0 0 12px var(--critical-glow); }
 .glow-primary   { box-shadow: 0 0 12px rgba(0, 191, 255, 0.2); }
 
-/* ── Badges ────────────────────────────────────────────────────────────── */
+/* -- Badges -------------------------------------------------------------- */
 .industrial-badge {
   display: inline-flex;
   align-items: center;
@@ -290,7 +290,7 @@ button:disabled { cursor: not-allowed; }
   max-width: 100%;
 }
 
-/* ── Controls ───────────────────────────────────────────────────────────── */
+/* -- Controls ------------------------------------------------------------- */
 .industrial-control,
 .industrial-select,
 .industrial-input {
@@ -330,7 +330,7 @@ button:disabled { cursor: not-allowed; }
 .industrial-select:focus,
 .industrial-input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
 
-/* ── Grid shell ────────────────────────────────────────────────────────── */
+/* -- Grid shell ---------------------------------------------------------- */
 .industrial-grid-shell {
   background: var(--border);
   border: 1px solid var(--border);
@@ -338,12 +338,12 @@ button:disabled { cursor: not-allowed; }
   gap: 1px;
 }
 
-/* ── Confidence bar gradient ────────────────────────────────────────────── */
+/* -- Confidence bar gradient ---------------------------------------------- */
 .confidence-bar-fill-ok   { background: linear-gradient(90deg, var(--border) 0%, var(--safe) 100%); }
 .confidence-bar-fill-warn { background: linear-gradient(90deg, var(--border) 0%, var(--warning) 100%); }
 .confidence-bar-fill-crit { background: linear-gradient(90deg, var(--border) 0%, var(--critical) 100%); }
 
-/* ── Bottom status bar ──────────────────────────────────────────────────── */
+/* -- Bottom status bar ---------------------------------------------------- */
 .bottom-status {
   height: 32px;
   flex-shrink: 0;
@@ -359,7 +359,7 @@ button:disabled { cursor: not-allowed; }
   font-size: 11px;
 }
 
-/* ── Left rail (Operator page) ──────────────────────────────────────────── */
+/* -- Left rail (Operator page) -------------------------------------------- */
 .left-rail {
   width: 80px;
   flex-shrink: 0;
@@ -391,7 +391,7 @@ button:disabled { cursor: not-allowed; }
   border-right-color: var(--primary);
 }
 
-/* ── Chart tooltip ──────────────────────────────────────────────────────── */
+/* -- Chart tooltip -------------------------------------------------------- */
 .chart-tooltip {
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -402,7 +402,7 @@ button:disabled { cursor: not-allowed; }
   border-radius: 2px;
 }
 
-/* ── LED square ─────────────────────────────────────────────────────────── */
+/* -- LED square ----------------------------------------------------------- */
 .led-square {
   width: 10px;
   height: 10px;
@@ -411,17 +411,17 @@ button:disabled { cursor: not-allowed; }
   border-radius: 2px;
 }
 
-/* ── Dot blink (live indicator) ────────────────────────────────────────── */
+/* -- Dot blink (live indicator) ------------------------------------------ */
 .dot-blink { animation: dot-blink 1.2s step-end infinite; }
 @keyframes dot-blink { 50% { opacity: 0.25; } }
 
-/* ── Timeline grid bg (Predictive page) ────────────────────────────────── */
+/* -- Timeline grid bg (Predictive page) ---------------------------------- */
 .timeline-grid {
   background-image: linear-gradient(to right, var(--border-subtle) 1px, transparent 1px);
   background-size: 8.333% 100%;
 }
 
-/* ── Startup mode warning banner ────────────────────────────────────────── */
+/* -- Startup mode warning banner ------------------------------------------ */
 .startup-banner {
   background: rgba(147, 0, 10, 0.12);
   border-bottom: 1px solid rgba(255, 180, 171, 0.2);
@@ -433,7 +433,7 @@ button:disabled { cursor: not-allowed; }
   flex-shrink: 0;
 }
 
-/* ── Background grid (subtle) ───────────────────────────────────────────── */
+/* -- Background grid (subtle) --------------------------------------------- */
 .bg-grid-pattern {
   background-image:
     linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
@@ -441,7 +441,7 @@ button:disabled { cursor: not-allowed; }
   background-size: 40px 40px;
 }
 
-/* ── Misc ───────────────────────────────────────────────────────────────── */
+/* -- Misc ----------------------------------------------------------------- */
 .line-clamp-2 {
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -456,7 +456,7 @@ button:disabled { cursor: not-allowed; }
   .bottom-status { display: none; }
 }
 
-/* ── Reduced motion (control-room accessibility) ────────────────────────── */
+/* -- Reduced motion (control-room accessibility) -------------------------- */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;

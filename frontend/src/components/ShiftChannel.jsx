@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import useStore from '../store';
 
 function eventTime(timestamp) {
@@ -24,18 +24,18 @@ export default function ShiftChannel() {
   const activeTasks = verificationTasks.filter((item) => item.active || item.handover_required);
   const closedTasks = verificationTasks.filter((item) => !item.active && !item.handover_required);
 
-  const refresh = () => {
+  const refresh = useCallback(() => {
     fetch(`/api/shift-channel?plant_id=${plantId}`)
       .then((res) => (res.ok ? res.json() : null))
       .then(setChannel)
       .catch(() => setChannel(null));
-  };
+  }, [plantId]);
 
   useEffect(() => {
     refresh();
     const timer = setInterval(refresh, 3000);
     return () => clearInterval(timer);
-  }, [plantId]);
+  }, [refresh]);
 
   const addNote = async (event) => {
     event.preventDefault();
