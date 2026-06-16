@@ -14,15 +14,12 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
 import useStore from '../store';
+import { pctColor, TRUST_COLOR, chartGrid, axisTick, axisLine } from '../lib/chartTheme';
 
-const PLANT_COLORS = { 'plant-a': '#ffb4ab', 'plant-b': '#c3c6cd', 'plant-c': '#00bfff' };
+// Per-plant trend colors drawn from the shared NAMUR palette (distinct hues, on-token).
+const PLANT_COLORS = { 'plant-a': TRUST_COLOR.CRITICAL, 'plant-b': TRUST_COLOR.MEDIUM, 'plant-c': TRUST_COLOR.HIGH };
 
-function tierColor(pct) {
-  if (pct >= 80) return '#8fd6ff';
-  if (pct >= 50) return '#c3c6cd';
-  if (pct >= 20) return '#ffda66';
-  return '#ffb4ab';
-}
+const tierColor = pctColor;
 
 function tierLabel(pct) {
   if (pct >= 80) return 'NORMAL';
@@ -94,7 +91,7 @@ export default function FleetOverview() {
           </div>
           <div className="flex gap-4">
             {/* Instrument integrity score */}
-            <div className="stitch-card p-4 w-40">
+            <div className="industrial-card p-4 w-40">
               <p className="label-caps text-[var(--text-muted)] mb-2">Integrity</p>
               <div className="flex items-end gap-1">
                 <span className="text-5xl font-bold leading-none" style={{ color: tierColor(fleetData[0]?.health_pct ?? 80) }}>
@@ -106,7 +103,7 @@ export default function FleetOverview() {
               </div>
             </div>
             {/* Active flags */}
-            <div className="stitch-card p-4 w-40">
+            <div className="industrial-card p-4 w-40">
               <p className="label-caps text-[var(--text-muted)] mb-2">Active Flags</p>
               <div className="flex items-end gap-1">
                 <span className="text-5xl font-bold leading-none text-[var(--primary)]">{totalFlags}</span>
@@ -212,14 +209,14 @@ export default function FleetOverview() {
             );
           })}
           {fleetLoading && fleetData.length === 0 && (
-            <div className="col-span-3 stitch-card p-8 text-center">
+            <div className="col-span-3 industrial-card p-8 text-center">
               <p className="label-caps text-[var(--text-muted)]">Loading fleet data...</p>
             </div>
           )}
         </div>
 
         {/* ── 24h fleet health trend chart ── */}
-        <div className="stitch-card p-4">
+        <div className="industrial-card p-4">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-[18px] font-semibold text-[var(--text)]">24h Instrument Integrity Trend</h2>
             <div className="flex gap-4">
@@ -234,12 +231,12 @@ export default function FleetOverview() {
           <div className="h-[260px] border-l border-b border-[var(--border-subtle)]">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={trend} margin={{ top: 16, right: 16, left: 0, bottom: 8 }}>
-                <CartesianGrid stroke="#2d333b" strokeDasharray="4 2" vertical={false} />
+                <CartesianGrid {...chartGrid} strokeDasharray="4 2" />
                 <XAxis dataKey="timestamp"
-                  tick={{ fontSize: 10, fill: '#87929b', fontFamily: 'Geist, monospace' }}
-                  axisLine={{ stroke: '#3d4850' }} tickLine={false} minTickGap={40} />
+                  tick={{ ...axisTick, fontSize: 10 }}
+                  axisLine={axisLine} tickLine={false} minTickGap={40} />
                 <YAxis domain={[0, 100]}
-                  tick={{ fontSize: 10, fill: '#87929b', fontFamily: 'Geist, monospace' }}
+                  tick={{ ...axisTick, fontSize: 10 }}
                   axisLine={false} tickLine={false} />
                 <Tooltip content={<IndustrialTooltip />} />
                 {Object.entries(PLANT_COLORS).map(([pid, color]) => (

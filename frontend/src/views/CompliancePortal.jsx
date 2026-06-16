@@ -60,7 +60,7 @@ export default function CompliancePortal() {
       {/* ── Left sidebar — config panel ── */}
       <aside className="w-80 flex flex-col bg-[var(--bg-low)] border-r border-[var(--border)] overflow-y-auto scrollbar-thin">
         {/* Header */}
-        <div className="stitch-card-header px-5 py-4 border-b border-[var(--border)]">
+        <div className="industrial-card-header px-5 py-4 border-b border-[var(--border)]">
           <h1 className="text-[18px] font-semibold text-[var(--text)]">Compliance Portal</h1>
         </div>
 
@@ -68,7 +68,7 @@ export default function CompliancePortal() {
         <div className="p-5 space-y-5 flex-1">
           <div>
             <label className="label-caps text-[var(--text-muted)] block mb-2">Plant</label>
-            <div className="stitch-card px-3 py-2 font-data text-[14px] text-[var(--primary)]">
+            <div className="industrial-card px-3 py-2 font-data text-[14px] text-[var(--primary)]">
               {plantId?.toUpperCase()}
             </div>
           </div>
@@ -147,7 +147,7 @@ export default function CompliancePortal() {
         ) : (
           <div className="space-y-6">
             {/* Report header */}
-            <div className="stitch-card p-6">
+            <div className="industrial-card p-6">
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <h2 className="text-[32px] font-bold text-[var(--text)]">Compliance Report</h2>
@@ -165,8 +165,8 @@ export default function CompliancePortal() {
 
             {/* Sections */}
             {report.sections && Object.entries(report.sections).map(([key, section]) => (
-              <div key={key} className="stitch-card">
-                <div className="stitch-card-header">
+              <div key={key} className="industrial-card">
+                <div className="industrial-card-header">
                   <p className="text-[14px] font-semibold text-[var(--text)] capitalize">
                     {key.replace(/_/g, ' ')}
                   </p>
@@ -191,7 +191,7 @@ export default function CompliancePortal() {
             ))}
 
             {/* Signature block */}
-            <div className="stitch-card p-4 border-[var(--safe-text)]/30">
+            <div className="industrial-card p-4 border-[var(--safe-text)]/30">
               <div className="flex items-center gap-3">
                 <span className="material-symbols-outlined text-[var(--safe-text)]">verified</span>
                 <div>

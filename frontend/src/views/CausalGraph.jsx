@@ -10,14 +10,61 @@
 import { useEffect, useState } from 'react';
 import useStore from '../store';
 import TrustDependencyGraph from '../components/TrustDependencyGraph';
+import { trustColor, chartColors } from '../lib/chartTheme';
 
-function confidenceColor(tier) {
-  if (!tier) return '#8fd6ff';
-  const t = tier.toUpperCase();
-  if (t === 'CRITICAL') return '#ffb4ab';
-  if (t === 'LOW')      return '#ffda66';
-  if (t === 'MEDIUM')   return '#c3c6cd';
-  return '#8fd6ff';
+// Sourced from the NAMUR design tokens (chartTheme), shared with every other view.
+const confidenceColor = (tier) => trustColor(tier);
+
+// Node half-dimensions — used for both the rect and for edge-to-edge connection points.
+const NODE_HW = 52; // half-width
+const NODE_HH = 38; // half-height (76px tall nodes fit 3 text lines at 11–13px)
+
+// Deterministic topological layout: nodes with no incoming edges appear left;
+// leaf nodes appear right. Within each column nodes are sorted by id for stability.
+function computeHierarchicalLayout(nodes, edges, svgW, svgH) {
+  if (!nodes.length) return {};
+  const nodeSet = new Set(nodes.map((n) => n.id));
+  const inDeg = Object.fromEntries(nodes.map((n) => [n.id, 0]));
+  const adj   = Object.fromEntries(nodes.map((n) => [n.id, []]));
+  (edges || []).forEach(({ source, target }) => {
+    if (nodeSet.has(source) && nodeSet.has(target)) {
+      adj[source].push(target);
+      inDeg[target] = (inDeg[target] || 0) + 1;
+    }
+  });
+  // BFS from roots — assigns longest-path depth so causal chains read left→right.
+  const level = {};
+  const queue = nodes.filter((n) => !inDeg[n.id]).map((n) => n.id);
+  queue.forEach((id) => { level[id] = 0; });
+  let head = 0;
+  while (head < queue.length) {
+    const cur = queue[head++];
+    (adj[cur] || []).forEach((tgt) => {
+      const next = (level[cur] ?? 0) + 1;
+      if (level[tgt] == null || level[tgt] < next) { level[tgt] = next; queue.push(tgt); }
+    });
+  }
+  nodes.forEach((n) => { if (level[n.id] == null) level[n.id] = 0; });
+  const byLevel = {};
+  nodes.forEach((n) => { (byLevel[level[n.id]] ??= []).push(n.id); });
+  Object.values(byLevel).forEach((ids) => ids.sort());
+  const levels = Object.keys(byLevel).map(Number).sort((a, b) => a - b);
+  const maxL = levels[levels.length - 1] ?? 0;
+  const PAD_X = 80, PAD_Y = 56;
+  const usableW = svgW - PAD_X * 2;
+  const usableH = svgH - PAD_Y * 2;
+  const positions = {};
+  levels.forEach((l) => {
+    const cx = maxL === 0 ? PAD_X + usableW / 2 : PAD_X + (l / maxL) * usableW;
+    const rows = byLevel[l];
+    rows.forEach((id, i) => {
+      const cy = rows.length === 1
+        ? PAD_Y + usableH / 2
+        : PAD_Y + (i / (rows.length - 1)) * usableH;
+      positions[id] = { x: Math.round(cx), y: Math.round(cy) };
+    });
+  });
+  return positions;
 }
 
 export default function CausalGraph() {
@@ -34,13 +81,7 @@ export default function CausalGraph() {
   }, [plantId]);
 
   const nodes = graph?.nodes || [];
-  const positions = {};
-  nodes.forEach((node, i) => {
-    positions[node.id] = {
-      x: 140 + (i % 3) * 220,
-      y: 90 + Math.floor(i / 3) * 180,
-    };
-  });
+  const positions = computeHierarchicalLayout(nodes, graph?.edges || [], 760, 460);
 
   return (
     <div className="industrial-page flex overflow-hidden">
@@ -48,7 +89,7 @@ export default function CausalGraph() {
       {/* ── Graph canvas ── */}
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="stitch-card-header px-5 py-3 border-b border-[var(--border)] bg-[var(--bg-surface)]">
+        <div className="industrial-card-header px-5 py-3 border-b border-[var(--border)] bg-[var(--bg-surface)]">
           <h1 className="text-[18px] font-semibold text-[var(--text)]">Causal Graph Explorer</h1>
           <div className="flex items-center gap-3">
             <span className="label-caps text-[var(--text-muted)]">{plantId?.toUpperCase()}</span>
@@ -72,53 +113,61 @@ export default function CausalGraph() {
             </div>
           ) : (
             <svg viewBox="0 0 760 460" className="w-full h-full"
-              style={{ background: '#0b0e11' }}>
-              {/* Edges */}
+              style={{ background: chartColors.surface }}>
+              {/* Edges — cubic bezier from right-edge of source to left-edge of target */}
               {(graph.edges || []).map((edge) => {
                 const a = positions[edge.source];
                 const b = positions[edge.target];
                 if (!a || !b) return null;
+                const stroke = edge.is_propagating ? confidenceColor('LOW') : chartColors.axisLine;
+                const x1 = a.x + NODE_HW;
+                const x2 = b.x - NODE_HW;
+                const midX = (x1 + x2) / 2;
+                const d = `M${x1} ${a.y} C${midX} ${a.y} ${midX} ${b.y} ${x2} ${b.y}`;
                 return (
                   <g key={`${edge.source}-${edge.target}`}>
                     <defs>
                       <marker id={`arrow-${edge.source}-${edge.target}`}
                         markerWidth="6" markerHeight="6" refX="5" refY="3" orient="auto">
-                        <path d="M0,0 L0,6 L6,3 z"
-                          fill={edge.is_propagating ? '#ffda66' : '#3d4850'} />
+                        <path d="M0,0 L0,6 L6,3 z" fill={stroke} />
                       </marker>
                     </defs>
-                    <line
-                      x1={a.x} y1={a.y} x2={b.x} y2={b.y}
-                      stroke={edge.is_propagating ? '#ffda66' : '#3d4850'}
-                      strokeWidth={edge.is_active ? 3 : 1.5}
+                    <path
+                      d={d}
+                      fill="none"
+                      stroke={stroke}
+                      strokeWidth={edge.is_active ? 2.5 : 1.5}
                       strokeDasharray={edge.is_propagating ? undefined : '4 3'}
+                      opacity={edge.is_active ? 1 : 0.7}
                       markerEnd={`url(#arrow-${edge.source}-${edge.target})`}
                     />
                   </g>
                 );
               })}
 
-              {/* Nodes */}
+              {/* Nodes — taller rect (NODE_HH*2 = 76px) to fit 11px tier label */}
               {nodes.map((node) => {
                 const pos   = positions[node.id];
+                if (!pos) return null;
                 const color = confidenceColor(node.tier);
                 return (
                   <g key={node.id}>
                     <rect
-                      x={pos.x - 52} y={pos.y - 34} width="104" height="68"
-                      fill="var(--bg-card)" stroke={color} strokeWidth="1.5" rx="2"
+                      x={pos.x - NODE_HW} y={pos.y - NODE_HH}
+                      width={NODE_HW * 2} height={NODE_HH * 2}
+                      fill={chartColors.card} stroke={color} strokeWidth="1.5" rx="2"
                       style={{ filter: node.tier === 'CRITICAL' ? `drop-shadow(0 0 6px ${color}66)` : undefined }}
                     />
-                    <text x={pos.x} y={pos.y - 8} textAnchor="middle"
-                      fill="#e1e2e7" fontSize="13" fontWeight="700" fontFamily="Inter, sans-serif">
+                    <text x={pos.x} y={pos.y - 10} textAnchor="middle"
+                      fill={chartColors.text} fontSize="13" fontWeight="700" fontFamily="Inter, sans-serif">
                       {node.id}
                     </text>
-                    <text x={pos.x} y={pos.y + 12} textAnchor="middle"
+                    <text x={pos.x} y={pos.y + 8} textAnchor="middle"
                       fill={color} fontSize="12" fontFamily="Geist, monospace">
                       {node.confidence_pct != null ? `${node.confidence_pct}%` : '—'}
                     </text>
-                    <text x={pos.x} y={pos.y + 26} textAnchor="middle"
-                      fill={color} fontSize="9" fontFamily="Geist, monospace"
+                    <text x={pos.x} y={pos.y + 25} textAnchor="middle"
+                      fill={color} fontSize="11" fontFamily="Geist, monospace"
                       style={{ letterSpacing: '0.04em', textTransform: 'uppercase' }}>
                       {node.tier || '—'}
                     </text>
@@ -132,10 +181,10 @@ export default function CausalGraph() {
         {/* Legend */}
         <div className="flex gap-5 px-5 py-3 border-t border-[var(--border)] bg-[var(--bg-surface)]">
           {[
-            { color: '#ffb4ab', label: 'Critical' },
-            { color: '#ffda66', label: 'Low' },
-            { color: '#c3c6cd', label: 'Medium' },
-            { color: '#8fd6ff', label: 'High / Normal' },
+            { color: confidenceColor('CRITICAL'), label: 'Critical' },
+            { color: confidenceColor('LOW'), label: 'Low' },
+            { color: confidenceColor('MEDIUM'), label: 'Medium' },
+            { color: confidenceColor('HIGH'), label: 'High / Normal' },
           ].map(({ color, label }) => (
             <div key={label} className="flex items-center gap-2">
               <div className="w-3 h-3 rounded-sm" style={{ background: color }} />
@@ -147,7 +196,7 @@ export default function CausalGraph() {
 
       {/* ── Right sidebar — narrative + causal chains ── */}
       <aside className="w-96 bg-[var(--bg-surface)] border-l border-[var(--border)] flex flex-col overflow-hidden">
-        <div className="stitch-card-header px-5 py-3 border-b border-[var(--border)]">
+        <div className="industrial-card-header px-5 py-3 border-b border-[var(--border)]">
           <span className="text-[14px] font-semibold text-[var(--text)]">Root Cause Narrative</span>
         </div>
         <div className="flex-1 overflow-y-auto scrollbar-thin p-5 space-y-5">
@@ -159,7 +208,7 @@ export default function CausalGraph() {
               <p className="label-caps text-[var(--text-muted)] mb-3">Propagation Chains</p>
               <div className="space-y-1">
                 {graph.causal_chains.map((chain, i) => (
-                  <div key={i} className="stitch-card px-3 py-2 caption-mono text-[var(--text-muted)]">
+                  <div key={i} className="industrial-card px-3 py-2 caption-mono text-[var(--text-muted)]">
                     {chain.join(' → ')}
                   </div>
                 ))}

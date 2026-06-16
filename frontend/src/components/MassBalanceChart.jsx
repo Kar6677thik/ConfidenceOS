@@ -8,6 +8,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts';
+import { chartColors, chartGrid, axisTick, axisLine, TRUST_COLOR } from '../lib/chartTheme';
 
 function ChartTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
@@ -88,29 +89,29 @@ export default function MassBalanceChart({ chartHistory, massBalance, flags }) {
           />
         </div>
 
-        <div className="min-h-[300px] flex-1 border border-[var(--border-strong)] bg-[#090b0c]">
+        <div className="min-h-[300px] flex-1 border border-[var(--border-strong)] bg-[var(--surface-base)]">
           {chartHistory && chartHistory.length > 1 ? (
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={chartHistory} margin={{ top: 22, right: 24, left: 0, bottom: 14 }}>
-                <CartesianGrid stroke="#2D3139" strokeDasharray="4 4" vertical={false} />
+                <CartesianGrid {...chartGrid} />
                 <XAxis
                   dataKey="time"
-                  tick={{ fontSize: 11, fill: '#A0AEC0', fontFamily: 'JetBrains Mono' }}
-                  axisLine={{ stroke: '#414752' }}
+                  tick={axisTick}
+                  axisLine={axisLine}
                   tickLine={false}
                   minTickGap={48}
                 />
                 <YAxis
                   domain={yDomain}
-                  tick={{ fontSize: 11, fill: '#A0AEC0', fontFamily: 'JetBrains Mono' }}
-                  axisLine={{ stroke: '#414752' }}
+                  tick={axisTick}
+                  axisLine={axisLine}
                   tickLine={false}
                   width={44}
                 />
                 <Tooltip content={<ChartTooltip />} />
-                <Line type="monotone" dataKey="implied" name="Implied Level" stroke="#A0AEC0" strokeWidth={2} dot={false} isAnimationActive={false} />
-                <Line type="monotone" dataKey="measured" name="Actual Level" stroke="#FF0000" strokeWidth={4} dot={false} isAnimationActive={false} />
-                <Line type="monotone" dataKey="discrepancy" name="Discrepancy" stroke="#FFA500" strokeWidth={1.5} strokeDasharray="4 4" dot={false} isAnimationActive={false} />
+                <Line type="monotone" dataKey="implied" name="Implied Level" stroke={chartColors.muted} strokeWidth={2} dot={false} isAnimationActive={false} />
+                <Line type="monotone" dataKey="measured" name="Actual Level" stroke={chartColors.primary} strokeWidth={4} dot={false} isAnimationActive={false} />
+                <Line type="monotone" dataKey="discrepancy" name="Discrepancy" stroke={TRUST_COLOR.LOW} strokeWidth={1.5} strokeDasharray="4 4" dot={false} isAnimationActive={false} />
               </LineChart>
             </ResponsiveContainer>
           ) : (
@@ -122,7 +123,7 @@ export default function MassBalanceChart({ chartHistory, massBalance, flags }) {
 
         <div className="flex items-center justify-end gap-5 mt-3 caption-mono">
           <span className="flex items-center gap-2"><span className="led-square text-[var(--data-mono)]" /> Implied Level</span>
-          <span className="flex items-center gap-2"><span className="led-square status-critical" /> Actual Level</span>
+          <span className="flex items-center gap-2"><span className="led-square status-safe" /> Actual Level</span>
           <span className="flex items-center gap-2"><span className="led-square status-warning" /> Discrepancy</span>
         </div>
 

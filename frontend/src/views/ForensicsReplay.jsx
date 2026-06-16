@@ -142,7 +142,7 @@ export default function ForensicsReplay() {
         {/* Main canvas */}
         <main className="flex-1 min-w-0 overflow-y-auto scrollbar-thin bg-[var(--bg-base)] p-1">
           {/* Sensor grid */}
-          <div className="stitch-card-header px-4 py-3 bg-[var(--bg-surface)] border-b border-[var(--warning)]">
+          <div className="industrial-card-header px-4 py-3 bg-[var(--bg-surface)] border-b border-[var(--warning)]">
             <span className="text-[18px] font-semibold text-[var(--text)]">
               Unit 15 ISOM Replay {frame ? `/ T+${frame.minute}m` : ''}
             </span>
@@ -165,7 +165,7 @@ export default function ForensicsReplay() {
               const conf = confidence.find((c) => c.sensor_id === reading.sensor_id);
               if (viewMode === 'traditional') {
                 return (
-                  <div key={reading.sensor_id} className="stitch-card p-5 h-[200px] flex flex-col justify-between">
+                  <div key={reading.sensor_id} className="industrial-card p-5 h-[200px] flex flex-col justify-between">
                     <p className="font-data text-[var(--text-muted)]">{reading.sensor_id}</p>
                     <p className="text-[42px] font-bold text-[var(--text)] font-data">
                       {reading.value}
@@ -187,12 +187,12 @@ export default function ForensicsReplay() {
 
         {/* ── Right sidebar — annotations + counterfactual ── */}
         <aside className="w-96 bg-[var(--bg-surface)] border-l border-[var(--border)] flex flex-col overflow-hidden">
-          <div className="stitch-card-header px-4 py-3 border-b border-[var(--border)]">
+          <div className="industrial-card-header px-4 py-3 border-b border-[var(--border)]">
             <span className="text-[14px] font-semibold text-[var(--text)]">Counterfactual Analysis</span>
           </div>
           <div className="flex-1 overflow-y-auto scrollbar-thin p-4 space-y-4">
             {/* AI root cause */}
-            <div className="stitch-card p-4 border-[var(--safe-text)]/30">
+            <div className="industrial-card p-4 border-[var(--safe-text)]/30">
               <p className="label-caps text-[var(--text)] mb-2">AI Root Cause Projection</p>
               <p className="caption-mono text-[var(--text-muted)] leading-relaxed">
                 {viewMode === 'confidenceos'

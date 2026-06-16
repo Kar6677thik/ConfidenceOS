@@ -185,18 +185,23 @@ button:disabled { cursor: not-allowed; }
   font-weight: 700;
   border-bottom-color: var(--primary);
 }
+.nav-link:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+  color: var(--primary);
+}
 
-/* ── Cards (Stitch-aligned) ─────────────────────────────────────────────── */
-.stitch-card {
+/* ── Cards ───────────────────────────────────────────────────────────────── */
+.industrial-card {
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
   border-radius: 0.25rem;
   overflow: hidden;
 }
 
-.stitch-card:hover { background: var(--bg-card-hover); }
+.industrial-card:hover { background: var(--bg-card-hover); }
 
-.stitch-card-header {
+.industrial-card-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -204,7 +209,7 @@ button:disabled { cursor: not-allowed; }
   border-bottom: 1px solid var(--border-subtle);
 }
 
-.stitch-card-body { padding: 16px; }
+.industrial-card-body { padding: 16px; }
 
 /* Legacy panel classes — kept for backward compat */
 .industrial-panel {
@@ -255,7 +260,8 @@ button:disabled { cursor: not-allowed; }
 }
 .pip-ok       { background: var(--safe);     box-shadow: 0 0 8px rgba(0, 191, 255, 0.4); }
 .pip-warning  { background: var(--warning);  box-shadow: 0 0 8px rgba(255, 218, 102, 0.4); }
-.pip-critical { background: var(--critical); box-shadow: 0 0 8px rgba(255, 180, 171, 0.4); animation: pip-blink 1.2s step-end infinite; }
+.pip-critical { background: var(--critical); box-shadow: 0 0 8px rgba(255, 180, 171, 0.4); }
+.pip-critical.pip-blink { animation: pip-blink 1.2s step-end infinite; }
 
 @keyframes pip-blink { 50% { opacity: 0.3; } }
 
@@ -448,4 +454,15 @@ button:disabled { cursor: not-allowed; }
   .brand-mark { font-size: 18px; }
   .nav-link { height: 36px; font-size: 13px; }
   .bottom-status { display: none; }
+}
+
+/* ── Reduced motion (control-room accessibility) ────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .pip-critical, .dot-blink { animation: none !important; }
 }

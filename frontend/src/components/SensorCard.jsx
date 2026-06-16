@@ -1,26 +1,30 @@
+import { trustColor } from '../lib/chartTheme';
+
+// Sparkline stroke colors are sourced from the NAMUR design tokens (chartTheme),
+// not hardcoded — so the card matches the rest of the trust palette.
 const TIER_META = {
   HIGH: {
     label: 'NOMINAL',
     className: 'status-safe',
-    stroke: '#00FF41',
+    stroke: trustColor('HIGH'),
     points: '0,58 16,56 32,57 48,55 64,56 80,55 100,55',
   },
   MEDIUM: {
     label: 'DEGRADED',
     className: 'status-caution',
-    stroke: '#FFD700',
+    stroke: trustColor('MEDIUM'),
     points: '0,56 16,55 32,51 48,47 64,46 80,42 100,40',
   },
   LOW: {
     label: 'LOW',
     className: 'status-warning',
-    stroke: '#FFA500',
+    stroke: trustColor('LOW'),
     points: '0,45 16,43 32,48 48,42 64,52 80,58 100,62',
   },
   CRITICAL: {
     label: 'CRITICAL',
     className: 'status-critical',
-    stroke: '#FF0000',
+    stroke: trustColor('CRITICAL'),
     points: '0,45 18,40 36,55 54,32 72,74 100,82',
   },
 };

@@ -62,13 +62,13 @@ function PredictionSidecard({ prediction }) {
         </span>
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <div className="stitch-card p-3 text-center">
+        <div className="industrial-card p-3 text-center">
           <p className="label-caps text-[var(--text-muted)] mb-1">LOW in</p>
           <p className={`text-[24px] font-bold font-data ${hasLow ? 'text-[var(--warning)]' : 'text-[var(--text-dim)]'}`}>
             {hasLow ? `${prediction.time_to_low_hours}h` : 'N/A'}
           </p>
         </div>
-        <div className="stitch-card p-3 text-center">
+        <div className="industrial-card p-3 text-center">
           <p className="label-caps text-[var(--text-muted)] mb-1">CRIT in</p>
           <p className={`text-[24px] font-bold font-data ${hasCrit ? 'text-[var(--critical)]' : 'text-[var(--text-dim)]'}`}>
             {hasCrit ? `${prediction.time_to_critical_hours}h` : 'N/A'}
@@ -91,7 +91,7 @@ function ContextStrip({ context, incidents = [], incidentTimeline = [] }) {
   const collapse = leadIncident?.alarm_collapse;
   const collapsedCount = collapse?.raw_signal_count ?? leadIncident?.source_flags?.length;
   return (
-    <div className="stitch-card p-4">
+    <div className="industrial-card p-4">
       <div className="flex items-center justify-between gap-3 mb-2 flex-wrap">
         <div className="flex items-center gap-2">
           <span className={`industrial-badge ${cls}`}>{context.state || 'STEADY_STATE'}</span>
@@ -109,7 +109,7 @@ function ContextStrip({ context, incidents = [], incidentTimeline = [] }) {
       <p className="caption-mono text-[var(--text)] text-[13px]">{context.operator_focus || 'No active operator focus.'}</p>
       {leadIncident && (
         <div className="mt-2 flex flex-wrap items-center gap-2 caption-mono text-[12px] text-[var(--warning)]">
-          <span>⚠️ {leadIncident.title}</span>
+          <span className="flex items-center gap-1"><span className="material-symbols-outlined text-[16px]">warning</span>{leadIncident.title}</span>
           {collapsedCount != null && <span className="text-[var(--text-muted)]">(collapsed from {collapsedCount} signals)</span>}
           {!!incidentTimeline.length && <span className="text-[var(--text-muted)]">· {incidentTimeline.length} events</span>}
         </div>
@@ -151,15 +151,15 @@ function AssetIntegrationStrip({ plantId }) {
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-      <div className="stitch-card p-3">
+      <div className="industrial-card p-3">
         <p className="label-caps text-[var(--text-muted)]">Asset Metadata</p>
         <p className="caption-mono text-[var(--text)] mt-1 font-semibold text-[13px]">{equipment.equipment_id || 'V-5100'} / {sensorCount} tags</p>
       </div>
-      <div className="stitch-card p-3">
+      <div className="industrial-card p-3">
         <p className="label-caps text-[var(--text-muted)]">Self-Configured Check</p>
         <p className="caption-mono text-[var(--text)] mt-1 font-semibold text-[13px]">{validationText}</p>
       </div>
-      <div className="stitch-card p-3">
+      <div className="industrial-card p-3">
         <p className="label-caps text-[var(--safe-text)]">✓ Shadow Mode</p>
         <p className="caption-mono text-[var(--text)] mt-1 font-semibold text-[13px]">
           {provider.display_name || 'TagProvider'} / {provider.control_writes_enabled === false ? 'Read-only' : 'Active'}
@@ -198,7 +198,7 @@ function StressValueList({ values, empty = 'Not available' }) {
 
 function StressRow({ label, tone = 'text-[var(--text-muted)]', children }) {
   return (
-    <div className="stitch-card p-4 grid grid-cols-1 md:grid-cols-[180px_1fr] gap-4">
+    <div className="industrial-card p-4 grid grid-cols-1 md:grid-cols-[180px_1fr] gap-4">
       <div className="border-r border-[var(--border)] pr-4 flex items-center md:items-start">
         <p className={`label-caps ${tone} font-bold`}>{label}</p>
       </div>
@@ -243,8 +243,9 @@ function StressModeLayout({
       <div className="flex justify-between items-center border-b border-[var(--border)] pb-2">
         <div>
           <span className="label-caps text-[var(--text-muted)]">Stress Mode · {plantId?.toUpperCase()}</span>
-          <h2 className="text-[20px] font-bold text-[var(--critical)] mt-1">
-            ⚠️ {leadIncident?.title || context?.state || 'Abnormal Situation'}
+          <h2 className="text-[20px] font-bold text-[var(--critical)] mt-1 flex items-center gap-2">
+            <span className="material-symbols-outlined text-[22px]">warning</span>
+            {leadIncident?.title || context?.state || 'Abnormal Situation'}
           </h2>
         </div>
         <span className="industrial-badge text-[var(--critical)] border-[var(--critical)]">
@@ -452,8 +453,8 @@ export default function OperatorDashboard() {
         <aside className="w-80 xl:w-96 bg-[var(--bg-surface)] border-l border-[var(--border)] flex flex-col overflow-y-auto scrollbar-thin shrink-0 p-4 gap-4">
           
           {/* Query assistant */}
-          <div className="stitch-card p-0 overflow-hidden shrink-0">
-            <div className="stitch-card-header px-4 py-3 border-b border-[var(--border)]">
+          <div className="industrial-card p-0 overflow-hidden shrink-0">
+            <div className="industrial-card-header px-4 py-3 border-b border-[var(--border)]">
               <span className="text-[14px] font-semibold text-[var(--text)]">Advisory Assistant</span>
             </div>
             <div className="h-[380px]">
@@ -462,8 +463,8 @@ export default function OperatorDashboard() {
           </div>
 
           {/* Confidence degradation forecast */}
-          <div className="stitch-card p-0 overflow-hidden shrink-0">
-            <div className="stitch-card-header px-4 py-3 border-b border-[var(--border)]">
+          <div className="industrial-card p-0 overflow-hidden shrink-0">
+            <div className="industrial-card-header px-4 py-3 border-b border-[var(--border)]">
               <span className="text-[14px] font-semibold text-[var(--text)]">Confidence Forecast</span>
             </div>
             <PredictionSidecard prediction={selectedPrediction} />
@@ -481,7 +482,7 @@ export default function OperatorDashboard() {
 
           {/* Incident timeline */}
           <div className="shrink-0">
-            <div className="stitch-card p-4">
+            <div className="industrial-card p-4">
               <p className="label-caps text-[var(--text-muted)] mb-3">Incident Log</p>
               <IncidentTimeline events={incidentTimeline} />
             </div>
@@ -495,8 +496,8 @@ export default function OperatorDashboard() {
           {/* Engineer deep-dive (role-gated) */}
           {role === 'Engineer' && selectedSensorId && (
             <>
-              <div className="stitch-card p-0 overflow-hidden shrink-0">
-                <div className="stitch-card-header px-4 py-3 border-b border-[var(--border)]">
+              <div className="industrial-card p-0 overflow-hidden shrink-0">
+                <div className="industrial-card-header px-4 py-3 border-b border-[var(--border)]">
                   <span className="text-[14px] font-semibold text-[var(--text)]">Engineer Deep-Dive</span>
                 </div>
                 <EngineerMini sensorId={selectedSensorId} confidence={confidence} />
@@ -539,7 +540,7 @@ function EngineerMini({ sensorId, confidence }) {
             : pct >= 50 ? 'text-[var(--caution)]'
             : 'text-[var(--critical)]';
           return (
-            <div key={key} className="stitch-card p-2 text-center">
+            <div key={key} className="industrial-card p-2 text-center">
               <p className="label-caps text-[var(--text-muted)]">{key}</p>
               <p className={`text-[16px] font-bold font-data mt-1 ${col}`}>
                 {pct != null ? `${pct}%` : '—'}

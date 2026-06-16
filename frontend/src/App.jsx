@@ -11,6 +11,7 @@ import useStore from './store';
 
 // ── Navigation ──────────────────────────────────────────────────────────────
 import NavBar from './components/NavBar';
+import ErrorBoundary from './components/ErrorBoundary';
 import RuntimePlatform from './components/RuntimePlatform';
 import StudioWorkspace from './components/StudioWorkspace';
 import ShiftChannel from './components/ShiftChannel';
@@ -76,6 +77,7 @@ export default function App() {
     <div className="industrial-app">
       <NavBar />
       <main className="industrial-main">
+        <ErrorBoundary>
         <Routes>
           {/* Main workspace platform routes */}
           <Route path="/"            element={<RuntimePlatform />} />
@@ -93,6 +95,7 @@ export default function App() {
           <Route path="/sandbox"     element={<SandboxSimulator />} />
           <Route path="/engineer"    element={<EngineerDeepDive />} />
         </Routes>
+        </ErrorBoundary>
       </main>
       <BottomStatus />
     </div>

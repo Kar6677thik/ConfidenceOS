@@ -50,7 +50,7 @@ export default function PredictiveTimeline() {
         </div>
         <div className="flex gap-3 items-center">
           {avgPLT && (
-            <div className="stitch-card px-4 py-2 flex items-center gap-3">
+            <div className="industrial-card px-4 py-2 flex items-center gap-3">
               <div>
                 <p className="label-caps text-[var(--text-muted)] mb-1">Avg Degradation Lead Time</p>
                 <p className="text-[20px] font-bold font-data text-[var(--primary)]">{avgPLT}<span className="text-[12px] text-[var(--text-muted)] ml-1">hrs</span></p>
@@ -162,8 +162,8 @@ export default function PredictiveTimeline() {
           <ConfidenceDebtPanel />
 
           {/* Action queue */}
-          <div className="stitch-card p-0 overflow-hidden">
-            <div className="stitch-card-header px-4 py-3 border-b border-[var(--border)]">
+          <div className="industrial-card p-0 overflow-hidden">
+            <div className="industrial-card-header px-4 py-3 border-b border-[var(--border)]">
               <h2 className="text-[14px] font-semibold text-[var(--text)] flex items-center gap-2">
                 <span className="material-symbols-outlined text-[18px] text-[var(--primary)]">dynamic_form</span>
                 Action Queue
@@ -177,7 +177,7 @@ export default function PredictiveTimeline() {
                 const confColor   = isCrit ? 'var(--critical)' : 'var(--primary-dim)';
                 return (
                   <div key={pred.sensor_id}
-                    className="stitch-card relative overflow-hidden"
+                    className="industrial-card relative overflow-hidden"
                     style={{ borderColor: `${borderColor}50` }}>
                     <div className="absolute top-0 left-0 w-1 h-full" style={{ background: borderColor }} />
                     <div className="pl-3 p-3">

@@ -10,6 +10,7 @@
 import { useEffect, useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer } from 'recharts';
 import useStore from '../store';
+import { chartGrid, axisTick, axisLine } from '../lib/chartTheme';
 
 function SubScoreBar({ label, value }) {
   const pct   = value != null ? Math.round(value * 100) : null;
@@ -88,7 +89,7 @@ export default function EngineerDeepDive() {
 
       {/* ── Left sidebar — sensor selector ── */}
       <aside className="w-56 flex flex-col bg-[var(--bg-low)] border-r border-[var(--border)] overflow-y-auto scrollbar-thin">
-        <div className="stitch-card-header px-4 py-3 border-b border-[var(--border)]">
+        <div className="industrial-card-header px-4 py-3 border-b border-[var(--border)]">
           <span className="text-[14px] font-semibold text-[var(--text)]">Sensors</span>
         </div>
         {sensorIds.map((sid) => {
@@ -158,7 +159,7 @@ export default function EngineerDeepDive() {
             </div>
 
             {/* ── Sub-score breakdown ── */}
-            <div className="stitch-card p-5">
+            <div className="industrial-card p-5">
               <p className="label-caps text-[var(--text-muted)] mb-4">Evidence Stack — Sub-Scores</p>
               <div className="space-y-4">
                 <SubScoreBar label="Calibration Age"       value={subs.calibration} />
@@ -169,7 +170,7 @@ export default function EngineerDeepDive() {
             </div>
 
             {/* ── Adaptive envelope ── */}
-            <div className="stitch-card p-5">
+            <div className="industrial-card p-5">
               <div className="flex items-start justify-between mb-4">
                 <div>
                   <p className="label-caps text-[var(--text-muted)]">Adaptive 3-Sigma Envelope</p>
@@ -185,7 +186,7 @@ export default function EngineerDeepDive() {
                       { label: 'Max',     value: envelope.normal_max?.toFixed(2) },
                       { label: 'Samples', value: envelope.sample_count },
                     ].map(({ label, value }) => (
-                      <div key={label} className="stitch-card px-3 py-2 text-center">
+                      <div key={label} className="industrial-card px-3 py-2 text-center">
                         <p className="label-caps text-[var(--text-muted)]">{label}</p>
                         <p className="font-data text-[14px] text-[var(--primary)] mt-1">{value ?? '—'}</p>
                       </div>
@@ -198,10 +199,10 @@ export default function EngineerDeepDive() {
                 <div className="h-52">
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={envChartData} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
-                      <CartesianGrid stroke="#2d333b" strokeDasharray="4 2" vertical={false} />
-                      <XAxis dataKey="time" tick={{ fontSize: 10, fill: '#87929b', fontFamily: 'Geist, monospace' }}
-                        axisLine={{ stroke: '#3d4850' }} tickLine={false} />
-                      <YAxis tick={{ fontSize: 10, fill: '#87929b', fontFamily: 'Geist, monospace' }}
+                      <CartesianGrid {...chartGrid} strokeDasharray="4 2" />
+                      <XAxis dataKey="time" tick={{ ...axisTick, fontSize: 10 }}
+                        axisLine={axisLine} tickLine={false} />
+                      <YAxis tick={{ ...axisTick, fontSize: 10 }}
                         axisLine={false} tickLine={false} />
                       <Tooltip content={<IndustrialTooltip />} />
                       <ReferenceLine y={envelope.normal_max} stroke="var(--warning)" strokeDasharray="4 2" label={{ value: '+3σ', fill: 'var(--warning)', fontSize: 10 }} />
@@ -224,7 +225,7 @@ export default function EngineerDeepDive() {
 
             {/* ── Failure reasons ── */}
             {(selected?.reasons || []).length > 0 && (
-              <div className="stitch-card p-5">
+              <div className="industrial-card p-5">
                 <p className="label-caps text-[var(--text-muted)] mb-3">Active Diagnostic Flags</p>
                 <div className="space-y-2">
                   {selected.reasons.map((reason, i) => (

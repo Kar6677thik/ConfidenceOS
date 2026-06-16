@@ -10,6 +10,7 @@
 import { useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import useStore from '../store';
+import { chartColors, chartGrid, axisTick, axisLine, TRUST_COLOR } from '../lib/chartTheme';
 
 const SENSOR_IDS    = ['LT-5100', 'FI-2010', 'FO-2020', 'PT-3100', 'TT-4100', 'ZT-6100'];
 const FAILURE_MODES = [
@@ -87,7 +88,7 @@ export default function SandboxSimulator() {
 
       {/* ── Left controls sidebar ── */}
       <aside className="w-80 flex flex-col bg-[var(--bg-low)] border-r border-[var(--border)]">
-        <div className="stitch-card-header px-5 py-4 border-b border-[var(--border)]">
+        <div className="industrial-card-header px-5 py-4 border-b border-[var(--border)]">
           <h1 className="text-[18px] font-semibold text-[var(--text)]">Sandbox Simulator</h1>
           <span className="industrial-badge text-[var(--warning)] border-[var(--warning)]/60">Isolated</span>
         </div>
@@ -159,7 +160,7 @@ export default function SandboxSimulator() {
 
       {/* ── Main — results canvas ── */}
       <main className="flex-1 min-w-0 flex flex-col overflow-hidden bg-[var(--bg-base)]">
-        <div className="stitch-card-header px-5 py-3 border-b border-[var(--border)] bg-[var(--bg-surface)]">
+        <div className="industrial-card-header px-5 py-3 border-b border-[var(--border)] bg-[var(--bg-surface)]">
           <span className="text-[18px] font-semibold text-[var(--text)]">Sandbox Results</span>
           {result && (
             <span className="caption-mono text-[var(--text-muted)]">
@@ -182,17 +183,17 @@ export default function SandboxSimulator() {
               {/* Summary chips */}
               {minConf != null && (
                 <div className="flex gap-3">
-                  <div className="stitch-card px-4 py-3">
+                  <div className="industrial-card px-4 py-3">
                     <p className="label-caps text-[var(--text-muted)] mb-1">Min Confidence</p>
                     <p className={`text-[24px] font-bold font-data ${
                       minConf < 20 ? 'text-[var(--critical)]' : minConf < 50 ? 'text-[var(--warning)]' : 'text-[var(--primary)]'
                     }`}>{minConf.toFixed(1)}%</p>
                   </div>
-                  <div className="stitch-card px-4 py-3">
+                  <div className="industrial-card px-4 py-3">
                     <p className="label-caps text-[var(--text-muted)] mb-1">Samples</p>
                     <p className="text-[24px] font-bold font-data text-[var(--text)]">{result.sample_count}</p>
                   </div>
-                  <div className="stitch-card px-4 py-3">
+                  <div className="industrial-card px-4 py-3">
                     <p className="label-caps text-[var(--text-muted)] mb-1">Duration</p>
                     <p className="text-[24px] font-bold font-data text-[var(--text)]">{form.duration_hours}h</p>
                   </div>
@@ -200,22 +201,21 @@ export default function SandboxSimulator() {
               )}
 
               {/* Chart */}
-              <div className="stitch-card p-4">
+              <div className="industrial-card p-4">
                 <p className="label-caps text-[var(--text-muted)] mb-4">Confidence & Mass-Balance Trajectory</p>
                 <div className="h-80">
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={chartData} margin={{ top: 8, right: 24, left: 0, bottom: 8 }}>
-                      <CartesianGrid stroke="#2d333b" strokeDasharray="4 2" vertical={false} />
-                      <XAxis dataKey="time"
-                        tick={{ fontSize: 10, fill: '#87929b', fontFamily: 'Geist, monospace' }}
-                        axisLine={{ stroke: '#3d4850' }} tickLine={false} />
-                      <YAxis tick={{ fontSize: 10, fill: '#87929b', fontFamily: 'Geist, monospace' }}
+                      <CartesianGrid {...chartGrid} strokeDasharray="4 2" />
+                      <XAxis dataKey="time" tick={{ ...axisTick, fontSize: 10 }}
+                        axisLine={axisLine} tickLine={false} />
+                      <YAxis tick={{ ...axisTick, fontSize: 10 }}
                         axisLine={false} tickLine={false} />
                       <Tooltip content={<IndustrialTooltip />} />
-                      <Legend wrapperStyle={{ paddingTop: '8px', fontSize: '11px', color: '#bcc8d1' }} />
-                      <Line dataKey="confidence" name="Confidence %" stroke="#8fd6ff"
+                      <Legend wrapperStyle={{ paddingTop: '8px', fontSize: '11px', color: chartColors.muted }} />
+                      <Line dataKey="confidence" name="Confidence %" stroke={chartColors.primary}
                         strokeWidth={2} dot={false} isAnimationActive={false} />
-                      <Line dataKey="discrepancy" name="Mass-Balance Δ" stroke="#ffda66"
+                      <Line dataKey="discrepancy" name="Mass-Balance Δ" stroke={TRUST_COLOR.LOW}
                         strokeWidth={2} dot={false} isAnimationActive={false} strokeDasharray="4 2" />
                     </LineChart>
                   </ResponsiveContainer>
@@ -223,7 +223,7 @@ export default function SandboxSimulator() {
               </div>
 
               {/* Advisory note */}
-              <div className="stitch-card p-4 border-[var(--warning)]/30">
+              <div className="industrial-card p-4 border-[var(--warning)]/30">
                 <div className="flex gap-3">
                   <span className="material-symbols-outlined text-[var(--warning)] shrink-0">science</span>
                   <p className="caption-mono text-[var(--text-muted)] leading-relaxed">
