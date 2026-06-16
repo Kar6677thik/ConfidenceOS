@@ -675,6 +675,54 @@ function PressureModeRuntime({ manifest, situations, confidence, connected, plan
   );
 }
 
+function RuntimeUnavailable({ error, plantId, role, connected, onRetry }) {
+  const manifest = {
+    navigation: { name: 'Runtime manifest unavailable' },
+    context: 'runtime_unavailable',
+    validation_status: 'FAILED',
+    worst_trust_exception: { label: 'Runtime manifest unavailable', trust_state: 'CRITICAL' },
+  };
+  return (
+    <div className="industrial-page hmi-workplace hmi-pressure">
+      <HmiAlarmBand manifest={manifest} role={role} connected={connected} plantId={plantId} plantContext={{ status: 'runtime_unavailable' }} />
+      <div className="hmi-main-grid">
+        <section className="hmi-process-area">
+          <div className="hmi-process-header">
+            <div>
+              <p className="label-caps text-[var(--text-muted)]">Runtime Fault State</p>
+              <h1 className="m-0 text-[17px] leading-[20px] font-bold">Generated Runtime manifest did not load</h1>
+            </div>
+            <span className="caption-mono status-critical">operator display degraded</span>
+          </div>
+          <div className="hmi-process-canvas p-6">
+            <div className="hmi-operation-note max-w-[760px]">
+              <p className="label-caps status-critical">Required Recovery</p>
+              <p className="text-[22px] leading-[28px] font-bold mt-2">Retry Runtime manifest, then verify backend health if this remains active.</p>
+              <p className="caption-mono text-[var(--text-muted)] mt-3">{error || 'No response from /api/screens/generated.'}</p>
+              <div className="flex flex-wrap gap-2 mt-4">
+                <button type="button" onClick={onRetry} className="industrial-control status-warning">Retry Runtime</button>
+                <Link to="/studio" className="industrial-control inline-flex">Open Studio</Link>
+              </div>
+            </div>
+          </div>
+        </section>
+        <aside className="hmi-dock">
+          <DockSection title="Likely Causes" eyebrow="Runtime Support">
+            <ValueList values={[
+              'Backend API unavailable or restarting.',
+              'SQLite persistence lock is delaying API response.',
+              'Generated manifest hydration raised an exception.',
+            ]} />
+          </DockSection>
+          <DockSection title="Read-Only Boundary">
+            <p className="caption-mono text-[var(--text-muted)]">ConfidenceOS has not written any control command. This state only means the generated display cannot be loaded.</p>
+          </DockSection>
+        </aside>
+      </div>
+    </div>
+  );
+}
+
 export default function RuntimePlatform() {
   const storeState = useStore();
   const {
@@ -692,6 +740,9 @@ export default function RuntimePlatform() {
     chartHistory,
   } = storeState;
   const [manifest, setManifest] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [manifestError, setManifestError] = useState('');
+  const [retryToken, setRetryToken] = useState(0);
   const [selected, setSelected] = useState('');
 
   useEffect(() => {
@@ -702,12 +753,29 @@ export default function RuntimePlatform() {
     let active = true;
     const load = () => {
       fetch(`/api/screens/generated?role=${role}&context=auto&plant_id=${plantId}`)
-        .then((res) => (res.ok ? res.json() : null))
-        .then((payload) => {
-          if (active) setManifest(payload);
+        .then(async (res) => {
+          const payload = await res.json().catch(() => null);
+          if (!res.ok) {
+            throw new Error(payload?.detail || `Runtime manifest request failed: ${res.status}`);
+          }
+          if (!payload) {
+            throw new Error('Runtime manifest response was empty.');
+          }
+          return payload;
         })
-        .catch(() => {
-          if (active) setManifest(null);
+        .then((payload) => {
+          if (active) {
+            setManifest(payload);
+            setManifestError('');
+            setLoading(false);
+          }
+        })
+        .catch((err) => {
+          if (active) {
+            setManifest(null);
+            setManifestError(err.message || 'Runtime manifest request failed.');
+            setLoading(false);
+          }
         });
     };
     load();
@@ -716,7 +784,7 @@ export default function RuntimePlatform() {
       active = false;
       clearInterval(timer);
     };
-  }, [plantId, role]);
+  }, [plantId, role, retryToken]);
 
   const faceplates = useMemo(() => manifest?.faceplates || [], [manifest]);
   const selectedFaceplate = useMemo(
@@ -732,11 +800,27 @@ export default function RuntimePlatform() {
     || ['WARNING', 'CRITICAL', 'MASS_BALANCE_DIVERGENCE', 'MANUAL_VERIFICATION_REQUIRED'].includes(String(manifest?.context || '').toUpperCase());
   const stressMode = role === 'Operator' && pressureContext;
 
-  if (!manifest) {
+  if (loading && !manifest) {
     return (
       <div className="industrial-page p-8">
         <p className="caption-mono text-[var(--data-mono)]">Loading published Runtime manifest from compiler build, asset model, and reusable templates...</p>
       </div>
+    );
+  }
+
+  if (!manifest) {
+    return (
+      <RuntimeUnavailable
+        error={manifestError}
+        plantId={plantId}
+        role={role}
+        connected={connected}
+        onRetry={() => {
+          setLoading(true);
+          setManifestError('');
+          setRetryToken((value) => value + 1);
+        }}
+      />
     );
   }
 

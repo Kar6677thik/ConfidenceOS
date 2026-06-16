@@ -62,6 +62,7 @@ def create_task(
     actor: str | None = None,
     actor_role: str | None = None,
     task_id: str | None = None,
+    commit: bool = True,
 ) -> dict:
     """Create a durable verification task and REQUESTED audit event."""
     sensor = _validate_sensor(sensor_id)
@@ -114,7 +115,8 @@ def create_task(
             evidence_note=note or ("Auto-generated verification requested." if source == "auto" else "Verification requested."),
             commit=False,
         )
-        db.commit()
+        if commit:
+            db.commit()
     except Exception:
         db.rollback()
         raise
@@ -129,10 +131,11 @@ def sync_auto_tasks(
     confidence: list[dict],
     plant_context: dict | None,
     now: float | None = None,
+    commit: bool = True,
 ) -> list[dict]:
     """Create requested auto tasks and audit expiry for due tasks."""
     current = _datetime_from_ts(now) if now else _utcnow()
-    expire_due_tasks(db, plant_id=plant_id, current=current)
+    expire_due_tasks(db, plant_id=plant_id, current=current, commit=commit)
     requested = _requested_sensors(incidents, confidence, plant_context)
     for sensor_id in sorted(requested):
         if not sensor_by_tag(sensor_id):
@@ -151,6 +154,7 @@ def sync_auto_tasks(
             actor="ConfidenceOS",
             actor_role="ConfidenceOS",
             task_id=f"verification-task:{sensor_id}",
+            commit=commit,
         )
     return list_tasks(db, plant_id=plant_id, include_closed=True, expire=False)
 
@@ -219,7 +223,7 @@ def transition_task(
     return task_to_dict(task)
 
 
-def expire_due_tasks(db: Session, *, plant_id: str, current: datetime | None = None) -> list[dict]:
+def expire_due_tasks(db: Session, *, plant_id: str, current: datetime | None = None, commit: bool = True) -> list[dict]:
     """Expire overdue active tasks and write one audit event per expiration."""
     current = current or _utcnow()
     expired = []
@@ -252,7 +256,8 @@ def expire_due_tasks(db: Session, *, plant_id: str, current: datetime | None = N
                 commit=False,
             )
             expired.append(task_to_dict(task))
-        db.commit()
+        if commit:
+            db.commit()
     except Exception:
         db.rollback()
         raise

@@ -39,9 +39,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import OperationalError
 
 from database import (
-    init_db, get_db,
+    init_db, get_db, SessionLocal,
     SensorReading as SensorReadingModel,
     AnomalyLog as AnomalyLogModel,
     ConfidenceLog as ConfidenceLogModel,
@@ -61,6 +62,7 @@ from assumptions import build_confidence_explanation, confidence_engine_config, 
 from asset_model import load_asset_model, mass_balance_validation
 from model_graph import get_assets, get_model_graph, get_navigation, get_signals
 from screen_generator import equipment_manifest
+from screen_generator import generate_screen_manifest
 from decision_integrity import (
     active_verification_tokens,
     annotate_incidents_for_handover,
@@ -122,6 +124,7 @@ BASE_MB_TOLERANCE = DEFAULT_TOLERANCE
 # Confidence logging throttle — log every N ticks to avoid DB bloat
 _confidence_log_counter: dict[str, int] = {}
 CONFIDENCE_LOG_INTERVAL = 5  # Log every 5 seconds
+PERSIST_READINGS_INTERVAL = max(1, int(os.getenv("CONFIDENCEOS_PERSIST_READINGS_INTERVAL", "5")))
 _plant_loop_status: dict[str, dict] = {}
 INCIDENT_TIMELINE_MAX = 80
 SCENARIO_DIR = Path(__file__).parent
@@ -286,13 +289,14 @@ async def unknown_plant_handler(request: Request, exc: UnknownPlantError):
 
 async def _plant_tick_loop(plant_id: str, plant):
     """Background loop that ticks each plant at 1 Hz and caches state."""
-    db = next(get_db())
     tick_count = 0
 
     try:
         while True:
+            db = None
             try:
                 now = time.time()
+                pending_anomalies = []
 
                 # Apply startup mode overrides
                 if plant.startup_manager.is_active:
@@ -340,7 +344,7 @@ async def _plant_tick_loop(plant_id: str, plant):
                         last_logged = _anomaly_cooldown.get(cooldown_key, 0)
                         if now - last_logged > ANOMALY_COOLDOWN_SECONDS:
                             description = "; ".join(cr.reasons) if cr.reasons else f"Confidence {cr.tier}: {cr.confidence_pct}%"
-                            log_anomaly(db, cr.sensor_id, anomaly_type, description, cr.tier, plant_id=plant_id)
+                            pending_anomalies.append((cr.sensor_id, anomaly_type, description, cr.tier))
                             _anomaly_cooldown[cooldown_key] = now
                             new_anomalies.append({
                                 "sensor_id": cr.sensor_id,
@@ -354,7 +358,7 @@ async def _plant_tick_loop(plant_id: str, plant):
                     cooldown_key = f"{plant_id}:mass_balance:{flag.severity}"
                     last_logged = _anomaly_cooldown.get(cooldown_key, 0)
                     if now - last_logged > ANOMALY_COOLDOWN_SECONDS:
-                        log_anomaly(db, "SYSTEM", f"mass_balance_{flag.severity.lower()}", flag.message, flag.severity, plant_id=plant_id)
+                        pending_anomalies.append(("SYSTEM", f"mass_balance_{flag.severity.lower()}", flag.message, flag.severity))
                         _anomaly_cooldown[cooldown_key] = now
                         new_anomalies.append({
                             "sensor_id": "SYSTEM",
@@ -369,7 +373,7 @@ async def _plant_tick_loop(plant_id: str, plant):
                     last_logged = _anomaly_cooldown.get(cooldown_key, 0)
                     if now - last_logged > ANOMALY_COOLDOWN_SECONDS:
                         desc = f"Stale reading: value {sf.last_value} unchanged for {sf.duration_seconds:.0f}s"
-                        log_anomaly(db, sf.sensor_id, "stale_reading", desc, "WARNING", plant_id=plant_id)
+                        pending_anomalies.append((sf.sensor_id, "stale_reading", desc, "WARNING"))
                         _anomaly_cooldown[cooldown_key] = now
                         new_anomalies.append({
                             "sensor_id": sf.sensor_id,
@@ -413,14 +417,85 @@ async def _plant_tick_loop(plant_id: str, plant):
                     plant_context=plant.latest_context,
                 )
                 plant.latest_incidents = annotate_incidents_for_handover(plant.latest_incidents)
-                plant.verification_tokens = sync_auto_tasks(
-                    db,
-                    plant_id=plant_id,
-                    incidents=plant.latest_incidents,
-                    confidence=confidence_data,
-                    plant_context=plant.latest_context,
-                    now=now,
-                )
+
+                # V2: increment tick before persistence so live telemetry keeps
+                # moving even if SQLite skips a write on this pass.
+                tick_count += 1
+
+                persistence_status = "not_run"
+                persistence_error = None
+                try:
+                    db = SessionLocal()
+                    plant.verification_tokens = sync_auto_tasks(
+                        db,
+                        plant_id=plant_id,
+                        incidents=plant.latest_incidents,
+                        confidence=confidence_data,
+                        plant_context=plant.latest_context,
+                        now=now,
+                        commit=False,
+                    )
+
+                    for sensor_id, anomaly_type, description, severity in pending_anomalies:
+                        log_anomaly(
+                            db,
+                            sensor_id,
+                            anomaly_type,
+                            description,
+                            severity,
+                            plant_id=plant_id,
+                            commit=False,
+                        )
+
+                    if tick_count % PERSIST_READINGS_INTERVAL == 0:
+                        for r in readings:
+                            db_reading = SensorReadingModel(
+                                plant_id=plant_id,
+                                sensor_id=r["sensor_id"],
+                                sensor_type=r["sensor_type"],
+                                value=r["value"],
+                                unit=r["unit"],
+                                timestamp=datetime.fromtimestamp(r["timestamp"]),
+                                failure_mode=r["failure_mode"],
+                            )
+                            db.add(db_reading)
+
+                    if tick_count % CONFIDENCE_LOG_INTERVAL == 0:
+                        for cr in confidence_results:
+                            log_confidence(
+                                db, plant_id, cr.sensor_id,
+                                cr.confidence_pct, cr.tier,
+                                sub_scores={
+                                    "calibration": cr.sub_scores.calibration_score,
+                                    "stability": cr.sub_scores.stability_score,
+                                    "cross_sensor": cr.sub_scores.cross_sensor_score,
+                                    "physical_plausibility": cr.sub_scores.physical_plausibility_score,
+                                }
+                            )
+
+                    db.commit()
+                    persistence_status = "ok"
+                except OperationalError as exc:
+                    if db:
+                        db.rollback()
+                    persistence_error = str(exc)
+                    if "database is locked" in persistence_error.lower():
+                        persistence_status = "skipped_locked"
+                        print(f"[PlantTick] Persistence skipped for {plant_id}: database is locked")
+                    else:
+                        persistence_status = "error"
+                        print(f"[PlantTick] Persistence error in {plant_id}: {exc}")
+                except Exception as exc:
+                    if db:
+                        db.rollback()
+                    persistence_status = "error"
+                    persistence_error = str(exc)
+                    print(f"[PlantTick] Persistence error in {plant_id}: {exc}")
+                finally:
+                    if db:
+                        db.close()
+                        db = None
+
                 plant.latest_confidence_debt = update_confidence_debt(
                     plant.confidence_debt_state,
                     confidence_data,
@@ -450,44 +525,17 @@ async def _plant_tick_loop(plant_id: str, plant):
                     tick_events,
                 )
                 plant.latest_new_anomalies = new_anomalies
-
-                # Persist sensor readings
-                for r in readings:
-                    db_reading = SensorReadingModel(
-                        plant_id=plant_id,
-                        sensor_id=r["sensor_id"],
-                        sensor_type=r["sensor_type"],
-                        value=r["value"],
-                        unit=r["unit"],
-                        timestamp=datetime.fromtimestamp(r["timestamp"]),
-                        failure_mode=r["failure_mode"],
-                    )
-                    db.add(db_reading)
-
-                # V2: Log confidence scores (throttled)
-                tick_count += 1
-                if tick_count % CONFIDENCE_LOG_INTERVAL == 0:
-                    for cr in confidence_results:
-                        log_confidence(
-                            db, plant_id, cr.sensor_id,
-                            cr.confidence_pct, cr.tier,
-                            sub_scores={
-                                "calibration": cr.sub_scores.calibration_score,
-                                "stability": cr.sub_scores.stability_score,
-                                "cross_sensor": cr.sub_scores.cross_sensor_score,
-                                "physical_plausibility": cr.sub_scores.physical_plausibility_score,
-                            }
-                        )
-
-                db.commit()
                 _plant_loop_status[plant_id] = {
                     "status": "ok",
                     "last_tick": now,
                     "tick_count": plant.tag_provider.tick_count,
                     "last_error": None,
+                    "persistence_status": persistence_status,
+                    "persistence_error": persistence_error,
                 }
             except Exception as e:
-                db.rollback()
+                if db:
+                    db.rollback()
                 print(f"[PlantTick] Error in {plant_id}: {e}")
                 _plant_loop_status[plant_id] = {
                     "status": "error",
@@ -495,9 +543,13 @@ async def _plant_tick_loop(plant_id: str, plant):
                     "tick_count": getattr(plant.tag_provider, "tick_count", 0),
                     "last_error": str(e),
                 }
+            finally:
+                if db:
+                    db.close()
             await asyncio.sleep(1.0)
     except asyncio.CancelledError:
-        db.close()
+        if db:
+            db.close()
     except Exception as e:
         print(f"[PlantTick] Fatal error in {plant_id}: {e}")
         _plant_loop_status[plant_id] = {
@@ -506,7 +558,8 @@ async def _plant_tick_loop(plant_id: str, plant):
             "tick_count": getattr(plant.tag_provider, "tick_count", 0),
             "last_error": str(e),
         }
-        db.close()
+        if db:
+            db.close()
 
 
 # ─── WebSocket: live sensor stream at 1 Hz ──────────────────────────────────
@@ -902,11 +955,46 @@ def get_generated_screens(
 ):
     """Return latest published Runtime manifest hydrated with live read-only state."""
     plant = plant_manager.get(plant_id)
-    return studio_runtime_manifest(
-        role=role,
-        context=context,
-        live_state=_runtime_live_state(plant_id, plant),
-    )
+    live_state = _runtime_live_state(plant_id, plant)
+    try:
+        return studio_runtime_manifest(
+            role=role,
+            context=context,
+            live_state=live_state,
+        )
+    except Exception as exc:
+        assignments = studio_overview().get("state", {}).get("assignments", [])
+        manifest = generate_screen_manifest(
+            role=role,
+            context=context,
+            live_state=live_state,
+            assignments=assignments,
+            build_context={
+                "build_id": "runtime-fallback",
+                "validation_status": "PASS_WITH_WARNINGS",
+                "validation": {
+                    "info": [{
+                        "rule": "runtime_fallback_generation",
+                        "message": "Generated fallback Runtime because published manifest hydration failed.",
+                    }],
+                    "warnings": [{
+                        "rule": "runtime_manifest_hydration_failed",
+                        "message": str(exc),
+                    }],
+                    "blocking": [],
+                },
+                "receipts": [{
+                    "severity": "WARNING",
+                    "message": "Runtime fallback generated from asset model and template assignments.",
+                    "source": "api/screens/generated",
+                }],
+            },
+        )
+        return {
+            **manifest,
+            "runtime_source": "fallback_runtime_generation",
+            "runtime_warning": str(exc),
+        }
 
 
 @app.get("/api/runtime/navigation")

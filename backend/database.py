@@ -11,14 +11,29 @@ import json
 import os
 from datetime import datetime, timedelta
 
-from sqlalchemy import create_engine, Column, Integer, Float, String, DateTime, Text, Index
+from sqlalchemy import create_engine, Column, Integer, Float, String, DateTime, Text, Index, event
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./confidenceos.db")
 
-# For SQLite, need check_same_thread=False for FastAPI async usage
-connect_args = {"check_same_thread": False} if "sqlite" in DATABASE_URL else {}
+IS_SQLITE = "sqlite" in DATABASE_URL
+
+# SQLite is fine for the demo, but it has a single-writer model. WAL + a busy
+# timeout lets API requests and plant tick persistence share the same file
+# without taking Runtime down during short writes.
+connect_args = {"check_same_thread": False, "timeout": 30} if IS_SQLITE else {}
 engine = create_engine(DATABASE_URL, connect_args=connect_args)
+
+
+if IS_SQLITE:
+    @event.listens_for(engine, "connect")
+    def _set_sqlite_pragmas(dbapi_connection, _connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.execute("PRAGMA busy_timeout=30000")
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
@@ -277,7 +292,7 @@ def get_db():
 
 # ── Helper functions ────────────────────────────────────────────────────────
 
-def log_anomaly(db, sensor_id, anomaly_type, description, severity, plant_id="plant-a"):
+def log_anomaly(db, sensor_id, anomaly_type, description, severity, plant_id="plant-a", commit=True):
     """Persist an anomaly to the AnomalyLog table."""
     entry = AnomalyLog(
         plant_id=plant_id,
@@ -287,7 +302,8 @@ def log_anomaly(db, sensor_id, anomaly_type, description, severity, plant_id="pl
         severity=severity,
     )
     db.add(entry)
-    db.commit()
+    if commit:
+        db.commit()
     return entry
 
 
