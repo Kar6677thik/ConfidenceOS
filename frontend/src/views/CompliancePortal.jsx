@@ -9,6 +9,7 @@
 
 import { useState } from 'react';
 import useStore from '../store';
+import PageIdentity from '../components/hmi/PageIdentity';
 
 const REPORT_TYPES = [
   { value: 'full',     label: 'Full Audit Report' },
@@ -59,10 +60,7 @@ export default function CompliancePortal() {
 
       {/* -- Left sidebar - config panel -- */}
       <aside className="w-80 flex flex-col bg-[var(--bg-low)] border-r border-[var(--border)] overflow-y-auto scrollbar-thin">
-        {/* Header */}
-        <div className="industrial-card-header px-5 py-4 border-b border-[var(--border)]">
-          <h1 className="text-[18px] font-semibold text-[var(--text)]">Compliance Portal</h1>
-        </div>
+        <PageIdentity displayName="Compliance Portal" level={3} area="Operational Summary Report Generator" />
 
         {/* Config fields */}
         <div className="p-5 space-y-5 flex-1">

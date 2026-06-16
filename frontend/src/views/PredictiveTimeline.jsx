@@ -10,6 +10,7 @@
 import { useEffect } from 'react';
 import useStore from '../store';
 import ConfidenceDebtPanel from '../components/ConfidenceDebtPanel';
+import PageIdentity from '../components/hmi/PageIdentity';
 
 const WINDOW_HOURS = 12;
 
@@ -43,26 +44,21 @@ export default function PredictiveTimeline() {
     <div className="industrial-page flex flex-col overflow-hidden">
 
       {/* -- Context header -- */}
-      <header className="px-6 py-4 border-b border-[var(--border)] flex items-center justify-between flex-shrink-0 bg-[var(--bg-low)]">
-        <div>
-          <h1 className="text-[24px] font-semibold text-[var(--text)]">Confidence Degradation Timeline</h1>
-          <p className="label-caps text-[var(--text-muted)] mt-1">12-Hour Trust Forecast Window / Sorted by Criticality</p>
-        </div>
-        <div className="flex gap-3 items-center">
-          {avgPLT && (
-            <div className="industrial-card px-4 py-2 flex items-center gap-3">
-              <div>
-                <p className="label-caps text-[var(--text-muted)] mb-1">Avg Degradation Lead Time</p>
-                <p className="text-[20px] font-bold font-data text-[var(--primary)]">{avgPLT}<span className="text-[12px] text-[var(--text-muted)] ml-1">hrs</span></p>
-              </div>
-              <span className="material-symbols-outlined text-[var(--primary)]">update</span>
+      <PageIdentity displayName="Confidence Degradation Timeline" level={3} area="12-Hour Trust Forecast Window · Sorted by Criticality" plant={plantId} />
+      <div className="px-6 py-2 border-b border-[var(--border)] flex items-center justify-end gap-3 flex-shrink-0 bg-[var(--bg-low)]">
+        {avgPLT && (
+          <div className="industrial-card px-4 py-2 flex items-center gap-3">
+            <div>
+              <p className="label-caps text-[var(--text-muted)] mb-1">Avg Degradation Lead Time</p>
+              <p className="text-[20px] font-bold font-data text-[var(--primary)]">{avgPLT}<span className="text-[12px] text-[var(--text-muted)] ml-1">hrs</span></p>
             </div>
-          )}
-          <button onClick={() => fetchPredictions(plantId)} className="industrial-control text-[var(--safe-text)]">
-            {predictionsLoading ? 'Refreshing...' : 'Refresh Refresh'}
-          </button>
-        </div>
-      </header>
+            <span className="material-symbols-outlined text-[var(--primary)]">update</span>
+          </div>
+        )}
+        <button onClick={() => fetchPredictions(plantId)} className="industrial-control text-[var(--safe-text)]">
+          {predictionsLoading ? 'Refreshing...' : 'Refresh'}
+        </button>
+      </div>
 
       {/* -- Main body split -- */}
       <div className="flex flex-1 overflow-hidden">

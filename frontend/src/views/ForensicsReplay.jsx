@@ -12,6 +12,7 @@
 import { useEffect, useState } from 'react';
 import SensorCard from '../components/SensorCard';
 import MassBalanceChart from '../components/MassBalanceChart';
+import PageIdentity from '../components/hmi/PageIdentity';
 
 const DEFAULT_PRESET = 'texas-city';
 
@@ -135,6 +136,8 @@ export default function ForensicsReplay() {
           ✕ Reset
         </button>
       </div>
+
+      <PageIdentity displayName="Incident Forensics" level={3} area="Replay Terminal" />
 
       {/* -- Main body -- */}
       <div className="flex-1 flex overflow-hidden">

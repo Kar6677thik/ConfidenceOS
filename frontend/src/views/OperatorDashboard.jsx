@@ -27,6 +27,7 @@ import IncidentTimeline from '../components/IncidentTimeline';
 import ScoreSensitivityPanel from '../components/ScoreSensitivityPanel';
 import VerificationTokens from '../components/VerificationTokens';
 import HandoverDebtLedger from '../components/HandoverDebtLedger';
+import PageIdentity from '../components/hmi/PageIdentity';
 
 function healthColor(pct) {
   if (pct >= 80) return 'text-[var(--safe-text)]';
@@ -363,28 +364,20 @@ export default function OperatorDashboard() {
         </aside>
 
         {/* -- Center Canvas -- */}
-        <main className="flex-1 min-w-0 flex flex-col overflow-y-auto scrollbar-thin bg-[var(--bg-base)] p-4 gap-4">
-
-          {/* Plant header */}
-          <div className="flex justify-between items-end shrink-0">
-            <div>
-              <h1 className="text-[18px] font-semibold text-[var(--text)]">
-                {plantId?.replace('-', ' ').toUpperCase()} - Operator Support Runtime
-              </h1>
-              <p className="label-caps text-[var(--text-muted)] mt-1">Live Data / 1 Hz</p>
-            </div>
-            <div className="flex items-center gap-4">
-              <span className="caption-mono text-[var(--text-dim)]">
-                Last Update: <span className="text-[var(--primary)]">{lastUpdate}</span>
-              </span>
-              <span className={`industrial-badge ${connected ? 'text-[var(--safe-text)] border-[var(--safe-text)]' : 'text-[var(--critical)] border-[var(--critical)]'}`}>
-                {connected ? 'LIVE' : 'OFFLINE'}
-              </span>
-              <span className={`font-data text-[32px] font-bold ${healthColor(averageConfidence)}`}>
-                {averageConfidence}%
-              </span>
-            </div>
+        <main className="flex-1 min-w-0 flex flex-col overflow-hidden bg-[var(--bg-base)]">
+          <PageIdentity displayName="Operator Support Runtime" level={3} area="Secondary Operator View" plant={plantId} />
+          <div className="flex items-center gap-3 px-5 py-1.5 border-b border-[var(--border)] flex-shrink-0">
+            <span className={`industrial-badge ${connected ? 'text-[var(--safe-text)] border-[var(--safe-text)]' : 'text-[var(--critical)] border-[var(--critical)]'}`}>
+              {connected ? 'LIVE' : 'OFFLINE'}
+            </span>
+            <span className={`font-data text-[20px] font-bold ${healthColor(averageConfidence)}`}>
+              {averageConfidence}%
+            </span>
+            <span className="caption-mono text-[var(--text-dim)] ml-auto">
+              Last Update: <span className="text-[var(--primary)]">{lastUpdate}</span>
+            </span>
           </div>
+          <div className="flex-1 overflow-y-auto scrollbar-thin overflow-x-hidden p-4 gap-4 flex flex-col">
 
           {isStressMode ? (
             <StressModeLayout
@@ -445,6 +438,7 @@ export default function OperatorDashboard() {
               </div>
             </>
           )}
+          </div>
         </main>
 
         {/* -- Right Sidebar -- */}

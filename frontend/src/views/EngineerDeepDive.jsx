@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer } from 'recharts';
 import useStore from '../store';
 import { chartGrid, axisTick, axisLine } from '../lib/chartTheme';
+import PageIdentity from '../components/hmi/PageIdentity';
 
 function SubScoreBar({ label, value }) {
   const pct   = value != null ? Math.round(value * 100) : null;
@@ -88,9 +89,7 @@ export default function EngineerDeepDive() {
 
       {/* -- Left sidebar - sensor selector -- */}
       <aside className="w-56 flex flex-col bg-[var(--bg-low)] border-r border-[var(--border)] overflow-y-auto scrollbar-thin">
-        <div className="industrial-card-header px-4 py-3 border-b border-[var(--border)]">
-          <span className="text-[14px] font-semibold text-[var(--text)]">Sensors</span>
-        </div>
+        <PageIdentity displayName="Engineer Deep-Dive" level={3} area="Sub-Score Analysis" plant={plantId} />
         {sensorIds.map((sid) => {
           const conf = confidence.find((c) => c.sensor_id === sid);
           const pct  = conf?.confidence_pct ?? null;

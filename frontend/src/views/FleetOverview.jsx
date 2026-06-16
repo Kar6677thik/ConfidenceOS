@@ -15,6 +15,7 @@ import {
 } from 'recharts';
 import useStore from '../store';
 import { pctColor, TRUST_COLOR, chartGrid, axisTick, axisLine } from '../lib/chartTheme';
+import PageIdentity from '../components/hmi/PageIdentity';
 
 // Per-plant trend colors drawn from the shared NAMUR palette (distinct hues, on-token).
 const PLANT_COLORS = { 'plant-a': TRUST_COLOR.CRITICAL, 'plant-b': TRUST_COLOR.MEDIUM, 'plant-c': TRUST_COLOR.HIGH };
@@ -78,17 +79,13 @@ export default function FleetOverview() {
   const totalFlags = fleetData.reduce((s, p) => s + (p.top_issues?.length || 0), 0);
 
   return (
-    <div className="industrial-page page-scroll">
+    <div className="industrial-page flex flex-col overflow-hidden">
+      <PageIdentity displayName="Instrument Integrity Overview" level={3} area="Real-time aggregate trust state across active facilities" />
+      <div className="flex-1 overflow-y-auto scrollbar-thin overflow-x-hidden">
       <div className="p-8 space-y-8">
 
-        {/* -- Page header + KPI chips -- */}
-        <div className="flex flex-col lg:flex-row gap-6 justify-between items-start lg:items-end">
-          <div>
-            <h1 className="text-[48px] leading-none font-bold text-[var(--text)] tracking-tight">Instrument Integrity Overview</h1>
-            <p className="mt-3 text-[14px] text-[var(--text-muted)]">
-              Real-time aggregate trust state across all active facilities.
-            </p>
-          </div>
+        {/* -- KPI chips -- */}
+        <div className="flex justify-end items-start">
           <div className="flex gap-4">
             {/* Instrument integrity score */}
             <div className="industrial-card p-4 w-40">
@@ -248,6 +245,7 @@ export default function FleetOverview() {
           </div>
         </div>
 
+      </div>
       </div>
     </div>
   );

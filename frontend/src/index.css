@@ -47,6 +47,15 @@
   /* Mono data */
   --data-mono:     #bcc8d1;
 
+  /* ABB HMI alarm priority — used in PriorityBand (stronger than fill tokens) */
+  --alarm-p1:     #d32f2f;          /* P1 critical / red */
+  --alarm-p2:     #f9a825;          /* P2 warning  / yellow */
+  --alarm-p3:     #e65100;          /* P3 low      / orange */
+  /* Decision-freeze / blocked-decision (distinct from alarms) */
+  --frozen:       rgb(150, 100, 236);
+  /* Live-value cell surface (ABB dark-bg rule: live values on lighter bg) */
+  --surface-value: #1c2230;
+
   /* Legacy aliases kept for backward compat with existing components */
   --surface-base:       #0b0e11;
   --surface-background: #111417;
@@ -431,6 +440,36 @@ button:disabled { cursor: not-allowed; }
   justify-content: center;
   gap: 8px;
   flex-shrink: 0;
+}
+
+/* -- HMI Priority Band (ABB alarm safe area — persistent, no overlap) ------- */
+.hmi-priority-band {
+  display: flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 16px;
+  gap: 8px;
+  flex-shrink: 0;
+  background: var(--bg-base);
+  border-bottom: 2px solid var(--border);
+}
+
+/* -- HMI value cell (ABB: live values on a lighter surface) ------------------ */
+.hmi-value-cell {
+  background: var(--surface-value);
+  border: 1px solid var(--border-subtle);
+  border-radius: 2px;
+  padding: 3px 8px;
+  font-family: Geist, ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* -- HMI status glyph (redundant coding: color + shape/letter) -------------- */
+.hmi-status-glyph {
+  font-size: 12px;
+  line-height: 1;
+  flex-shrink: 0;
+  font-family: Geist, ui-monospace, monospace;
 }
 
 /* -- Background grid (subtle) --------------------------------------------- */

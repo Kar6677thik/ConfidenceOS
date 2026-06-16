@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import useStore from '../store';
+import PageIdentity from './hmi/PageIdentity';
+import StatusTag from './hmi/StatusTag';
 
 const STAGE_LABELS = {
   import: 'Import',
@@ -32,6 +34,13 @@ function statusPip(value) {
   if (['WARNING', 'PASS_WITH_WARNINGS', 'WARNINGS'].includes(status)) return 'pip-warning';
   if (['FAILED', 'BLOCKING', 'BLOCKED', 'NOT_READY', 'CRITICAL'].includes(status)) return 'pip-critical';
   return '';
+}
+
+function stageStatusToTier(status) {
+  const s = String(status || '').toUpperCase();
+  if (['FAILED', 'BLOCKING', 'BLOCKED', 'NOT_READY', 'CRITICAL'].includes(s)) return 'CRITICAL';
+  if (['WARNING', 'PASS_WITH_WARNINGS', 'WARNINGS'].includes(s)) return 'MEDIUM';
+  return 'HIGH';
 }
 
 function asList(value) {
@@ -85,11 +94,8 @@ function CompilerPipeline({ build }) {
       <div className="grid grid-cols-2 xl:grid-cols-6 gap-[1px] bg-[var(--border-strong)]">
         {stages.filter((stage) => stage.id !== 'runtime').map((stage) => (
           <div key={stage.id} className="bg-[var(--surface-panel)] p-3 min-h-[96px]">
-            <div className="flex items-center justify-between gap-2">
-              <span className={`status-pip ${statusPip(stage.status)}`} />
-              <span className={`caption-mono ${statusClass(stage.status)}`}>{stage.status}</span>
-            </div>
-            <p className="label-caps text-[var(--text-muted)] mt-4">Stage</p>
+            <StatusTag tier={stageStatusToTier(stage.status)} label={stage.status || 'NOT RUN'} />
+            <p className="label-caps text-[var(--text-muted)] mt-3">Stage</p>
             <p className="caption-mono text-[var(--text)] mt-1">{stage.label || STAGE_LABELS[stage.id] || formatText(stage.id)}</p>
           </div>
         ))}
@@ -1007,7 +1013,15 @@ export default function StudioWorkspace() {
         </Panel>
       </aside>
 
-      <main className="bg-[var(--surface-base)] p-[1px] overflow-y-auto overflow-x-hidden scrollbar-thin">
+      <main className="bg-[var(--surface-base)] flex flex-col overflow-hidden">
+        <PageIdentity
+          displayName={overview?.selected_asset_model
+            ? overview.selected_asset_model.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+            : 'Studio'}
+          level={2}
+          area="Engineering Configuration Workspace"
+        />
+        <div className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin p-[1px]">
         <CompilerPipeline build={build} />
         <MappingCourt
           item={selectedItem}
@@ -1036,6 +1050,7 @@ export default function StudioWorkspace() {
         <TemplateTestSuite tests={tests} />
         <PublishDiff diff={build?.publish_diff || overview?.diff?.compiler_publish_diff} />
         <RuntimePreview manifest={runtimeManifest} />
+        </div>
       </main>
 
       <aside className="bg-[var(--surface-panel)] overflow-y-auto overflow-x-hidden scrollbar-thin">

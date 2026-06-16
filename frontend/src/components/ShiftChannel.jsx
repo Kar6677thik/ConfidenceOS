@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import useStore from '../store';
+import PageIdentity from './hmi/PageIdentity';
+import StatusTag from './hmi/StatusTag';
 
 function eventTime(timestamp) {
   if (!timestamp) return 'live';
@@ -52,21 +54,29 @@ export default function ShiftChannel() {
   return (
     <div className="industrial-page grid grid-cols-[420px_1fr] gap-[1px] bg-[var(--border-strong)] overflow-hidden">
       <aside className="bg-[var(--surface-panel)] overflow-y-auto overflow-x-hidden scrollbar-thin">
+        {/* 1. Unresolved trust debt — first priority in the console */}
         <section className="industrial-panel border-t-0">
           <div className="industrial-panel-header">
-            <div>
-              <p className="label-caps text-[var(--text-muted)]">Persistent Shift Channel</p>
-              <h1 className="industrial-panel-title text-base">{channel?.channel_id || plantId}</h1>
-            </div>
-            <span className="industrial-badge status-warning">{channel?.pinned?.length || 0} pinned</span>
+            <h2 className="industrial-panel-title text-base">Unresolved Trust Debt</h2>
+            <span className={`industrial-badge ${(channel?.pinned?.length || 0) > 0 ? 'status-warning' : 'text-[var(--text-dim)]'}`}>
+              {channel?.pinned?.length || 0} items
+            </span>
           </div>
-          <div className="industrial-body">
-            <p className="caption-mono text-[var(--text)]">{channel?.summary || 'Loading shift channel.'}</p>
-            <p className={`caption-mono mt-3 ${channel?.handover_acceptance_blocked ? 'status-critical' : 'status-safe'}`}>
-              Handover acceptance: {channel?.handover_acceptance || 'unblocked'}
-            </p>
+          <div className="industrial-body space-y-[1px] bg-[var(--border-strong)]">
+            {(channel?.pinned || []).map((item) => (
+              <div key={item.id} className="bg-[var(--surface-panel)] p-3">
+                <p className={`label-caps ${severityClass(item.severity)}`}>{item.type}</p>
+                <p className="caption-mono text-[var(--text)] mt-1">{item.title}</p>
+                {!!item.required_action && <p className="caption-mono text-[var(--data-mono)] mt-1">{item.required_action}</p>}
+              </div>
+            ))}
+            {(!channel?.pinned || channel.pinned.length === 0) && (
+              <p className="bg-[var(--surface-panel)] p-3 caption-mono text-[var(--data-mono)]">No unresolved handover debt pinned.</p>
+            )}
           </div>
         </section>
+
+        {/* 2. Active verification tasks — handover blockers */}
         <section className="industrial-panel border-t-0">
           <div className="industrial-panel-header">
             <h2 className="industrial-panel-title text-base">Active Verification Tasks</h2>
@@ -77,7 +87,7 @@ export default function ShiftChannel() {
               <div key={task.task_id || task.token_id} className="bg-[var(--surface-panel)] p-3">
                 <div className="flex items-center justify-between gap-3">
                   <p className="label-caps status-warning min-w-0 truncate" title={task.sensor_id}>{task.sensor_id}</p>
-                  <span className="industrial-badge status-warning">{task.state}</span>
+                  <StatusTag tier="LOW" label={task.state} />
                 </div>
                 <p className="caption-mono text-[var(--data-mono)] mt-1">{task.verification_method}</p>
                 <p className="caption-mono text-[var(--text)] mt-1">{(task.evidence_required || []).join(' / ')}</p>
@@ -94,17 +104,19 @@ export default function ShiftChannel() {
             )}
           </div>
         </section>
+
+        {/* 3. Closed history — de-emphasized (static layer) */}
         <section className="industrial-panel border-t-0">
           <div className="industrial-panel-header">
-            <h2 className="industrial-panel-title text-base">Recent Verification History</h2>
-            <span className="industrial-badge text-[var(--data-mono)]">{closedTasks.length}</span>
+            <h2 className="industrial-panel-title text-base text-[var(--text-muted)]">Verification History</h2>
+            <span className="industrial-badge text-[var(--text-dim)]">{closedTasks.length}</span>
           </div>
           <div className="industrial-body space-y-[1px] bg-[var(--border-strong)]">
             {closedTasks.slice(0, 5).map((task) => (
-              <div key={task.task_id || task.token_id} className="bg-[var(--surface-panel)] p-3">
+              <div key={task.task_id || task.token_id} className="bg-[var(--surface-panel)] p-3 opacity-70">
                 <div className="flex items-center justify-between gap-3">
                   <p className="label-caps text-[var(--data-mono)]">{task.sensor_id}</p>
-                  <span className={`industrial-badge ${task.state === 'ACCEPTED' ? 'status-safe' : 'status-warning'}`}>{task.state}</span>
+                  <StatusTag tier={task.state === 'ACCEPTED' ? 'HIGH' : 'MEDIUM'} label={task.state} />
                 </div>
                 <p className="caption-mono text-[var(--text-muted)] mt-1">
                   {task.accepted_by ? `accepted by ${task.accepted_by}` : task.rejected_by ? `rejected by ${task.rejected_by}` : task.closeout_status || 'closed'}
@@ -115,30 +127,32 @@ export default function ShiftChannel() {
               </div>
             ))}
             {!closedTasks.length && (
-              <p className="bg-[var(--surface-panel)] p-3 caption-mono text-[var(--data-mono)]">No closed verification tasks yet.</p>
-            )}
-          </div>
-        </section>
-        <section className="industrial-panel border-t-0">
-          <div className="industrial-panel-header">
-            <h2 className="industrial-panel-title text-base">Pinned Operating Debt</h2>
-          </div>
-          <div className="industrial-body space-y-[1px] bg-[var(--border-strong)]">
-            {(channel?.pinned || []).map((item) => (
-              <div key={item.id} className="bg-[var(--surface-panel)] p-3">
-                <p className={`label-caps ${severityClass(item.severity)}`}>{item.type}</p>
-                <p className="caption-mono text-[var(--text)] mt-1">{item.title}</p>
-                {!!item.required_action && <p className="caption-mono text-[var(--data-mono)] mt-1">{item.required_action}</p>}
-              </div>
-            ))}
-            {(!channel?.pinned || channel.pinned.length === 0) && (
-              <p className="bg-[var(--surface-panel)] p-3 caption-mono text-[var(--data-mono)]">No unresolved handover debt pinned.</p>
+              <p className="bg-[var(--surface-panel)] p-3 caption-mono text-[var(--text-dim)]">No closed verification tasks yet.</p>
             )}
           </div>
         </section>
       </aside>
 
-      <main className="bg-[var(--surface-base)] p-[1px] overflow-y-auto overflow-x-hidden scrollbar-thin">
+      <main className="bg-[var(--surface-base)] flex flex-col overflow-hidden">
+        <PageIdentity
+          displayName="Shift Channel"
+          level={2}
+          area="Handover & Operating Debt Console"
+          plant={channel?.channel_id || plantId}
+        />
+        <div className="px-5 py-2 flex items-center gap-3 border-b flex-shrink-0"
+          style={{ borderBottomColor: channel?.handover_acceptance_blocked ? 'var(--alarm-p1)' : 'var(--border)' }}>
+          <StatusTag
+            tier={channel?.handover_acceptance_blocked ? 'CRITICAL' : 'HIGH'}
+            label={`Handover ${channel?.handover_acceptance || 'unblocked'}`}
+          />
+          {channel?.handover_acceptance_blocked && (
+            <span className="caption-mono text-[var(--text-muted)]">
+              Clear active verification tasks to unblock handover
+            </span>
+          )}
+        </div>
+        <div className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin p-[1px]">
         <section className="industrial-panel mb-[1px]">
           <div className="industrial-panel-header">
             <div>
@@ -172,6 +186,7 @@ export default function ShiftChannel() {
             )}
           </div>
         </section>
+        </div>
       </main>
     </div>
   );

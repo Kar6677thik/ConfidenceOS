@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react';
 import useStore from '../store';
 import TrustDependencyGraph from '../components/TrustDependencyGraph';
 import { trustColor, chartColors } from '../lib/chartTheme';
+import PageIdentity from '../components/hmi/PageIdentity';
 
 // Sourced from the NAMUR design tokens (chartTheme), shared with every other view.
 const confidenceColor = (tier) => trustColor(tier);
@@ -89,18 +90,12 @@ export default function CausalGraph() {
 
       {/* -- Graph canvas -- */}
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
-        {/* Header */}
-        <div className="industrial-card-header px-5 py-3 border-b border-[var(--border)] bg-[var(--bg-surface)]">
-          <h1 className="text-[18px] font-semibold text-[var(--text)]">Causal Graph Explorer</h1>
-          <div className="flex items-center gap-3">
-            <span className="label-caps text-[var(--text-muted)]">{plantId?.toUpperCase()}</span>
-            {graph?.nodes && (
-              <span className="industrial-badge text-[var(--primary)] border-[var(--primary)]/40">
-                {graph.nodes.length} nodes / {graph.edges?.length || 0} edges
-              </span>
-            )}
+        <PageIdentity displayName="Causal Graph Explorer" level={3} area="Trust Propagation Topology" plant={plantId} />
+        {graph?.nodes && (
+          <div className="px-5 py-1.5 border-b border-[var(--border)] flex-shrink-0 flex items-center gap-2 bg-[var(--bg-surface)]">
+            <span className="caption-mono text-[var(--text-dim)]">{graph.nodes.length} nodes · {graph.edges?.length || 0} edges</span>
           </div>
-        </div>
+        )}
 
         {/* SVG viewport */}
         <div className="flex-1 overflow-hidden bg-[var(--bg-low)]">

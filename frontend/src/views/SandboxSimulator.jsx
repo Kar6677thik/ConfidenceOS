@@ -11,6 +11,8 @@ import { useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import useStore from '../store';
 import { chartColors, chartGrid, axisTick, axisLine, TRUST_COLOR } from '../lib/chartTheme';
+import PageIdentity from '../components/hmi/PageIdentity';
+import StatusTag from '../components/hmi/StatusTag';
 
 const SENSOR_IDS    = ['LT-5100', 'FI-2010', 'FO-2020', 'PT-3100', 'TT-4100', 'ZT-6100'];
 const FAILURE_MODES = [
@@ -88,9 +90,10 @@ export default function SandboxSimulator() {
 
       {/* -- Left controls sidebar -- */}
       <aside className="w-80 flex flex-col bg-[var(--bg-low)] border-r border-[var(--border)]">
-        <div className="industrial-card-header px-5 py-4 border-b border-[var(--border)]">
-          <h1 className="text-[18px] font-semibold text-[var(--text)]">Trust Degradation Sandbox</h1>
-          <span className="industrial-badge text-[var(--warning)] border-[var(--warning)]/60">Isolated</span>
+        <PageIdentity displayName="Trust Degradation Sandbox" level={3} area="Isolated Simulation Environment" />
+        <div className="flex items-center gap-2 px-5 py-1.5 border-b border-[var(--border)] flex-shrink-0">
+          <StatusTag tier="MEDIUM" label="Isolated" />
+          <span className="caption-mono text-[var(--text-dim)]">Live plant unaffected</span>
         </div>
 
         <div className="p-5 space-y-4 flex-1 overflow-y-auto scrollbar-thin">

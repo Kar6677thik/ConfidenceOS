@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import useStore from '../store';
 import GenerationReceipt, { ReceiptSummary } from './GenerationReceipt';
+import PriorityBand from './hmi/PriorityBand';
+import PageIdentity from './hmi/PageIdentity';
+import LiveValue from './hmi/LiveValue';
+import StatusTag from './hmi/StatusTag';
 
 function statusClass(value) {
   const status = String(value || '').toUpperCase();
@@ -98,6 +102,7 @@ function buildBasisLines(manifest) {
 }
 
 function DemoPathStrip() {
+  const [open, setOpen] = useState(false);
   const steps = [
     { label: 'Studio', desc: 'Import tags -> map -> build' },
     { label: 'Publish', desc: 'Compiler validates; guardrails pass' },
@@ -107,19 +112,28 @@ function DemoPathStrip() {
     { label: 'Shift Channel', desc: 'Handover debt carried forward' },
   ];
   return (
-    <section className="industrial-panel mb-[1px]">
-      <div className="industrial-body">
-        <p className="label-caps text-[var(--text-muted)] mb-2">Primary Demo Path - HMI Compiler for Trust-Aware Interfaces</p>
-        <div className="grid grid-cols-2 md:grid-cols-6 gap-[1px] bg-[var(--border-strong)] border border-[var(--border-strong)]">
-          {steps.map((step, index) => (
-            <div key={step.label} className={`p-3 min-h-[72px] ${step.active ? 'bg-[var(--surface-raised)]' : 'bg-[var(--surface-panel)]'}`}>
-              <p className="label-caps text-[var(--text-muted)]">Step {index + 1}</p>
-              <p className={`caption-mono mt-1 font-semibold ${step.active ? 'status-safe' : 'text-[var(--text)]'}`}>{step.label}</p>
-              <p className="label-caps text-[var(--text-muted)] mt-1">{step.desc}</p>
-            </div>
-          ))}
+    <section className="industrial-panel mt-[1px]">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="industrial-panel-header w-full text-left hover:bg-[var(--bg-elevated)] transition-colors"
+      >
+        <p className="label-caps text-[var(--text-muted)]">Primary Demo Path — HMI Compiler for Trust-Aware Interfaces</p>
+        <span className="caption-mono text-[var(--text-dim)]">{open ? '▲ collapse' : '▼ show'}</span>
+      </button>
+      {open && (
+        <div className="industrial-body">
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-[1px] bg-[var(--border-strong)] border border-[var(--border-strong)]">
+            {steps.map((step, index) => (
+              <div key={step.label} className={`p-3 min-h-[72px] ${step.active ? 'bg-[var(--bg-elevated)]' : 'bg-[var(--surface-panel)]'}`}>
+                <p className="label-caps text-[var(--text-muted)]">Step {index + 1}</p>
+                <p className={`caption-mono mt-1 font-semibold ${step.active ? 'status-safe' : 'text-[var(--text)]'}`}>{step.label}</p>
+                <p className="label-caps text-[var(--text-muted)] mt-1">{step.desc}</p>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
     </section>
   );
 }
@@ -370,7 +384,7 @@ function SituationWorkspace({ situations, basis, confidence }) {
     ['Do Not Trust', contract.do_not_use || basis?.do_not_trust, 'status-critical'],
     ['Trusted Substitute', contract.trusted_substitutes || basis?.trusted_substitutes, 'status-safe'],
     ['Operator Single Safe Move', contract.operator_single_safe_move || basis?.operator_single_safe_move || contract.first_safe_action || basis?.first_safe_action, 'status-safe'],
-    ['Decision Freeze', contract.blocked_decisions || basis?.decision_freeze, 'status-warning'],
+    ['Decision Freeze', contract.blocked_decisions || basis?.decision_freeze, 'text-[var(--frozen)]'],
     ['Exit Condition', contract.exit_conditions || basis?.exit_condition, 'text-[var(--data-mono)]'],
   ];
 
@@ -452,15 +466,11 @@ function GeneratedFaceplate({ faceplate, selected, onSelect }) {
             <div key={signal.tag} className="bg-[var(--surface-base)] p-3">
               <div className="flex items-center justify-between gap-2">
                 <p className="font-data text-[var(--text)] min-w-0 truncate" title={signal.tag}>{signal.tag}</p>
-                <div className="flex items-center gap-1 shrink-0">
-                  {/* Trust state is primary; percent score is secondary detail. */}
-                  <span className={`label-caps font-semibold ${statusClass(trust.tier)}`}>{trust.label}</span>
-                  {trust.detail && <span className="label-caps text-[var(--text-muted)]">({trust.detail})</span>}
-                </div>
+                <StatusTag tier={trust.tier} label={`${trust.label}${trust.detail ? ` ${trust.detail}` : ''}`} />
               </div>
-              <p className="caption-mono text-[var(--data-mono)] mt-1">
-                {reading.value ?? '--'} {reading.unit || signal.unit || ''}
-              </p>
+              <div className="mt-1">
+                <LiveValue value={reading.value} unit={reading.unit || signal.unit} />
+              </div>
               <p className="caption-mono text-[var(--text-muted)] mt-1">{formatText(signal.role || signal.sensor_type)}</p>
             </div>
           );
@@ -553,7 +563,7 @@ function PressureModeRuntime({ manifest, situations, confidence }) {
           <StressField label="Operator Single Safe Move" value={singleMove} status="status-safe" />
           <StressField label="Do Not Trust" value={contract.do_not_use || basis.do_not_trust} status="status-critical" />
           <StressField label="Trusted Substitute" value={contract.trusted_substitutes || basis.trusted_substitutes} status="status-safe" />
-          <StressField label="Decision Freeze" value={contract.blocked_decisions || basis.decision_freeze} status="status-warning" />
+          <StressField label="Decision Freeze" value={contract.blocked_decisions || basis.decision_freeze} status="text-[var(--frozen)]" />
           <StressField label="Exit Condition" value={contract.exit_conditions || basis.exit_condition} />
         </div>
 
@@ -1041,7 +1051,7 @@ function RoleWorkspace({ manifest, confidenceDebt, handoverDebt, verificationTas
           <ValueList values={sectionItems(sections, 'trusted_substitute').length ? sectionItems(sections, 'trusted_substitute') : basis.trusted_substitutes} status="status-safe" />
         </WorkspacePanel>
         <WorkspacePanel title="Decision Freeze">
-          <ValueList values={sectionItems(sections, 'decision_freeze').length ? sectionItems(sections, 'decision_freeze') : basis.decision_freeze} status="status-warning" />
+          <ValueList values={sectionItems(sections, 'decision_freeze').length ? sectionItems(sections, 'decision_freeze') : basis.decision_freeze} status="text-[var(--frozen)]" />
         </WorkspacePanel>
         <WorkspacePanel title="Exit Condition">
           <ValueList values={sectionItems(sections, 'exit_condition').length ? sectionItems(sections, 'exit_condition') : basis.exit_condition} />
@@ -1065,29 +1075,27 @@ function RoleWorkspace({ manifest, confidenceDebt, handoverDebt, verificationTas
   );
 }
 
-function RuntimeHeader({ manifest, role, plantContext, connected }) {
+function RuntimeHeader({ manifest, role, plantContext, connected, plantId }) {
   const worst = manifest?.worst_trust_exception || {};
   return (
-    <section className="industrial-panel mb-[1px]">
-      <div className="industrial-panel-header">
-        <div>
-          <p className="label-caps text-[var(--text-muted)]">Compiler Generated Runtime / {role}</p>
-          <h1 className="industrial-panel-title">Read-Only Trust-Aware HMI Layer Beside Existing DCS/HMI</h1>
-          <p className="caption-mono text-[var(--data-mono)] mt-2">
-            build {manifest.build_id} / {manifest.runtime_source === 'published_build' ? 'latest published build' : 'ad hoc unpublished preview'}
-          </p>
-          <p className="caption-mono text-[var(--text-muted)] mt-1">
-            Trust state is a governed deterministic rubric, not a probability of correctness.
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 justify-end">
-          <span className={`industrial-badge ${statusClass(worst.trust_state)}`}>{worst.label || formatText(worst.trust_state || 'Awaiting trust evidence')}</span>
-          <span className={`industrial-badge ${statusClass(plantContext?.severity || manifest.context)}`}>{formatText(manifest.context)}</span>
-          <span className={`industrial-badge ${statusClass(manifest.validation_status)}`}>{manifest.validation_status}</span>
-          <span className={`industrial-badge ${connected ? 'status-safe' : 'status-critical'}`}>{connected ? 'LIVE' : 'OFFLINE'}</span>
-        </div>
+    <div className="flex-shrink-0">
+      <PageIdentity
+        displayName={manifest.navigation?.name || 'Runtime Platform'}
+        level={2}
+        area={formatText(manifest.context || '')}
+        plant={plantId}
+      />
+      <div className="px-5 py-2 flex flex-wrap items-center gap-2 border-b border-[var(--border)] bg-[var(--bg-surface)]">
+        {worst.label && (
+          <span className={`industrial-badge ${statusClass(worst.trust_state)}`}>{worst.label}</span>
+        )}
+        <span className={`industrial-badge ${statusClass(manifest.validation_status)}`}>{manifest.validation_status}</span>
+        <span className="industrial-badge text-[var(--text-dim)]">build {String(manifest.build_id || '').slice(0, 8)}</span>
+        <span className="industrial-badge text-[var(--text-dim)]">
+          {manifest.runtime_source === 'published_build' ? 'published' : 'preview'} / {role}
+        </span>
       </div>
-    </section>
+    </div>
   );
 }
 
@@ -1166,7 +1174,9 @@ export default function RuntimePlatform() {
   }
 
   return (
-    <div className="industrial-page grid grid-cols-[340px_1fr_390px] gap-[1px] bg-[var(--border-strong)] overflow-hidden">
+    <div className="industrial-page flex flex-col overflow-hidden">
+      <PriorityBand />
+      <div className="flex-1 min-h-0 grid grid-cols-[340px_1fr_390px] gap-[1px] bg-[var(--border-strong)] overflow-hidden">
       <TrustMapNavigation
         navigation={manifest.navigation}
         faceplates={faceplates}
@@ -1174,12 +1184,12 @@ export default function RuntimePlatform() {
         onSelect={setSelected}
         trustMap={trustMap}
       />
-      <main className="bg-[var(--surface-base)] p-[1px] overflow-y-auto overflow-x-hidden scrollbar-thin">
-        <RuntimeHeader manifest={manifest} role={role} plantContext={plantContext} connected={connected} />
-        <DemoPathStrip />
+      <main className="bg-[var(--surface-base)] flex flex-col overflow-hidden">
+        <RuntimeHeader manifest={manifest} role={role} plantContext={plantContext} connected={connected} plantId={plantId} />
+        <div className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin p-[1px]">
+        <SituationWorkspace situations={situations} basis={manifest.operating_basis} confidence={confidence} />
         <OperatingBasisLedger basisLines={basisLines} />
         <ProcessTrustMimic mimic={manifest.process_mimic} />
-        <SituationWorkspace situations={situations} basis={manifest.operating_basis} confidence={confidence} />
         <TrustRubricPanel receipts={manifest.trust_rubric_receipts} selectedFaceplate={selectedFaceplate} />
         <section className="industrial-panel">
           <div className="industrial-panel-header">
@@ -1200,6 +1210,8 @@ export default function RuntimePlatform() {
             ))}
           </div>
         </section>
+        <DemoPathStrip />
+        </div>
       </main>
       <aside className="bg-[var(--surface-panel)] overflow-y-auto overflow-x-hidden scrollbar-thin">
         <section className="industrial-panel border-t-0">
@@ -1235,6 +1247,7 @@ export default function RuntimePlatform() {
         </section>
         <ScreenReceipts manifest={manifest} selectedFaceplate={selectedFaceplate} />
       </aside>
+      </div>
     </div>
   );
 }
