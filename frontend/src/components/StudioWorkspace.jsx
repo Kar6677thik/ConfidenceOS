@@ -28,14 +28,6 @@ function statusClass(value) {
   return 'text-[var(--data-mono)]';
 }
 
-function statusPip(value) {
-  const status = String(value || '').toUpperCase();
-  if (['PASS', 'READY', 'PUBLISHED', 'VALID', 'APPROVED', 'IGNORED'].includes(status)) return 'pip-ok';
-  if (['WARNING', 'PASS_WITH_WARNINGS', 'WARNINGS'].includes(status)) return 'pip-warning';
-  if (['FAILED', 'BLOCKING', 'BLOCKED', 'NOT_READY', 'CRITICAL'].includes(status)) return 'pip-critical';
-  return '';
-}
-
 function stageStatusToTier(status) {
   const s = String(status || '').toUpperCase();
   if (['FAILED', 'BLOCKING', 'BLOCKED', 'NOT_READY', 'CRITICAL'].includes(s)) return 'CRITICAL';
@@ -389,7 +381,7 @@ function PasteImportPanel({ busy, onImportResult }) {
           disabled={busy || importing || !tagText.trim()}
           className="industrial-control status-safe disabled:opacity-40"
         >
-          {importing ? 'Parsing...' : 'Parse with AI'}
+          {importing ? 'Parsing...' : 'Parse Tags'}
         </button>
         <button
           onClick={() => { setTagText(''); setResult(null); }}
@@ -945,7 +937,26 @@ export default function StudioWorkspace() {
   });
 
   return (
-    <div className="industrial-page grid grid-cols-[380px_1fr_430px] gap-[1px] bg-[var(--border-strong)] overflow-hidden">
+    <div className="industrial-page grid grid-rows-[48px_minmax(0,1fr)] bg-[var(--border-strong)] gap-[1px] overflow-hidden">
+      <div className="hmi-alarm-band">
+        <div className={`hmi-band-cell ${build?.can_publish ? '' : 'hmi-band-warning'}`}>
+          <span className={`hmi-status-symbol ${build?.can_publish ? 'normal' : 'p2'}`}>{build?.can_publish ? 'N' : '2'}</span>
+          <div className="min-w-0">
+            <p className="label-caps text-[var(--text-muted)]">HMI Compiler</p>
+            <p className="caption-mono font-semibold truncate">Raw Tags {'->'} Asset Graph {'->'} Template Binding {'->'} Runtime</p>
+          </div>
+        </div>
+        <div className="hmi-band-cell">
+          <span className={`caption-mono font-semibold ${statusClass(build?.status || 'NOT_RUN')}`}>{build?.status || 'NOT_RUN'}</span>
+          <span className="caption-mono text-[var(--text-muted)]">publish gate: {build?.can_publish ? 'ready' : 'blocked until validation clears'}</span>
+          <span className="caption-mono text-[var(--text-dim)]">{build?.build_id || 'no build run yet'}</span>
+        </div>
+        <div className="hmi-band-cell justify-end">
+          <span className="caption-mono">{role}</span>
+          <span className="caption-mono">read-only trust-aware HMI compiler</span>
+        </div>
+      </div>
+      <div className="grid grid-cols-[320px_1fr_390px] gap-[1px] bg-[var(--border-strong)] overflow-hidden min-h-0">
       <aside className="bg-[var(--surface-panel)] overflow-y-auto overflow-x-hidden scrollbar-thin">
         <Panel
           eyebrow="ConfidenceOS Studio"
@@ -986,7 +997,7 @@ export default function StudioWorkspace() {
                 />
               </div>
             </div>
-            <button onClick={runAutoMap} disabled={busy} className="industrial-control w-full disabled:opacity-40" style={{borderColor: 'var(--status-safe)', color: 'var(--status-safe)'}}>AI Map Tags</button>
+            <button onClick={runAutoMap} disabled={busy} className="industrial-control w-full disabled:opacity-40" style={{borderColor: 'var(--safe)', color: 'var(--safe-text)'}}>Run Deterministic Mapping</button>
             <button onClick={runBuild} disabled={busy} className="industrial-control status-safe w-full disabled:opacity-40">Run Build</button>
             <button onClick={generatePreview} disabled={busy} className="industrial-control text-[var(--text)] w-full disabled:opacity-40">Generate Preview</button>
             <button onClick={publish} disabled={busy || !build?.can_publish} className="industrial-control status-warning w-full disabled:opacity-40">Publish Latest Build</button>
@@ -1058,6 +1069,7 @@ export default function StudioWorkspace() {
         <PublishGuardrails build={build} onPublish={publish} busy={busy} result={publishResult} />
         <ScreenReceipts manifest={runtimeManifest} />
       </aside>
+      </div>
     </div>
   );
 }

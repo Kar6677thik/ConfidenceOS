@@ -52,7 +52,31 @@ export default function ShiftChannel() {
   };
 
   return (
-    <div className="industrial-page grid grid-cols-[420px_1fr] gap-[1px] bg-[var(--border-strong)] overflow-hidden">
+    <div className="industrial-page grid grid-rows-[48px_minmax(0,1fr)] bg-[var(--border-strong)] gap-[1px] overflow-hidden">
+      <div className="hmi-alarm-band">
+        <div className={`hmi-band-cell ${channel?.handover_acceptance_blocked ? 'hmi-band-critical' : ''}`}>
+          <span className={`hmi-status-symbol ${channel?.handover_acceptance_blocked ? 'p1' : 'normal'}`}>
+            {channel?.handover_acceptance_blocked ? '1' : 'N'}
+          </span>
+          <div className="min-w-0">
+            <p className="label-caps text-[var(--text-muted)]">Pinned Handover Debt</p>
+            <p className="caption-mono font-semibold truncate">
+              {(channel?.pinned?.length || 0) > 0 ? `${channel.pinned.length} unresolved item(s)` : 'No unresolved handover debt pinned'}
+            </p>
+          </div>
+        </div>
+        <div className="hmi-band-cell">
+          <span className={`caption-mono ${channel?.handover_acceptance_blocked ? 'status-critical' : 'status-safe'}`}>
+            Handover {channel?.handover_acceptance || 'unblocked'}
+          </span>
+          <span className="caption-mono text-[var(--text-muted)]">active verification tasks: {activeTasks.length}</span>
+        </div>
+        <div className="hmi-band-cell justify-end">
+          <span className="caption-mono">{channel?.channel_id || plantId}</span>
+          <span className="caption-mono">shift continuity console</span>
+        </div>
+      </div>
+      <div className="grid grid-cols-[360px_1fr] gap-[1px] bg-[var(--border-strong)] overflow-hidden min-h-0">
       <aside className="bg-[var(--surface-panel)] overflow-y-auto overflow-x-hidden scrollbar-thin">
         {/* 1. Unresolved trust debt — first priority in the console */}
         <section className="industrial-panel border-t-0">
@@ -188,6 +212,7 @@ export default function ShiftChannel() {
         </section>
         </div>
       </main>
+      </div>
     </div>
   );
 }

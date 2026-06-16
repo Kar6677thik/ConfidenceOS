@@ -1,19 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import useStore from '../store';
-import GenerationReceipt, { ReceiptSummary } from './GenerationReceipt';
 import PriorityBand from './hmi/PriorityBand';
-import PageIdentity from './hmi/PageIdentity';
-import LiveValue from './hmi/LiveValue';
-import StatusTag from './hmi/StatusTag';
-
-function statusClass(value) {
-  const status = String(value || '').toUpperCase();
-  if (status === 'CRITICAL' || status === 'BLOCKING' || status === 'LOW' || status === 'QUARANTINED' || status === 'UNAVAILABLE') return 'status-critical';
-  if (status === 'WARNING' || status === 'PASS_WITH_WARNINGS') return 'status-warning';
-  if (status === 'MEDIUM' || status === 'CAUTION' || status === 'DEGRADED') return 'status-caution';
-  if (status === 'SUBSTITUTED') return 'status-safe';
-  return 'status-safe';
-}
 
 function formatText(value) {
   return String(value || '')
@@ -27,6 +15,22 @@ function asList(value) {
   return [value];
 }
 
+function statusClass(value) {
+  const status = String(value || '').toUpperCase();
+  if (['CRITICAL', 'BLOCKING', 'LOW', 'QUARANTINED', 'UNAVAILABLE', 'FAILED'].includes(status)) return 'status-critical';
+  if (['WARNING', 'PASS_WITH_WARNINGS', 'DEGRADED', 'MEDIUM'].includes(status)) return 'status-warning';
+  if (['SUBSTITUTED', 'TRUSTED', 'HIGH', 'PASS', 'PUBLISHED'].includes(status)) return 'status-safe';
+  return 'text-[var(--text-muted)]';
+}
+
+function priorityTier(value) {
+  const status = String(value || '').toUpperCase();
+  if (['CRITICAL', 'LOW', 'QUARANTINED', 'UNAVAILABLE', 'BLOCKING'].includes(status)) return 'p1';
+  if (['WARNING', 'MEDIUM', 'DEGRADED'].includes(status)) return 'p2';
+  if (status === 'SUBSTITUTED') return 'p3';
+  return 'normal';
+}
+
 function confidenceValue(confidence) {
   const pct = confidence?.confidence_pct ?? confidence?.score ?? confidence?.value;
   return Number.isFinite(Number(pct)) ? Math.round(Number(pct)) : null;
@@ -34,23 +38,42 @@ function confidenceValue(confidence) {
 
 function signalTrustState(signal) {
   const confidence = signal?.confidence || {};
-  const tier = signal?.trust_state || confidence.trust_state || confidence.tier || confidence.state || 'HIGH';
+  const tier = signal?.trust_state || confidence.trust_state || confidence.tier || confidence.state || 'TRUSTED';
   const pct = confidenceValue(confidence);
-  // Trust STATE is the primary label; % score is secondary detail (demoted)
+  return { tier: String(tier).toUpperCase(), pct };
+}
+
+function liveSignal(faceplateSignal, readings, confidence) {
+  const tag = faceplateSignal?.tag || faceplateSignal?.sensor_id || faceplateSignal?.id;
+  const reading = (readings || []).find((item) => item.sensor_id === tag || item.tag === tag) || {};
+  const conf = (confidence || []).find((item) => item.sensor_id === tag || item.tag === tag) || faceplateSignal?.confidence || {};
   return {
-    tier,
-    pct,
-    label: formatText(tier),
-    detail: pct == null ? null : `${pct}%`,
+    ...faceplateSignal,
+    tag,
+    value: reading.value ?? faceplateSignal?.value ?? '--',
+    unit: reading.unit || faceplateSignal?.unit || '',
+    confidence: conf,
+    trust_state: faceplateSignal?.trust_state || conf.trust_state || conf.tier || 'TRUSTED',
   };
+}
+
+function findSignal(faceplates, roles = []) {
+  const wanted = new Set(roles.map((role) => String(role).toLowerCase()));
+  for (const faceplate of faceplates || []) {
+    for (const signal of faceplate.signals || []) {
+      const role = String(signal.role || signal.sensor_type || signal.signal_role || '').toLowerCase();
+      if (wanted.has(role)) return { faceplate, signal };
+    }
+  }
+  return null;
 }
 
 function buildBasisLines(manifest) {
   const basis = manifest?.operating_basis || {};
   const evidence = asList(basis.evidence);
-  const lines = [
+  return [
     {
-      statement: basis.abnormal_situation || 'Normal operation.',
+      statement: basis.abnormal_situation || 'Normal operation. No abnormal operating basis active.',
       owner_role: 'Operator',
       evidence,
       status: basis.abnormal_situation && basis.abnormal_situation !== 'Normal operation' ? 'active' : 'normal',
@@ -70,641 +93,314 @@ function buildBasisLines(manifest) {
       status: 'active',
       expires_when: 'primary indication is verified',
     })),
-    ...asList(basis.first_safe_action).map((item) => ({
-      statement: formatText(item),
-      owner_role: 'Operator',
-      evidence,
-      status: 'active',
-      expires_when: 'first safe action completed',
-    })),
-    ...asList(basis.decision_freeze).map((item) => ({
-      statement: `${formatText(item)} is under decision freeze.`,
-      owner_role: 'Operator',
-      evidence,
-      status: 'active',
-      expires_when: 'exit condition is satisfied',
-    })),
-    ...asList(basis.exit_condition).map((item) => ({
-      statement: `Exit condition: ${formatText(item)}.`,
-      owner_role: 'Operator',
-      evidence,
-      status: 'active',
-      expires_when: item,
-    })),
   ];
-  return lines.length ? lines : [{
-    statement: 'No abnormal operating basis is active.',
-    owner_role: 'Operator',
-    evidence: [],
-    status: 'normal',
-    expires_when: 'new mode or advisory state appears',
-  }];
 }
 
-function DemoPathStrip() {
-  const [open, setOpen] = useState(false);
-  const steps = [
-    { label: 'Studio', desc: 'Import tags -> map -> build' },
-    { label: 'Publish', desc: 'Compiler validates; guardrails pass' },
-    { label: 'Runtime', desc: 'Trust map + operating basis', active: true },
-    { label: 'Abnormal Situation', desc: 'Alarm collapse -> single safe move' },
-    { label: 'Role Switch', desc: 'Operator / Maintenance / Engineer / Manager' },
-    { label: 'Shift Channel', desc: 'Handover debt carried forward' },
-  ];
-  return (
-    <section className="industrial-panel mt-[1px]">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="industrial-panel-header w-full text-left hover:bg-[var(--bg-elevated)] transition-colors"
-      >
-        <p className="label-caps text-[var(--text-muted)]">Primary Demo Path — HMI Compiler for Trust-Aware Interfaces</p>
-        <span className="caption-mono text-[var(--text-dim)]">{open ? '▲ collapse' : '▼ show'}</span>
-      </button>
-      {open && (
-        <div className="industrial-body">
-          <div className="grid grid-cols-2 md:grid-cols-6 gap-[1px] bg-[var(--border-strong)] border border-[var(--border-strong)]">
-            {steps.map((step, index) => (
-              <div key={step.label} className={`p-3 min-h-[72px] ${step.active ? 'bg-[var(--bg-elevated)]' : 'bg-[var(--surface-panel)]'}`}>
-                <p className="label-caps text-[var(--text-muted)]">Step {index + 1}</p>
-                <p className={`caption-mono mt-1 font-semibold ${step.active ? 'status-safe' : 'text-[var(--text)]'}`}>{step.label}</p>
-                <p className="label-caps text-[var(--text-muted)] mt-1">{step.desc}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </section>
-  );
-}
-
-function computeTrustMap(manifest, storeState) {
-  const faceplates = manifest?.faceplates || [];
-  const allSignals = faceplates.flatMap((faceplate) => faceplate.signals || []);
-  const activeSituations = manifest?.situations?.length ? manifest.situations : storeState.incidents || [];
-  const affectedSensors = new Set(activeSituations.flatMap((item) => asList(item.affected_sensors)));
-  const lowTrustSignals = allSignals.filter((signal) => {
-    const trust = signalTrustState(signal);
-    return affectedSensors.has(signal.tag) || ['LOW', 'CRITICAL', 'MEDIUM'].includes(String(trust.tier).toUpperCase());
-  });
-  const frozenDecisions = new Set([
-    ...asList(manifest?.operating_basis?.decision_freeze),
-    ...activeSituations.flatMap((item) => asList(item.blocked_decisions)),
-  ]);
-  const handoverEntries = storeState.handoverDebt?.entries || [];
-  const healthySignals = allSignals.filter((signal) => !lowTrustSignals.some((item) => item.tag === signal.tag));
+function decisionScore(situation, confidence) {
+  const affected = asList(situation?.affected_sensors);
+  const score = situation?.decision_time_score || situation?.interaction_compression_estimate || {};
+  const rawSignalCount = score.raw_signal_count || affected.length || 1;
+  const blockedDecisionCount = score.blocked_decision_count || asList(situation?.action_contract?.blocked_decisions || situation?.blocked_decisions).length;
+  const requiredActionCount = score.required_operator_action_count || asList(situation?.action_contract?.first_safe_action || situation?.first_action).length || 1;
+  const collapsedSituationCount = score.collapsed_situation_count || (situation?.title ? 1 : 0);
+  const evidenceCount = asList(situation?.evidence_refs || situation?.evidence).length;
+  const traditional = score.traditional_steps || Math.max(1, rawSignalCount + blockedDecisionCount + evidenceCount);
+  const confidenceos = score.confidenceos_steps || Math.max(1, collapsedSituationCount + requiredActionCount);
+  const affectedScores = (confidence || [])
+    .filter((item) => affected.includes(item.sensor_id))
+    .map((item) => Number(item.confidence_pct))
+    .filter(Number.isFinite);
   return {
-    activeSituations,
-    lowTrustSignals,
-    frozenDecisions: [...frozenDecisions].filter(Boolean),
-    unresolvedDebt: handoverEntries.filter((item) => item.handover_required !== false),
-    hiddenHealthyAssets: Math.max(0, healthySignals.length - 3),
+    metric_label: 'Interaction Compression Estimate',
+    score: score.score || (affectedScores.length ? Math.round(affectedScores.reduce((sum, item) => sum + item, 0) / affectedScores.length) : 72),
+    raw_signal_count: rawSignalCount,
+    suppressed_alarm_count: score.suppressed_alarm_count ?? Math.max(0, rawSignalCount - collapsedSituationCount),
+    collapsed_situation_count: collapsedSituationCount,
+    blocked_decision_count: blockedDecisionCount,
+    required_operator_action_count: requiredActionCount,
+    traditional_steps: traditional,
+    confidenceos_steps: confidenceos,
+    decision_compression: score.decision_compression || `${traditional} -> ${confidenceos}`,
   };
 }
 
-function TrustMapNavigation({ navigation, faceplates, selected, onSelect, trustMap }) {
-  const areas = navigation?.areas || [];
-  const faceplateById = Object.fromEntries((faceplates || []).map((item) => [item.equipment_id, item]));
+function TrustStatusSymbol({ state }) {
+  const tier = priorityTier(state);
+  const label = tier === 'p1' ? '1' : tier === 'p2' ? '2' : tier === 'p3' ? '3' : 'N';
+  return <span className={`hmi-status-symbol ${tier}`} title={formatText(state)}>{label}</span>;
+}
+
+function HmiLiveValue({ signal }) {
+  const trust = signalTrustState(signal);
+  return (
+    <span className="hmi-live-value" title={`${signal.tag} ${formatText(trust.tier)}`}>
+      <span>{signal.value}</span>
+      {signal.unit && <span className="text-[11px] font-normal">{signal.unit}</span>}
+    </span>
+  );
+}
+
+function HmiAlarmBand({ manifest, role, connected, plantId, plantContext, situation }) {
+  const basis = manifest?.operating_basis || {};
+  const lead = situation || {};
+  const trust = manifest?.worst_trust_exception || {};
+  const isCritical = ['CRITICAL', 'QUARANTINED', 'LOW'].includes(String(trust.trust_state || lead.severity || '').toUpperCase());
 
   return (
-    <aside className="bg-[var(--surface-panel)] border-r border-[var(--border-strong)] overflow-y-auto overflow-x-hidden scrollbar-thin">
-      <div className="industrial-panel-header">
-        <div>
-          <p className="label-caps text-[var(--text-muted)]">Trust Map Navigation</p>
-          <h2 className="industrial-panel-title text-base">{navigation?.name || 'Plant'}</h2>
+    <div className="hmi-alarm-band">
+      <div className={`hmi-band-cell ${isCritical ? 'hmi-band-critical' : 'hmi-band-warning'}`}>
+        <TrustStatusSymbol state={trust.trust_state || lead.severity || manifest?.context} />
+        <div className="min-w-0">
+          <p className="label-caps text-[var(--text-muted)]">Abnormal Situation</p>
+          <p className="caption-mono font-semibold truncate" title={lead.title || basis.abnormal_situation || 'Normal operation'}>
+            {lead.title || basis.abnormal_situation || 'Normal operation'}
+          </p>
         </div>
       </div>
-      <div className="industrial-body space-y-3">
-        <div className="grid grid-cols-2 gap-[1px] bg-[var(--border-strong)] border border-[var(--border-strong)]">
-          <div className="bg-[var(--surface-base)] p-3">
-            <p className="label-caps status-warning">Trust Hotspots</p>
-            <p className="text-2xl font-bold text-[var(--text)] mt-1">{trustMap.lowTrustSignals.length}</p>
-          </div>
-          <div className="bg-[var(--surface-base)] p-3">
-            <p className="label-caps status-warning">Frozen Decisions</p>
-            <p className="text-2xl font-bold text-[var(--text)] mt-1">{trustMap.frozenDecisions.length}</p>
-          </div>
-          <div className="bg-[var(--surface-base)] p-3">
-            <p className="label-caps text-[var(--text-muted)]">Unresolved Debt</p>
-            <p className="text-2xl font-bold text-[var(--text)] mt-1">{trustMap.unresolvedDebt.length}</p>
-          </div>
-          <div className="bg-[var(--surface-base)] p-3">
-            <p className="label-caps text-[var(--text-muted)]">Healthy Hidden</p>
-            <p className="text-2xl font-bold text-[var(--text)] mt-1">{trustMap.hiddenHealthyAssets}</p>
-          </div>
-        </div>
+      <div className="hmi-band-cell">
+        <span className="label-caps">Runtime</span>
+        <span className="caption-mono text-[var(--text-muted)] truncate">
+          {manifest?.navigation?.name || plantId} / {formatText(manifest?.context || plantContext?.status || 'live')}
+        </span>
+        <span className={`caption-mono ${statusClass(manifest?.validation_status)}`}>{manifest?.validation_status || 'LIVE'}</span>
+        <span className="caption-mono text-[var(--text-dim)]">build {String(manifest?.build_id || 'unpublished').slice(0, 14)}</span>
+      </div>
+      <div className="hmi-band-cell justify-end">
+        <span className="caption-mono">{role}</span>
+        <span className={connected ? 'caption-mono status-safe' : 'caption-mono status-critical'}>
+          {connected ? 'LIVE READ-ONLY' : 'OFFLINE'}
+        </span>
+      </div>
+    </div>
+  );
+}
 
-        {areas.map((area) => (
-          <div key={area.id} className="border border-[var(--border-strong)] bg-[var(--surface-base)]">
-            <div className="p-3">
-              <p className="label-caps text-[var(--text-muted)]">Area</p>
-              <p className="caption-mono text-[var(--text)] mt-1">{area.name}</p>
-            </div>
-            {(area.units || []).map((unit) => (
-              <div key={unit.id} className="border-t border-[var(--border-strong)]">
-                <div className="p-3 pl-5">
-                  <p className="label-caps text-[var(--text-muted)]">Unit</p>
-                  <p className="caption-mono text-[var(--data-mono)] mt-1">{unit.name}</p>
-                </div>
-                {(unit.modules || []).map((module) => (
-                  <div key={module.id} className="border-t border-[var(--border-strong)] p-3 pl-7">
-                    <p className="label-caps text-[var(--text-muted)]">Module</p>
-                    <p className="caption-mono text-[var(--text)] mt-1">{module.name}</p>
-                    <div className="mt-3 space-y-2">
-                      {(module.equipment || []).map((equipmentId) => {
-                        const faceplate = faceplateById[equipmentId];
-                        const signals = faceplate?.signals || [];
-                        const hotspotCount = signals.filter((signal) => trustMap.lowTrustSignals.some((item) => item.tag === signal.tag)).length;
-                        return (
-                          <button
-                            key={equipmentId}
-                            onClick={() => onSelect(equipmentId)}
-                            className={`w-full text-left border p-3 ${selected === equipmentId ? 'border-[var(--safe)] bg-[var(--surface-elevated)]' : 'border-[var(--border-strong)] bg-[var(--surface-panel)]'}`}
-                          >
-                            <div className="flex items-center justify-between gap-2">
-                              <span className="caption-mono text-[var(--text)] min-w-0 truncate" title={equipmentId}>{equipmentId}</span>
-                              <span className={`industrial-badge ${hotspotCount ? 'status-warning' : 'status-safe'}`}>
-                                {hotspotCount ? `${hotspotCount} hotspot` : 'normal'}
-                              </span>
-                            </div>
-                            <div className="mt-2 flex flex-wrap gap-2 min-w-0">
-                              {signals.slice(0, 4).map((signal) => {
-                                const trust = signalTrustState(signal);
-                                return (
-                                  <span key={signal.tag} className={`industrial-badge ${statusClass(trust.tier)} max-w-full truncate`} title={signal.tag}>
-                                    {signal.tag}
-                                  </span>
-                                );
-                              })}
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ))}
-          </div>
-        ))}
-      </div>
+function TrustMapEdgeNav({ navigation, faceplates, selectedId, onSelect, situations, handoverDebt }) {
+  return (
+    <aside className="hmi-edge-nav" aria-label="Trust map navigation">
+      <button className="hmi-edge-button active" title={navigation?.name || 'Plant'}>Plant</button>
+      {(faceplates || []).map((faceplate) => {
+        const hotspot = (faceplate.signals || []).some((signal) => ['LOW', 'CRITICAL', 'QUARANTINED', 'DEGRADED'].includes(signalTrustState(signal).tier));
+        return (
+          <button
+            key={faceplate.equipment_id}
+            type="button"
+            onClick={() => onSelect(faceplate.equipment_id)}
+            className={`hmi-edge-button ${selectedId === faceplate.equipment_id ? 'active' : ''}`}
+            title={faceplate.title || faceplate.equipment_id}
+          >
+            <span className={hotspot ? 'status-warning' : ''}>{faceplate.equipment_id}</span>
+          </button>
+        );
+      })}
+      <button className="hmi-edge-button" title={`${situations.length} collapsed situations`}>{situations.length} Sit.</button>
+      <button className="hmi-edge-button" title={`${handoverDebt?.count || 0} unresolved handover debt items`}>{handoverDebt?.count || 0} Debt</button>
     </aside>
   );
 }
 
-function ProcessTrustMimic({ mimic }) {
-  if (!mimic) return null;
-  const validated = mimic.validated_signal || {};
-  const substitutes = asList(mimic.substitute_signals);
-  const equipment = asList(mimic.equipment);
-  return (
-    <section className="industrial-panel mb-[1px]">
-      <div className="industrial-panel-header">
-        <div>
-          <p className="label-caps text-[var(--text-muted)]">Generated Process Trust Mimic</p>
-          <h2 className="industrial-panel-title text-base">{mimic.relationship_label || 'Asset-model validation relationship'}</h2>
-        </div>
-        <span className="industrial-badge text-[var(--data-mono)]">{mimic.asset_model_id || 'asset model'}</span>
-      </div>
-      <div className="industrial-body">
-        <div className="grid grid-cols-1 xl:grid-cols-[1fr_1.4fr_1fr] gap-[1px] bg-[var(--border-strong)] border border-[var(--border-strong)]">
-          <div className="bg-[var(--surface-panel)] p-4">
-            <p className="label-caps text-[var(--text-muted)]">Validated Indication</p>
-            <p className={`text-2xl font-bold mt-2 ${statusClass(validated.trust_state)}`}>{validated.sensor_id || 'primary signal'}</p>
-            <p className="caption-mono text-[var(--data-mono)] mt-1">{formatText(validated.trust_state || 'UNAVAILABLE')} {validated.confidence_pct != null ? `(${validated.confidence_pct}%)` : ''}</p>
-            <p className="caption-mono text-[var(--text)] mt-2">{validated.decision_basis_allowed === false ? 'Disconnected from decision basis.' : 'Allowed as decision basis.'}</p>
-          </div>
-          <div className="bg-[var(--surface-base)] p-4">
-            <p className="label-caps text-[var(--text-muted)]">Trusted Substitute Path</p>
-            <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-[1px] bg-[var(--border-strong)]">
-              {substitutes.length ? substitutes.map((signal) => (
-                <div key={signal.sensor_id} className="bg-[var(--surface-panel)] p-3">
-                  <p className={`caption-mono font-semibold ${statusClass(signal.trust_state)}`}>{signal.sensor_id}</p>
-                  <p className="caption-mono text-[var(--data-mono)] mt-1">{formatText(signal.trust_state || 'UNAVAILABLE')} {signal.confidence_pct != null ? `(${signal.confidence_pct}%)` : ''}</p>
-                  <p className="caption-mono text-[var(--text-muted)] mt-1">{signal.value ?? '--'} {signal.unit || ''}</p>
-                </div>
-              )) : <div className="bg-[var(--surface-panel)] p-3 caption-mono text-[var(--data-mono)]">No substitute relationship available.</div>}
-            </div>
-          </div>
-          <div className="bg-[var(--surface-panel)] p-4">
-            <p className="label-caps text-[var(--text-muted)]">Frozen Decision Basis</p>
-            <ValueList values={mimic.decision_freezes} empty="No decision freeze active." status="status-warning" />
-            {mimic.single_safe_move && <p className="caption-mono status-safe mt-3">{formatText(mimic.single_safe_move)}</p>}
-          </div>
-        </div>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {equipment.map((item) => (
-            <span key={item.equipment_id} className="industrial-badge text-[var(--data-mono)]">
-              {item.equipment_id} / {item.template_id}
-            </span>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function OperatingBasisLedger({ basisLines, compact = false }) {
-  return (
-    <section className="industrial-panel mb-[1px]">
-      <div className="industrial-panel-header">
-        <div>
-          <p className="label-caps text-[var(--text-muted)]">Operating Basis Ledger</p>
-          <h2 className="industrial-panel-title text-base">Current basis for operator decisions</h2>
-        </div>
-        <span className="industrial-badge text-[var(--data-mono)]">{basisLines.length} basis line(s)</span>
-      </div>
-      <div className="industrial-body space-y-[1px] bg-[var(--border-strong)]">
-        {basisLines.slice(0, compact ? 6 : 10).map((line, index) => (
-          <div key={`${line.statement}-${index}`} className="grid grid-cols-1 xl:grid-cols-[1.5fr_140px_1fr_180px] gap-[1px] bg-[var(--border-strong)]">
-            <div className="bg-[var(--surface-panel)] p-3">
-              <p className={`label-caps ${line.status === 'normal' ? 'status-safe' : 'status-warning'}`}>{formatText(line.status)}</p>
-              <p className="caption-mono text-[var(--text)] mt-1">{line.statement}</p>
-            </div>
-            <div className="bg-[var(--surface-base)] p-3">
-              <p className="label-caps text-[var(--text-muted)]">Owner</p>
-              <p className="caption-mono text-[var(--data-mono)] mt-1">{line.owner_role}</p>
-            </div>
-            <div className="bg-[var(--surface-base)] p-3">
-              <p className="label-caps text-[var(--text-muted)]">Evidence</p>
-              {asList(line.evidence).length ? asList(line.evidence).slice(0, 3).map((item) => (
-                <p key={item} className="caption-mono text-[var(--data-mono)] mt-1">{formatText(item)}</p>
-              )) : <p className="caption-mono text-[var(--data-mono)] mt-1">No evidence required.</p>}
-            </div>
-            <div className="bg-[var(--surface-base)] p-3">
-              <p className="label-caps text-[var(--text-muted)]">Expires When</p>
-              <p className="caption-mono text-[var(--data-mono)] mt-1">{formatText(line.expires_when)}</p>
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function decisionTimeScore(situation, confidence) {
-  if (situation?.decision_time_score) return situation.decision_time_score;
-  const affected = asList(situation?.affected_sensors);
-  const scores = (confidence || [])
-    .filter((item) => affected.includes(item.sensor_id))
-    .map((item) => Number(item.confidence_pct))
-    .filter(Number.isFinite);
-  const rawSignalCount = affected.length || 1;
-  const blockedDecisionCount = asList(situation?.action_contract?.blocked_decisions || situation?.blocked_decisions).length;
-  const evidenceCategoryCount = asList(situation?.evidence_refs || situation?.evidence).length;
-  const requiredOperatorActionCount = asList(situation?.action_contract?.first_safe_action || situation?.first_action).length || 1;
-  const collapsedSituationCount = situation?.title ? 1 : 0;
-  const traditionalSteps = rawSignalCount + blockedDecisionCount + evidenceCategoryCount;
-  const confidenceosSteps = collapsedSituationCount + requiredOperatorActionCount;
-  const score = scores.length
-    ? Math.round(scores.reduce((sum, item) => sum + item, 0) / scores.length)
-    : situation?.severity === 'critical' ? 35 : 72;
-  return {
-    metric_label: 'Interaction Compression Estimate',
-    score,
-    raw_signal_count: rawSignalCount,
-    suppressed_alarm_count: Math.max(0, rawSignalCount - collapsedSituationCount),
-    collapsed_situation_count: collapsedSituationCount,
-    blocked_decision_count: blockedDecisionCount,
-    required_operator_action_count: requiredOperatorActionCount,
-    traditional_steps: Math.max(1, traditionalSteps),
-    confidenceos_steps: Math.max(1, confidenceosSteps),
-    decision_compression: `${Math.max(1, traditionalSteps)} -> ${Math.max(1, confidenceosSteps)}`,
-    required_operator_actions: requiredOperatorActionCount,
-    method: 'Estimated from active raw signals, collapsed situations, blocked decisions, and required operator actions.',
-  };
-}
-
-function SituationWorkspace({ situations, basis, confidence }) {
-  const lead = situations?.[0] || {};
-  const contract = lead.action_contract || {};
-  const collapse = lead.alarm_collapse_receipt || basis?.alarm_collapse_receipt || lead.alarm_collapse || {};
-  const score = decisionTimeScore(lead, confidence);
-  const rows = [
-    ['Do Not Trust', contract.do_not_use || basis?.do_not_trust, 'status-critical'],
-    ['Trusted Substitute', contract.trusted_substitutes || basis?.trusted_substitutes, 'status-safe'],
-    ['Operator Single Safe Move', contract.operator_single_safe_move || basis?.operator_single_safe_move || contract.first_safe_action || basis?.first_safe_action, 'status-safe'],
-    ['Decision Freeze', contract.blocked_decisions || basis?.decision_freeze, 'text-[var(--frozen)]'],
-    ['Exit Condition', contract.exit_conditions || basis?.exit_condition, 'text-[var(--data-mono)]'],
-  ];
+function ProcessCanvas({ manifest, faceplates, readings, confidence, onSelect }) {
+  const vessel = faceplates.find((item) => /vessel|tank/i.test(`${item.template_id} ${item.template_label} ${item.title}`)) || faceplates[0];
+  const pump = faceplates.find((item) => /pump/i.test(`${item.template_id} ${item.template_label} ${item.title}`));
+  const valve = faceplates.find((item) => /valve/i.test(`${item.template_id} ${item.template_label} ${item.title}`));
+  const level = liveSignal(findSignal(faceplates, ['level', 'primary_level'])?.signal || vessel?.signals?.[0], readings, confidence);
+  const inflow = liveSignal(findSignal(faceplates, ['inflow', 'flow_in'])?.signal, readings, confidence);
+  const outflow = liveSignal(findSignal(faceplates, ['outflow', 'flow_out'])?.signal, readings, confidence);
+  const vibration = liveSignal(findSignal(faceplates, ['vibration'])?.signal, readings, confidence);
+  const basis = manifest?.operating_basis || {};
+  const levelTrust = signalTrustState(level);
+  const levelHeight = Number.isFinite(Number(level.value)) ? Math.max(8, Math.min(86, Number(level.value))) : 42;
+  const title = manifest?.process_mimic?.relationship_label || manifest?.navigation?.name || 'Generated process mimic';
 
   return (
-    <section className="industrial-panel mb-[1px]">
-      <div className="industrial-panel-header">
-        <div>
-          <p className="label-caps status-warning">Situation Workspace</p>
-          <h2 className="industrial-panel-title">{lead.title || basis?.abnormal_situation || 'No abnormal situation active'}</h2>
+    <section className="hmi-process-area">
+      <div className="hmi-process-header">
+        <div className="min-w-0">
+          <p className="label-caps text-[var(--text-muted)]">Level 2 Unit Overview / Generated Process Graphic</p>
+          <h1 className="m-0 text-[16px] leading-[18px] font-bold truncate">{title}</h1>
         </div>
-        <div className="text-right">
-          <p className="label-caps text-[var(--text-muted)]">{score.metric_label || 'Interaction Compression Estimate'}</p>
-          <p className={`text-2xl font-bold ${statusClass(score.score < 50 ? 'CRITICAL' : score.score < 75 ? 'WARNING' : 'SAFE')}`}>{score.decision_compression}</p>
-          <p className="caption-mono text-[var(--data-mono)] mt-1">{score.required_operator_actions ?? score.required_operator_action_count ?? 1} required operator action</p>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="caption-mono text-[var(--text-muted)]">confidence score is a governed trust rubric, not probability</span>
         </div>
       </div>
-      <div className="industrial-body">
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-[1px] bg-[var(--border-strong)] border border-[var(--border-strong)]">
-          {rows.map(([label, value, cls]) => (
-            <div key={label} className="bg-[var(--surface-base)] p-3 min-h-[126px]">
-              <p className={`label-caps ${cls}`}>{label}</p>
-              {asList(value).length ? asList(value).slice(0, 4).map((item) => (
-                <p key={item} className="caption-mono text-[var(--text)] mt-2">{formatText(item)}</p>
-              )) : <p className="caption-mono text-[var(--data-mono)] mt-2">Not active</p>}
-            </div>
-          ))}
-        </div>
+      <div className="hmi-process-canvas">
+        <svg viewBox="0 0 1000 520" role="img" aria-label="Generated process mimic" className="w-full h-full">
+          <defs>
+            <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
+              <path d="M0,0 L0,6 L9,3 z" fill="#4d4d4d" />
+            </marker>
+            <pattern id="quarantineHatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+              <line x1="0" y1="0" x2="0" y2="8" stroke="#cc0000" strokeWidth="2" />
+            </pattern>
+          </defs>
 
-        <div className="mt-4 grid grid-cols-1 xl:grid-cols-[1.2fr_1fr] gap-[1px] bg-[var(--border-strong)] border border-[var(--border-strong)]">
-          <div className="bg-[var(--surface-panel)] p-4">
-            <p className="label-caps text-[var(--text-muted)]">Evidence Ledger</p>
-            {asList(lead.evidence_refs || basis?.evidence).length ? asList(lead.evidence_refs || basis?.evidence).map((item) => (
-              <p key={item} className="caption-mono text-[var(--text)] mt-2">{formatText(item)}</p>
-            )) : <p className="caption-mono text-[var(--data-mono)] mt-2">No active evidence ledger entries.</p>}
-          </div>
-          <div className="bg-[var(--surface-panel)] p-4">
-            <p className="label-caps text-[var(--text-muted)]">Alarm Collapse Receipt</p>
-            <p className="caption-mono text-[var(--text)] mt-2">
-              {(collapse.raw_signal_count || collapse.collapsed) ? `Collapsed from ${collapse.raw_signal_count || collapse.consumed_alarm_types?.length || 0} raw signals; suppressed ${collapse.suppressed_alarm_count ?? 0}.` : 'No alarm collapse active.'}
-            </p>
-            <p className="caption-mono text-[var(--text)] mt-2">{collapse.operator_question}</p>
-            <p className="caption-mono text-[var(--data-mono)] mt-1">{collapse.collapse_reason}</p>
-            {asList(collapse.consumed_alarm_types).map((item) => (
-              <p key={item} className="caption-mono text-[var(--data-mono)] mt-1">{formatText(item)}</p>
-            ))}
-            <ReceiptSummary item={lead} />
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
+          <rect x="0" y="0" width="1000" height="520" fill="#c9c9c9" />
 
-function GeneratedFaceplate({ faceplate, selected, onSelect }) {
-  const signals = faceplate?.signals || [];
-  return (
-    <button
-      onClick={() => onSelect(faceplate.equipment_id)}
-      className={`text-left bg-[var(--surface-panel)] border ${selected ? 'border-[var(--safe)]' : 'border-[var(--border-strong)]'} p-4 hover:bg-[var(--surface-elevated)]`}
-    >
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <p className="label-caps text-[var(--text-muted)]">Generated Faceplate</p>
-          <h3 className="text-xl font-bold text-[var(--text)] mt-1">{faceplate.title}</h3>
-        </div>
-        <div className="flex flex-wrap gap-2 justify-end">
-          <span className="industrial-badge text-[var(--data-mono)]">{faceplate.equipment_id}</span>
-          <span className="industrial-badge text-[var(--data-mono)]">{faceplate.template_id} v{faceplate.template_version}</span>
-        </div>
-      </div>
-      <p className="caption-mono text-[var(--data-mono)] mt-3">
-        source tags: {asList(faceplate.source_tags).join(', ') || 'asset model binding'}
-      </p>
-      <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-[1px] bg-[var(--border-strong)]">
-        {signals.slice(0, 8).map((signal) => {
-          const trust = signalTrustState(signal);
-          const reading = signal.reading || {};
-          return (
-            <div key={signal.tag} className="bg-[var(--surface-base)] p-3">
-              <div className="flex items-center justify-between gap-2">
-                <p className="font-data text-[var(--text)] min-w-0 truncate" title={signal.tag}>{signal.tag}</p>
-                <StatusTag tier={trust.tier} label={`${trust.label}${trust.detail ? ` ${trust.detail}` : ''}`} />
+          <line x1="80" y1="210" x2="350" y2="210" stroke="#555" strokeWidth="6" markerEnd="url(#arrow)" />
+          <line x1="650" y1="310" x2="920" y2="310" stroke="#555" strokeWidth="6" markerEnd="url(#arrow)" />
+          <line x1="500" y1="120" x2="500" y2="86" stroke="#555" strokeWidth="3" strokeDasharray="7 5" />
+
+          <text x="100" y="184" fill="#4d4d4d" fontSize="15" fontWeight="700">Inflow</text>
+          <foreignObject x="98" y="218" width="190" height="58">
+            <div xmlns="http://www.w3.org/1999/xhtml" className="flex items-center gap-2">
+              <TrustStatusSymbol state={inflow.trust_state} />
+              <div>
+                <p className="label-caps text-[var(--text-muted)]">{inflow.tag || 'inflow'}</p>
+                <HmiLiveValue signal={inflow} />
               </div>
-              <div className="mt-1">
-                <LiveValue value={reading.value} unit={reading.unit || signal.unit} />
+            </div>
+          </foreignObject>
+
+          <text x="742" y="286" fill="#4d4d4d" fontSize="15" fontWeight="700">Outflow</text>
+          <foreignObject x="738" y="320" width="196" height="58">
+            <div xmlns="http://www.w3.org/1999/xhtml" className="flex items-center gap-2">
+              <TrustStatusSymbol state={outflow.trust_state} />
+              <div>
+                <p className="label-caps text-[var(--text-muted)]">{outflow.tag || 'outflow'}</p>
+                <HmiLiveValue signal={outflow} />
               </div>
-              <p className="caption-mono text-[var(--text-muted)] mt-1">{formatText(signal.role || signal.sensor_type)}</p>
             </div>
-          );
-        })}
-      </div>
-      <ReceiptSummary item={faceplate} />
-    </button>
-  );
-}
+          </foreignObject>
 
-function TrustRubricPanel({ receipts, selectedFaceplate }) {
-  const selectedTags = new Set(asList(selectedFaceplate?.signals).map((signal) => signal.tag));
-  const rows = (receipts || []).filter((item) => !selectedTags.size || selectedTags.has(item.sensor_id));
-  const visible = rows.length ? rows : (receipts || []).slice(0, 4);
-  if (!visible.length) return null;
-  return (
-    <section className="industrial-panel mb-[1px]">
-      <div className="industrial-panel-header">
-        <div>
-          <p className="label-caps text-[var(--text-muted)]">Trust Rubric Receipt</p>
-          <h2 className="industrial-panel-title text-base">Deterministic confidence basis, not probability</h2>
-        </div>
-      </div>
-      <div className="industrial-body space-y-[1px] bg-[var(--border-strong)]">
-        {visible.slice(0, 4).map((item) => (
-          <div key={item.sensor_id} className="grid grid-cols-1 xl:grid-cols-[170px_1.2fr_1fr_1fr] gap-[1px] bg-[var(--border-strong)]">
-            <div className="bg-[var(--surface-panel)] p-3">
-              <p className={`label-caps ${statusClass(item.trust_state || item.tier)}`}>{formatText(item.trust_state || item.tier)}</p>
-              <p className="caption-mono text-[var(--text)] mt-1">{item.sensor_id}</p>
-              <p className="caption-mono text-[var(--data-mono)] mt-1">{item.confidence_pct ?? '--'}%</p>
+          <g onClick={() => vessel?.equipment_id && onSelect(vessel.equipment_id)} style={{ cursor: vessel ? 'pointer' : 'default' }}>
+            <rect x="350" y="110" width="300" height="300" rx="14" fill="#d7d7d7" stroke="#6f6f6f" strokeWidth="4" />
+            <rect x="370" y={390 - levelHeight * 2.7} width="260" height={levelHeight * 2.7} fill={levelTrust.tier === 'QUARANTINED' ? 'url(#quarantineHatch)' : '#9fb7c8'} opacity="0.72" />
+            <line x1="370" y1="260" x2="630" y2="260" stroke="#777" strokeWidth="2" strokeDasharray="5 5" />
+            <text x="374" y="92" fill="#3a3a3a" fontSize="17" fontWeight="700">{vessel?.equipment_id || 'Generated Asset'}</text>
+            <text x="374" y="430" fill="#4d4d4d" fontSize="13">{vessel?.template_id || 'template'} / generated from asset model</text>
+          </g>
+
+          <foreignObject x="455" y="172" width="260" height="90">
+            <div xmlns="http://www.w3.org/1999/xhtml" className="flex items-start gap-2">
+              <TrustStatusSymbol state={level.trust_state} />
+              <div>
+                <p className={`label-caps ${statusClass(levelTrust.tier)}`}>{level.tag || 'primary level'}</p>
+                <HmiLiveValue signal={level} />
+                <p className="caption-mono text-[var(--text-muted)] mt-1">
+                  {formatText(levelTrust.tier)}{levelTrust.pct != null ? ` / ${levelTrust.pct}%` : ''}
+                </p>
+              </div>
             </div>
-            <div className="bg-[var(--surface-base)] p-3">
-              <p className="label-caps text-[var(--text-muted)]">Formula</p>
-              <p className="caption-mono text-[var(--data-mono)] mt-1">{item.formula}</p>
-              <p className="caption-mono text-[var(--text)] mt-2">Dominant factor: {formatText(item.dominant_factor)}</p>
+          </foreignObject>
+
+          {pump && (
+            <g onClick={() => onSelect(pump.equipment_id)} style={{ cursor: 'pointer' }}>
+              <circle cx="790" cy="210" r="54" fill="#d7d7d7" stroke="#6f6f6f" strokeWidth="4" />
+              <path d="M770 188 L830 210 L770 232 Z" fill="#888" />
+              <text x="735" y="150" fill="#3a3a3a" fontSize="15" fontWeight="700">{pump.equipment_id}</text>
+              {vibration.tag && (
+                <foreignObject x="704" y="252" width="190" height="68">
+                  <div xmlns="http://www.w3.org/1999/xhtml" className="flex items-center gap-2">
+                    <TrustStatusSymbol state={vibration.trust_state} />
+                    <div>
+                      <p className="label-caps text-[var(--text-muted)]">{vibration.tag}</p>
+                      <HmiLiveValue signal={vibration} />
+                    </div>
+                  </div>
+                </foreignObject>
+              )}
+            </g>
+          )}
+
+          {valve && (
+            <g onClick={() => onSelect(valve.equipment_id)} style={{ cursor: 'pointer' }}>
+              <path d="M675 292 L725 328 M725 292 L675 328" stroke="#5b5b5b" strokeWidth="6" />
+              <text x="658" y="278" fill="#3a3a3a" fontSize="14" fontWeight="700">{valve.equipment_id}</text>
+            </g>
+          )}
+
+          <foreignObject x="36" y="28" width="430" height="92">
+            <div xmlns="http://www.w3.org/1999/xhtml" className="hmi-operation-note">
+              <p className="label-caps text-[var(--text-muted)]">Operating Basis</p>
+              <p className="caption-mono font-semibold mt-1">{basis.abnormal_situation || 'No abnormal situation active.'}</p>
+              <p className="caption-mono text-[var(--text-muted)] mt-1">{asList(basis.evidence).slice(0, 2).map(formatText).join(' / ') || 'live process values within operating basis'}</p>
             </div>
-            <div className="bg-[var(--surface-base)] p-3">
-              <p className="label-caps status-safe">Strongest Evidence</p>
-              <ValueList values={item.strongest_evidence} empty="No supporting evidence attached." />
-            </div>
-            <div className="bg-[var(--surface-base)] p-3">
-              <p className="label-caps status-warning">Counter-Evidence / Action</p>
-              <ValueList values={item.counter_evidence} empty={item.recommended_action || 'Continue normal monitoring.'} />
-              <p className="caption-mono text-[var(--data-mono)] mt-2">{item.recommended_action}</p>
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function StressField({ label, value, status = 'text-[var(--data-mono)]' }) {
-  const values = asList(value);
-  return (
-    <div className="border border-[var(--border-strong)] bg-[var(--surface-panel)] p-4">
-      <p className={`label-caps ${status}`}>{label}</p>
-      {values.length ? values.slice(0, 5).map((item) => (
-        <p key={typeof item === 'string' ? item : JSON.stringify(item)} className="caption-mono text-[var(--text)] mt-2">
-          {typeof item === 'string' ? formatText(item) : formatText(item?.message || item?.sensor_id || item?.source || item?.category)}
-        </p>
-      )) : <p className="caption-mono text-[var(--data-mono)] mt-2">Not active</p>}
-    </div>
-  );
-}
-
-function PressureModeRuntime({ manifest, situations, confidence }) {
-  const lead = situations?.[0] || {};
-  const basis = manifest.operating_basis || {};
-  const contract = lead.action_contract || {};
-  const collapse = lead.alarm_collapse_receipt || basis.alarm_collapse_receipt || lead.alarm_collapse || {};
-  const score = lead.decision_time_score || basis.decision_time_score || decisionTimeScore(lead, confidence);
-  const singleMove = contract.operator_single_safe_move || basis.operator_single_safe_move || contract.first_safe_action || basis.first_safe_action;
-
-  return (
-    <div className="industrial-page bg-[var(--surface-base)] overflow-y-auto overflow-x-hidden scrollbar-thin">
-      <main className="max-w-6xl mx-auto p-[1px]">
-        <section className="industrial-panel mb-[1px]">
-          <div className="industrial-panel-header">
-            <div>
-              <p className="label-caps status-warning">Pressure-Mode Runtime</p>
-              <h1 className="industrial-panel-title">{lead.title || basis.abnormal_situation || 'Abnormal situation active'}</h1>
-            </div>
-            <span className={`industrial-badge ${statusClass(manifest.context)}`}>{formatText(manifest.context)}</span>
-          </div>
-        </section>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-[1px] bg-[var(--border-strong)]">
-          <StressField label="Abnormal Situation" value={lead.title || basis.abnormal_situation} status="status-warning" />
-          <StressField label="Operator Single Safe Move" value={singleMove} status="status-safe" />
-          <StressField label="Do Not Trust" value={contract.do_not_use || basis.do_not_trust} status="status-critical" />
-          <StressField label="Trusted Substitute" value={contract.trusted_substitutes || basis.trusted_substitutes} status="status-safe" />
-          <StressField label="Decision Freeze" value={contract.blocked_decisions || basis.decision_freeze} status="text-[var(--frozen)]" />
-          <StressField label="Exit Condition" value={contract.exit_conditions || basis.exit_condition} />
-        </div>
-
-        <section className="industrial-panel mt-[1px]">
-          <div className="industrial-body grid grid-cols-1 lg:grid-cols-2 gap-[1px] bg-[var(--border-strong)]">
-            <div className="bg-[var(--surface-panel)] p-4">
-              <p className="label-caps text-[var(--text-muted)]">Alarm Collapse Receipt</p>
-              <p className="caption-mono text-[var(--text)] mt-2">
-                Raw signals: {collapse.raw_signal_count ?? 0} / suppressed alarms: {collapse.suppressed_alarm_count ?? 0}
-              </p>
-              <p className="caption-mono text-[var(--text)] mt-2">{collapse.operator_question || 'Can the operator trust the primary indication before changing the operating rate?'}</p>
-              <p className="caption-mono text-[var(--data-mono)] mt-1">{collapse.collapse_reason || 'All signals affect the same operating basis.'}</p>
-              <p className="caption-mono text-[var(--data-mono)] mt-2">
-                {asList(collapse.raw_signals).join(', ') || 'No raw signals reported.'}
-              </p>
-            </div>
-            <div className="bg-[var(--surface-panel)] p-4">
-              <p className="label-caps text-[var(--text-muted)]">{score.metric_label || 'Interaction Compression Estimate'}</p>
-              <p className={`text-4xl font-bold mt-2 ${statusClass(score.score < 50 ? 'CRITICAL' : score.score < 75 ? 'WARNING' : 'SAFE')}`}>
-                {score.decision_compression || '6 -> 2'}
-              </p>
-              <p className="caption-mono text-[var(--data-mono)] mt-2">
-                Traditional steps: {score.traditional_steps ?? 6} / ConfidenceOS steps: {score.confidenceos_steps ?? 2}
-              </p>
-              <p className="caption-mono text-[var(--text)] mt-2">
-                Required operator actions: {score.required_operator_actions ?? 1}
-              </p>
-              <p className="caption-mono text-[var(--data-mono)] mt-1">
-                raw {score.raw_signal_count ?? 0} / suppressed {score.suppressed_alarm_count ?? 0} / blocked decisions {score.blocked_decision_count ?? 0}
-              </p>
-              <p className="caption-mono text-[var(--text-muted)] mt-1">
-                {score.method || 'Estimated interaction compression, not measured decision time.'}
-              </p>
-            </div>
-          </div>
-        </section>
-
-        <section className="border border-[var(--border-strong)] bg-[var(--surface-panel)] p-4 mt-[1px]">
-          <p className="label-caps status-warning">Grounded Operator Explanation Disabled</p>
-          <p className="caption-mono text-[var(--text)] mt-2">
-            Grounded explanation disabled during active decision freeze. Use operating-basis workflow.
-          </p>
-        </section>
-      </main>
-    </div>
-  );
-}
-
-function ScreenReceipts({ manifest, selectedFaceplate }) {
-  const receipts = [
-    ...(manifest?.screens || []).map((item) => ({ item, title: 'Generated Screen Receipt' })),
-    ...(selectedFaceplate ? [{ item: selectedFaceplate, title: 'Selected Faceplate Receipt' }] : []),
-    ...(manifest?.situations || []).slice(0, 1).map((item) => ({ item, title: 'Situation Receipt' })),
-    ...(manifest?.role_sections || []).slice(0, 2).map((item) => ({ item, title: 'Role Section Receipt' })),
-    ...(manifest?.stress_mode_panel ? [{ item: manifest.stress_mode_panel, title: 'Stress-Mode Receipt' }] : []),
-  ];
-
-  return (
-    <section className="industrial-panel border-t-0">
-      <div className="industrial-panel-header">
-        <div>
-          <p className="label-caps text-[var(--text-muted)]">Screen Receipts</p>
-          <h2 className="industrial-panel-title text-base">Generated from template and asset model</h2>
-        </div>
-      </div>
-      <div className="industrial-body space-y-3">
-        {receipts.map(({ item, title }) => (
-          <GenerationReceipt key={`${title}-${item.generated_id || item.asset_id}`} item={item} title={title} />
-        ))}
+          </foreignObject>
+        </svg>
       </div>
     </section>
   );
 }
 
-function sectionItems(sections, name) {
-  return (sections || []).find((row) => row.section === name)?.items || [];
+function DockSection({ title, eyebrow, right, children }) {
+  return (
+    <section className="hmi-dock-section">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          {eyebrow && <p className="label-caps text-[var(--text-muted)]">{eyebrow}</p>}
+          <h2 className="hmi-dock-title truncate" title={title}>{title}</h2>
+        </div>
+        {right}
+      </div>
+      <div className="mt-3">{children}</div>
+    </section>
+  );
 }
 
-function ValueList({ values, empty = 'Not active', status = 'text-[var(--data-mono)]' }) {
+function ValueList({ values, empty = 'No active item.', status = 'text-[var(--data-mono)]' }) {
   const rows = asList(values);
-  if (!rows.length) return <p className="caption-mono text-[var(--data-mono)] mt-2">{empty}</p>;
-  return rows.slice(0, 6).map((item, index) => (
-    <p key={`${typeof item === 'string' ? item : item?.id || item?.sensor_id || item?.task_id || index}`} className={`caption-mono mt-2 ${status}`}>
-      {typeof item === 'string'
-        ? formatText(item)
-        : formatText(item?.title || item?.required_action || item?.message || item?.sensor_id || item?.state || item?.assumption_id)}
-    </p>
-  ));
-}
-
-function WorkspacePanel({ title, children, badge }) {
+  if (!rows.length) return <p className="caption-mono text-[var(--text-muted)]">{empty}</p>;
   return (
-    <div className="bg-[var(--surface-panel)] p-3">
-      <div className="flex items-center justify-between gap-3">
-        <p className="label-caps text-[var(--text)] min-w-0">{title}</p>
-        {badge && <span className="industrial-badge text-[var(--data-mono)]">{badge}</span>}
-      </div>
-      {children}
+    <div className="space-y-2">
+      {rows.map((item, index) => (
+        <p key={`${typeof item === 'string' ? item : item?.id || index}`} className={`caption-mono ${status}`}>
+          {typeof item === 'string' ? formatText(item) : formatText(item.message || item.title || item.description || item.sensor_id || item.decision_id || item.type)}
+        </p>
+      ))}
     </div>
   );
 }
 
-function AuditTrailTimeline({ events }) {
+function GeneratedFaceplate({ faceplate, readings, confidence, compact = false }) {
+  const signals = (faceplate?.signals || []).map((signal) => liveSignal(signal, readings, confidence));
   return (
-    <div className="mt-3 border border-[var(--border-strong)] bg-[var(--surface-panel)] p-3">
-      <p className="label-caps text-[var(--text-muted)] mb-2">Immutable Audit Trail</p>
-      <div className="space-y-[1px] bg-[var(--border-strong)] max-h-64 overflow-y-auto overflow-x-hidden scrollbar-thin">
-        {events.map((event) => (
-          <div key={event.id} className="bg-[var(--surface-base)] p-2">
-            <div className="flex items-center justify-between gap-2">
-              <span className="caption-mono text-[var(--text)] min-w-0 truncate">
-                {event.from_state ? `${event.from_state} -> ` : ''}{event.to_state}
-              </span>
-              <span className="label-caps text-[var(--text-muted)] shrink-0 truncate max-w-[50%]" title={`${event.actor || 'system'}${event.actor_role ? ` / ${event.actor_role}` : ''}`}>
-                {event.actor || 'system'}{event.actor_role ? ` / ${event.actor_role}` : ''}
-              </span>
-            </div>
-            {event.evidence_note && <p className="caption-mono text-[var(--data-mono)] mt-1">{event.evidence_note}</p>}
-            <p className="label-caps text-[var(--text-muted)] mt-1">{event.created_at}</p>
-          </div>
-        ))}
+    <div className="bg-[var(--surface-highest)] border border-[var(--border-strong)] p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="label-caps text-[var(--text-muted)]">Generated From Template</p>
+          <p className="caption-mono font-semibold truncate">{faceplate?.equipment_id || faceplate?.title}</p>
+        </div>
+        <span className="caption-mono text-[var(--text-muted)]">{faceplate?.template_id} v{faceplate?.template_version || '1.0'}</span>
       </div>
+      <table className="hmi-flat-table mt-3">
+        <thead>
+          <tr><th>Tag</th><th>Value</th><th>Trust</th></tr>
+        </thead>
+        <tbody>
+          {signals.slice(0, compact ? 4 : 8).map((signal) => {
+            const trust = signalTrustState(signal);
+            return (
+              <tr key={signal.tag}>
+                <td>{signal.tag}</td>
+                <td>{signal.value} {signal.unit}</td>
+                <td><span className={statusClass(trust.tier)}>{formatText(trust.tier)}{trust.pct != null ? ` / ${trust.pct}%` : ''}</span></td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {!compact && (
+        <div className="mt-3">
+          <p className="label-caps text-[var(--text-muted)]">Receipt Summary</p>
+          <ValueList values={faceplate?.receipt?.generated_because?.slice?.(0, 3)} empty="Receipt attached to generated manifest." />
+        </div>
+      )}
     </div>
   );
 }
 
-// Legal verification transitions (mirrors backend VERIFICATION_TRANSITIONS).
 const LEGAL_NEXT = {
   REQUESTED: ['ASSIGNED', 'EXPIRED'],
   ASSIGNED: ['FIELD_CHECK_DONE', 'EXPIRED'],
   FIELD_CHECK_DONE: ['ACCEPTED', 'REJECTED', 'EXPIRED'],
   REJECTED: ['ASSIGNED', 'EXPIRED'],
-  ACCEPTED: [],
-  EXPIRED: [],
 };
 const EVIDENCE_REQUIRED_STATES = new Set(['FIELD_CHECK_DONE', 'ACCEPTED', 'REJECTED']);
 const STATE_LABEL = {
-  ASSIGNED: 'Assign to me',
+  ASSIGNED: 'Assign',
   FIELD_CHECK_DONE: 'Field Check Done',
-  ACCEPTED: 'Accept Field Check',
-  REJECTED: 'Reject / Reopen Required',
+  ACCEPTED: 'Accept',
+  REJECTED: 'Reject',
   EXPIRED: 'Expire',
 };
 const ROLE_TRANSITIONS = {
@@ -719,26 +415,20 @@ function legalTransitionsForRole(state, role) {
   return allowedForState.filter((item) => allowedForRole.has(item));
 }
 
-function RoleWorkspace({ manifest, confidenceDebt, handoverDebt, verificationTasks }) {
-  const sections = manifest?.role_sections || [];
-  const role = manifest?.role || 'Operator';
-  const basis = manifest?.operating_basis || {};
-  const { plantId } = useStore();
-  const [taskNote, setTaskNote] = useState('');
-  const [taskBusy, setTaskBusy] = useState('');
-  const [taskMessage, setTaskMessage] = useState('');
-  const [auditTrail, setAuditTrail] = useState({ taskId: null, events: [] });
+function VerificationTaskControls({ tasks, role, plantId }) {
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState('');
+  const [message, setMessage] = useState('');
 
   const updateTask = async (task, state) => {
     const taskId = task.task_id || task.token_id;
     if (!taskId) return;
-    // Client-side guard mirrors the backend so the operator gets immediate feedback.
-    if (EVIDENCE_REQUIRED_STATES.has(state) && !taskNote.trim()) {
-      setTaskMessage(`An evidence note is required to move this task to ${state}.`);
+    if (EVIDENCE_REQUIRED_STATES.has(state) && !note.trim()) {
+      setMessage(`Evidence note required to move task to ${state}.`);
       return;
     }
-    setTaskBusy(`${taskId}:${state}`);
-    setTaskMessage('');
+    setBusy(`${taskId}:${state}`);
+    setMessage('');
     try {
       const res = await fetch(`/api/verification-tasks/state?plant_id=${plantId}`, {
         method: 'POST',
@@ -746,354 +436,240 @@ function RoleWorkspace({ manifest, confidenceDebt, handoverDebt, verificationTas
         body: JSON.stringify({
           task_id: taskId,
           state,
-          actor: role,            // client-supplied identity (no real auth yet)
+          actor: role,
           actor_role: role,
           accepted_by: state === 'ACCEPTED' ? role : null,
-          evidence_note: taskNote,
-          note: taskNote,
+          evidence_note: note,
+          note,
         }),
       });
       const payload = await res.json().catch(() => null);
       if (!res.ok) throw new Error(payload?.detail || `Request failed: ${res.status}`);
-      setTaskMessage(`${task.sensor_id || taskId} moved to ${state} by ${role}.`);
-      if (auditTrail.taskId === taskId) loadAudit(taskId);
+      setMessage(`${task.sensor_id || taskId} moved to ${state}.`);
+      setNote('');
     } catch (err) {
-      setTaskMessage(err.message || 'Task update failed.');
+      setMessage(err.message || 'Task update failed.');
     } finally {
-      setTaskBusy('');
+      setBusy('');
     }
   };
 
-  const loadAudit = async (taskId) => {
-    try {
-      const url = taskId
-        ? `/api/verification-tasks/audit?plant_id=${plantId}&task_id=${encodeURIComponent(taskId)}`
-        : `/api/verification-tasks/audit?plant_id=${plantId}`;
-      const res = await fetch(url);
-      const payload = await res.json().catch(() => null);
-      if (res.ok && payload) setAuditTrail({ taskId: taskId || null, events: payload.events || [] });
-    } catch {
-      /* non-fatal: audit view is supplementary */
-    }
-  };
+  const visible = (tasks || []).slice(0, 4);
+  return (
+    <div>
+      {visible.length ? visible.map((task) => {
+        const legal = legalTransitionsForRole(task.state, role);
+        return (
+          <div key={task.task_id || task.token_id} className="border border-[var(--border-strong)] bg-[var(--surface-highest)] p-2 mb-2">
+            <div className="flex items-center justify-between gap-2">
+              <p className="caption-mono font-semibold">{task.sensor_id}</p>
+              <span className="caption-mono status-warning">{task.state}</span>
+            </div>
+            <p className="caption-mono text-[var(--text-muted)] mt-1">{formatText(task.verification_method || task.verification_type)}</p>
+            <ValueList values={task.evidence_required} empty="Evidence requirement not listed." />
+            {legal.length > 0 && (
+              <div className="grid grid-cols-2 gap-1 mt-2">
+                {legal.map((state) => (
+                  <button key={state} type="button" disabled={!!busy} onClick={() => updateTask(task, state)} className="industrial-control bg-[var(--surface-panel)] disabled:opacity-40">
+                    {STATE_LABEL[state] || formatText(state)}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      }) : <p className="caption-mono text-[var(--text-muted)]">No active field verification task.</p>}
+      <input value={note} onChange={(event) => setNote(event.target.value)} className="industrial-input mt-2" placeholder="Evidence note for task transition" />
+      {message && <p className="caption-mono text-[var(--text-muted)] mt-2">{message}</p>}
+    </div>
+  );
+}
 
-  let content;
+function RoleDock({ manifest, selectedFaceplate, confidenceDebt, handoverDebt, verificationTasks, plantId }) {
+  const role = manifest?.role || 'Operator';
+  const basis = manifest?.operating_basis || {};
+  const sections = manifest?.role_sections || [];
+  const sectionItems = (name) => sections.filter((item) => item.section === name).flatMap((item) => item.items || []);
+
   if (role === 'Maintenance') {
-    const tasks = sectionItems(sections, 'verification_task').length
-      ? sectionItems(sections, 'verification_task')
-      : (verificationTasks || []);
-    content = (
+    return (
       <>
-        <WorkspacePanel title="Verification Task" badge={`${tasks.length} task(s)`}>
-          <p className="caption-mono text-[var(--text-muted)] mb-2">
-            Role-scoped actions; actor identity client-supplied; immutable audit trail. ConfidenceOS never writes process controls.
-          </p>
-          {tasks.length ? tasks.slice(0, 4).map((task) => {
-            const legal = legalTransitionsForRole(task.state, role);
-            const owner = task.field_checked_by || task.assigned_to || task.accepted_by;
-            return (
-              <div key={task.task_id || task.token_id} className="border border-[var(--border-strong)] bg-[var(--surface-base)] p-3 mt-2">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="caption-mono status-warning min-w-0 truncate" title={task.sensor_id}>{task.sensor_id}</p>
-                  <span className="industrial-badge status-warning">{task.state}</span>
-                </div>
-                <p className="caption-mono text-[var(--data-mono)] mt-1">{formatText(task.verification_method)}</p>
-                <p className="caption-mono text-[var(--text)] mt-1">{asList(task.evidence_required).join(' / ')}</p>
-                {owner && (
-                  <p className="label-caps text-[var(--text-muted)] mt-1">
-                    {task.accepted_by ? `accepted by ${task.accepted_by}` : task.field_checked_by ? `field-checked by ${task.field_checked_by}` : `assigned to ${task.assigned_to}`}
-                  </p>
-                )}
-                {legal.length ? (
-                  <div className="mt-3 grid grid-cols-2 gap-[1px] bg-[var(--border-strong)]">
-                    {legal.map((state) => (
-                      <button
-                        key={state}
-                        disabled={!!taskBusy}
-                        onClick={() => updateTask(task, state)}
-                        className="industrial-control bg-[var(--surface-panel)] disabled:opacity-40"
-                      >
-                        {STATE_LABEL[state] || formatText(state)}
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="caption-mono status-safe mt-2">Terminal state - no further action.</p>
-                )}
-                <button
-                  onClick={() => loadAudit(task.task_id || task.token_id)}
-                  className="industrial-control bg-transparent text-[var(--text-muted)] mt-2 w-full"
-                >
-                  View audit trail
-                </button>
-              </div>
-            );
-          }) : <ValueList values={[]} empty="No active field verification task." />}
-          <input
-            value={taskNote}
-            onChange={(event) => setTaskNote(event.target.value)}
-            className="industrial-input mt-3"
-            placeholder="Evidence note (required for Field Check Done / Accept)"
-          />
-          {taskMessage && <p className="caption-mono text-[var(--data-mono)] mt-2">{taskMessage}</p>}
-          {auditTrail.events.length > 0 && <AuditTrailTimeline events={auditTrail.events} />}
-        </WorkspacePanel>
-        <WorkspacePanel title="Calibration Context">
-          <ValueList values={sectionItems(sections, 'calibration_context').map((item) => `${item.sensor_id}: ${item.calibration_status} - ${item.calibration_message}`)} />
-        </WorkspacePanel>
-        <WorkspacePanel title="Device Health">
-          <ValueList values={sectionItems(sections, 'device_health').map((item) => `${item.sensor_id}: ${item.trust_state} / ${item.confidence_pct ?? '--'}%`)} />
-        </WorkspacePanel>
-        <WorkspacePanel title="Confidence Debt">
-          <ValueList values={(confidenceDebt || sectionItems(sections, 'confidence_debt')).map((item) => item.maintenance_priority || item.priority_language || `${item.sensor_id}: confidence debt ${item.confidence_debt ?? 0}`)} />
-        </WorkspacePanel>
-        <WorkspacePanel title="Field Check Status">
-          <ValueList values={sectionItems(sections, 'field_check_status').map((item) => `${item.sensor_id}: ${item.state || 'not requested'} / ${item.confidence_tier || 'unknown confidence'}`)} />
-        </WorkspacePanel>
+        <DockSection title="Verification Task" eyebrow="Maintenance Workspace">
+          <VerificationTaskControls tasks={sectionItems('verification_task').length ? sectionItems('verification_task') : verificationTasks} role={role} plantId={plantId} />
+        </DockSection>
+        <DockSection title="Device Health">
+          <ValueList values={sectionItems('device_health')} empty="No device-health exception attached." />
+        </DockSection>
+        <DockSection title="Confidence Debt">
+          <ValueList values={(confidenceDebt || []).map((item) => `${item.sensor_id}: ${item.priority_language || item.maintenance_priority || item.confidence_debt}`)} empty="No confidence debt active." status="status-warning" />
+        </DockSection>
       </>
     );
-  } else if (role === 'Engineer') {
-    const provenance = sectionItems(sections, 'build_publish_provenance')[0] || {};
-    const reviewTasks = (verificationTasks || []).filter((task) => ['FIELD_CHECK_DONE', 'REJECTED', 'ASSIGNED'].includes(task.state));
-    content = (
+  }
+
+  if (role === 'Engineer') {
+    const receipt = selectedFaceplate?.receipt || {};
+    return (
       <>
-        <WorkspacePanel title="Verification Review" badge={`${reviewTasks.length} task(s)`}>
-          <p className="caption-mono text-[var(--text-muted)] mb-2">
-            Engineer/Manager acceptance is separate from Maintenance field check. Evidence note required for accept or reject.
-          </p>
-          {reviewTasks.length ? reviewTasks.slice(0, 4).map((task) => {
-            const legal = legalTransitionsForRole(task.state, role);
-            return (
-              <div key={task.task_id || task.token_id} className="border border-[var(--border-strong)] bg-[var(--surface-base)] p-3 mt-2">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="caption-mono status-warning">{task.sensor_id}</p>
-                  <span className="industrial-badge status-warning">{task.state}</span>
-                </div>
-                <p className="caption-mono text-[var(--data-mono)] mt-1">{task.last_evidence_summary || task.note || 'Awaiting structured field evidence.'}</p>
-                <div className="mt-3 grid grid-cols-2 gap-[1px] bg-[var(--border-strong)]">
-                  {legal.map((state) => (
-                    <button
-                      key={state}
-                      disabled={!!taskBusy}
-                      onClick={() => updateTask(task, state)}
-                      className="industrial-control bg-[var(--surface-panel)] disabled:opacity-40"
-                    >
-                      {STATE_LABEL[state] || formatText(state)}
-                    </button>
-                  ))}
-                </div>
-                <button
-                  onClick={() => loadAudit(task.task_id || task.token_id)}
-                  className="industrial-control bg-transparent text-[var(--text-muted)] mt-2 w-full"
-                >
-                  View audit trail
-                </button>
-              </div>
-            );
-          }) : <ValueList values={[]} empty="No verification tasks awaiting engineer review." />}
-          <input
-            value={taskNote}
-            onChange={(event) => setTaskNote(event.target.value)}
-            className="industrial-input mt-3"
-            placeholder="Engineer evidence note for acceptance/rejection"
-          />
-          {taskMessage && <p className="caption-mono text-[var(--data-mono)] mt-2">{taskMessage}</p>}
-          {auditTrail.events.length > 0 && <AuditTrailTimeline events={auditTrail.events} />}
-        </WorkspacePanel>
-        <WorkspacePanel title="Signal Binding" badge={`${sectionItems(sections, 'signal_mapping').length} signal(s)`}>
-          <ValueList values={sectionItems(sections, 'signal_mapping').map((item) => `${item.tag}: ${item.role || item.sensor_type} -> ${item.equipment_id}`)} />
-        </WorkspacePanel>
-        <WorkspacePanel title="Template Receipt">
-          <ValueList values={sectionItems(sections, 'template_receipt').map((item) => item.message || item.receipt || item.generated_id || item.rule || item.status)} empty="No compiler receipt rows attached." />
-        </WorkspacePanel>
-        <WorkspacePanel title="Assumptions Used">
-          <ValueList values={sectionItems(sections, 'assumptions_used').map((item) => `${item.assumption_id}: ${item.value?.value ?? item.value} ${item.unit || ''}`)} />
-        </WorkspacePanel>
-        <WorkspacePanel title="Score Sensitivity">
-          <ValueList values={sectionItems(sections, 'score_sensitivity').flatMap((item) => item.scenarios || []).map((item) => `${item.label}: ${item.confidence_pct}% (${item.delta_pct >= 0 ? '+' : ''}${item.delta_pct})`)} />
-        </WorkspacePanel>
-        <WorkspacePanel title="Engineer-Owned Confidence Thresholds">
-          <p className="caption-mono text-[var(--text-muted)] mb-2">These weights are engineering choices, not physics. They reflect relative importance of each sub-check for this asset model. Changing them requires a new compiler build and engineer sign-off.</p>
-          <ValueList values={[
-            'calibration weight: 0.30 - how recently the sensor was checked against a reference',
-            'stability weight: 0.20 - whether the reading has been stable, not stuck or oscillating',
-            'cross-sensor weight: 0.30 - consistency with related sensors via mass balance',
-            'range plausibility weight: 0.20 - whether the reading is within the physical operating envelope',
-            'HIGH band: >= 80 - TRUSTED; MEDIUM band: >= 50 - DEGRADED; LOW band: >= 20 - QUARANTINE candidate; CRITICAL: < 20 - QUARANTINED',
-            'Verdict is robust: changing any single weight by +/-10 pp does not change the trust state tier for most sensors',
-          ]} />
-        </WorkspacePanel>
-        <WorkspacePanel title="Validation Warnings">
-          <ValueList values={sectionItems(sections, 'validation_warnings').map((item) => item.message || item.rule)} empty="No validation warnings on current build." status="status-warning" />
-        </WorkspacePanel>
-        <WorkspacePanel title="Build / Publish Provenance" badge={provenance.validation_status}>
-          <ValueList values={[
-            `build id: ${provenance.build_id || manifest.build_id}`,
-            `published build id: ${provenance.published_build_id || manifest.published_build_id || 'not published'}`,
-            `runtime source: ${provenance.runtime_source || manifest.runtime_source}`,
-          ]} />
-        </WorkspacePanel>
+        <DockSection title="Signal Binding" eyebrow="Engineer Workspace">
+          <ValueList values={(selectedFaceplate?.signals || []).map((signal) => `${signal.tag}: ${signal.role || signal.sensor_type || 'signal'} -> ${selectedFaceplate.equipment_id}`)} />
+        </DockSection>
+        <DockSection title="Template Receipt">
+          <ValueList values={receipt.generated_because} empty="No generated-because receipt lines." />
+          <ValueList values={receipt.warnings} empty="No receipt warnings." status="status-warning" />
+          <p className="caption-mono text-[var(--text-muted)] mt-2">{selectedFaceplate?.template_id} v{selectedFaceplate?.template_version || '1.0'}</p>
+        </DockSection>
+        <DockSection title="Validation Warnings">
+          <ValueList values={sectionItems('validation_warnings').map((item) => item.message || item.rule)} empty="No validation warnings attached." status="status-warning" />
+        </DockSection>
       </>
     );
-  } else if (role === 'Manager' || role === 'Auditor') {
-    const acceptance = sectionItems(sections, 'handover_acceptance')[0] || {
-      state: handoverDebt?.handover_acceptance || 'unblocked',
-      blocking_items: handoverDebt?.count || 0,
-    };
-    const reviewTasks = (verificationTasks || []).filter((task) => task.handover_required || ['FIELD_CHECK_DONE', 'REJECTED', 'ASSIGNED'].includes(task.state));
-    content = (
+  }
+
+  if (role === 'Manager' || role === 'Auditor') {
+    return (
       <>
-        <WorkspacePanel title="Unresolved Handover Debt" badge={`${sectionItems(sections, 'unresolved_handover_debt').length || handoverDebt?.count || 0}`}>
-          <ValueList values={sectionItems(sections, 'unresolved_handover_debt').length ? sectionItems(sections, 'unresolved_handover_debt') : handoverDebt?.entries || []} empty="No unresolved handover debt." />
-        </WorkspacePanel>
-        <WorkspacePanel title="Decision Freeze State">
-          <ValueList values={sectionItems(sections, 'decision_freeze_state').map((item) => `${item.decision}: ${item.status}`)} />
-        </WorkspacePanel>
-        <WorkspacePanel title="Handover Acceptance" badge={acceptance.state}>
-          <p className={`caption-mono mt-2 ${acceptance.blocked ? 'status-critical' : 'status-safe'}`}>
-            {acceptance.blocked ? `Blocked by ${acceptance.blocking_items} item(s).` : 'Unblocked.'}
+        <DockSection title="Unresolved Handover Debt" eyebrow={`${role} Workspace`}>
+          <ValueList values={handoverDebt?.entries || []} empty="No unresolved handover debt." status={(handoverDebt?.count || 0) ? 'status-warning' : 'status-safe'} />
+        </DockSection>
+        <DockSection title="Handover Acceptance">
+          <p className={`caption-mono ${(handoverDebt?.handover_acceptance_blocked || handoverDebt?.handover_acceptance === 'blocked') ? 'status-critical' : 'status-safe'}`}>
+            {(handoverDebt?.handover_acceptance_blocked || handoverDebt?.handover_acceptance === 'blocked') ? 'Blocked until verification debt clears.' : 'Unblocked.'}
           </p>
-          <ValueList
-            values={(handoverDebt?.entries || [])
-              .filter((item) => item.type === 'active_verification_token' || item.task_type === 'active_verification_task')
-              .map((item) => `${item.title} clears when ${item.sensor_id || 'field verification'} is ACCEPTED or EXPIRED`)}
-            empty="No verification task is blocking handover acceptance."
-            status="status-warning"
-          />
-        </WorkspacePanel>
-        <WorkspacePanel title="Verification Acceptance Gate" badge={`${reviewTasks.length} task(s)`}>
-          <p className="caption-mono text-[var(--text-muted)] mb-2">
-            Manager can accept or reject completed field evidence; Auditor view is read-only. Handover remains blocked while required verification is unresolved.
-          </p>
-          {reviewTasks.length ? reviewTasks.slice(0, 5).map((task) => {
-            const legal = legalTransitionsForRole(task.state, role);
-            return (
-              <div key={task.task_id || task.token_id} className="border border-[var(--border-strong)] bg-[var(--surface-base)] p-3 mt-2">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="caption-mono status-warning">{task.sensor_id}</p>
-                  <span className="industrial-badge status-warning">{task.state}</span>
-                </div>
-                <p className="caption-mono text-[var(--data-mono)] mt-1">
-                  {task.last_evidence_summary || task.note || 'No field evidence accepted yet.'}
-                </p>
-                <p className="label-caps text-[var(--text-muted)] mt-1">
-                  clears handover when ACCEPTED or EXPIRED
-                </p>
-                {legal.length ? (
-                  <div className="mt-3 grid grid-cols-2 gap-[1px] bg-[var(--border-strong)]">
-                    {legal.map((state) => (
-                      <button
-                        key={state}
-                        disabled={!!taskBusy}
-                        onClick={() => updateTask(task, state)}
-                        className="industrial-control bg-[var(--surface-panel)] disabled:opacity-40"
-                      >
-                        {STATE_LABEL[state] || formatText(state)}
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="caption-mono text-[var(--text-muted)] mt-2">
-                    {role === 'Auditor' ? 'Read-only audit role.' : 'No legal transition from this state.'}
-                  </p>
-                )}
-                <button
-                  onClick={() => loadAudit(task.task_id || task.token_id)}
-                  className="industrial-control bg-transparent text-[var(--text-muted)] mt-2 w-full"
-                >
-                  View audit trail
-                </button>
-              </div>
-            );
-          }) : <ValueList values={[]} empty="No verification task is blocking handover acceptance." />}
-          {role === 'Manager' && (
-            <input
-              value={taskNote}
-              onChange={(event) => setTaskNote(event.target.value)}
-              className="industrial-input mt-3"
-              placeholder="Manager acceptance/rejection evidence note"
-            />
-          )}
-          {taskMessage && <p className="caption-mono text-[var(--data-mono)] mt-2">{taskMessage}</p>}
-        </WorkspacePanel>
-        <WorkspacePanel title="Timeline Evidence">
-          <ValueList values={sectionItems(sections, 'timeline_evidence').map((item) => item.message)} />
-        </WorkspacePanel>
-        <WorkspacePanel title="Verification Audit Trail" badge={`${auditTrail.events.length} event(s)`}>
-          <p className="caption-mono text-[var(--text-muted)] mb-2">
-            Immutable, time-ordered record of every field-verification state change (who, role, evidence, when). Actor identity is client-supplied; real RBAC is future work.
-          </p>
-          <button onClick={() => loadAudit(null)} className="industrial-control bg-[var(--surface-panel)] w-full">
-            Load plant verification audit trail
-          </button>
-          {auditTrail.events.length > 0
-            ? <AuditTrailTimeline events={auditTrail.events} />
-            : <p className="caption-mono text-[var(--data-mono)] mt-2">No audit events loaded yet.</p>}
-        </WorkspacePanel>
-        <WorkspacePanel title="Published Build ID">
-          <ValueList values={sectionItems(sections, 'published_build_id').map((item) => item.build_id)} />
-        </WorkspacePanel>
-      </>
-    );
-  } else {
-    content = (
-      <>
-        <WorkspacePanel title="Single Safe Move">
-          <ValueList values={sectionItems(sections, 'single_safe_move').length ? sectionItems(sections, 'single_safe_move') : basis.operator_single_safe_move} status="status-safe" />
-        </WorkspacePanel>
-        <WorkspacePanel title="Operating Basis">
-          <ValueList values={[basis.abnormal_situation]} />
-        </WorkspacePanel>
-        <WorkspacePanel title="Do-Not-Trust">
-          <ValueList values={sectionItems(sections, 'do_not_trust').length ? sectionItems(sections, 'do_not_trust') : basis.do_not_trust} status="status-critical" />
-        </WorkspacePanel>
-        <WorkspacePanel title="Trusted Substitute">
-          <ValueList values={sectionItems(sections, 'trusted_substitute').length ? sectionItems(sections, 'trusted_substitute') : basis.trusted_substitutes} status="status-safe" />
-        </WorkspacePanel>
-        <WorkspacePanel title="Decision Freeze">
-          <ValueList values={sectionItems(sections, 'decision_freeze').length ? sectionItems(sections, 'decision_freeze') : basis.decision_freeze} status="text-[var(--frozen)]" />
-        </WorkspacePanel>
-        <WorkspacePanel title="Exit Condition">
-          <ValueList values={sectionItems(sections, 'exit_condition').length ? sectionItems(sections, 'exit_condition') : basis.exit_condition} />
-        </WorkspacePanel>
+        </DockSection>
+        <DockSection title="Published Build">
+          <ValueList values={[manifest?.published_build_id || manifest?.build_id || 'No published build id listed']} />
+        </DockSection>
       </>
     );
   }
 
   return (
-    <section className="industrial-panel border-t-0">
-      <div className="industrial-panel-header">
-        <div>
-          <p className="label-caps text-[var(--text-muted)]">{role}</p>
-          <h2 className="industrial-panel-title text-base">Operational Role Workspace</h2>
-        </div>
-      </div>
-      <div className="industrial-body space-y-[1px] bg-[var(--border-strong)]">
-        {content}
-      </div>
-    </section>
+    <>
+      <DockSection title="Single Safe Move" eyebrow="Operator Workspace">
+        <ValueList values={basis.operator_single_safe_move || basis.first_safe_action} empty="No single safe move required." status="status-safe" />
+      </DockSection>
+      <DockSection title="Do Not Trust">
+        <ValueList values={basis.do_not_trust} empty="No signal quarantined from operating basis." status="status-critical" />
+      </DockSection>
+      <DockSection title="Trusted Substitute">
+        <ValueList values={basis.trusted_substitutes} empty="No substitute required." status="status-safe" />
+      </DockSection>
+      <DockSection title="Decision Freeze">
+        <ValueList values={basis.decision_freeze} empty="No decision freeze active." status="status-warning" />
+      </DockSection>
+      <DockSection title="Exit Condition">
+        <ValueList values={basis.exit_condition} empty="No abnormal exit condition active." />
+      </DockSection>
+    </>
   );
 }
 
-function RuntimeHeader({ manifest, role, plantContext, connected, plantId }) {
-  const worst = manifest?.worst_trust_exception || {};
+function BottomStrip({ manifest, situations, handoverDebt, chartHistory }) {
+  const lead = situations?.[0] || {};
+  const score = decisionScore(lead);
+  const basisLines = buildBasisLines(manifest);
   return (
-    <div className="flex-shrink-0">
-      <PageIdentity
-        displayName={manifest.navigation?.name || 'Runtime Platform'}
-        level={2}
-        area={formatText(manifest.context || '')}
-        plant={plantId}
-      />
-      <div className="px-5 py-2 flex flex-wrap items-center gap-2 border-b border-[var(--border)] bg-[var(--bg-surface)]">
-        {worst.label && (
-          <span className={`industrial-badge ${statusClass(worst.trust_state)}`}>{worst.label}</span>
-        )}
-        <span className={`industrial-badge ${statusClass(manifest.validation_status)}`}>{manifest.validation_status}</span>
-        <span className="industrial-badge text-[var(--text-dim)]">build {String(manifest.build_id || '').slice(0, 8)}</span>
-        <span className="industrial-badge text-[var(--text-dim)]">
-          {manifest.runtime_source === 'published_build' ? 'published' : 'preview'} / {role}
-        </span>
+    <footer className="hmi-bottom-strip">
+      <section className="hmi-strip-cell">
+        <p className="label-caps text-[var(--text-muted)]">Embedded Trend</p>
+        <div className="h-[72px] mt-2 border border-[var(--border-strong)] bg-[var(--surface-highest)] relative overflow-hidden">
+          <svg viewBox="0 0 300 72" className="w-full h-full">
+            <polyline
+              fill="none"
+              stroke="#005aa0"
+              strokeWidth="2"
+              points={(chartHistory || []).slice(-24).map((point, index, arr) => {
+                const x = arr.length <= 1 ? 0 : (index / (arr.length - 1)) * 300;
+                const y = 70 - Math.max(0, Math.min(70, Number(point.measured || point.implied || 0)));
+                return `${x},${y}`;
+              }).join(' ')}
+            />
+          </svg>
+        </div>
+      </section>
+      <section className="hmi-strip-cell">
+        <p className="label-caps text-[var(--text-muted)]">Operating Basis Ledger</p>
+        {basisLines.slice(0, 3).map((line, index) => (
+          <p key={`${line.statement}-${index}`} className={`caption-mono mt-1 ${line.status === 'normal' ? 'status-safe' : 'status-warning'}`}>
+            {line.statement}
+          </p>
+        ))}
+      </section>
+      <section className="hmi-strip-cell">
+        <p className="label-caps text-[var(--text-muted)]">Interaction Compression Estimate</p>
+        <p className="text-[22px] leading-[26px] font-bold mt-1">{score.decision_compression}</p>
+        <p className="caption-mono text-[var(--text-muted)] mt-1">
+          raw {score.raw_signal_count} / suppressed {score.suppressed_alarm_count} / action {score.required_operator_action_count}
+        </p>
+        <p className={`caption-mono mt-1 ${(handoverDebt?.count || 0) ? 'status-warning' : 'status-safe'}`}>
+          unresolved handover debt: {handoverDebt?.count || 0}
+        </p>
+      </section>
+    </footer>
+  );
+}
+
+function PressureModeRuntime({ manifest, situations, confidence, connected, plantId, plantContext }) {
+  const lead = situations?.[0] || {};
+  const basis = manifest?.operating_basis || {};
+  const contract = lead.action_contract || {};
+  const collapse = lead.alarm_collapse_receipt || basis.alarm_collapse_receipt || lead.alarm_collapse || {};
+  const score = decisionScore(lead, confidence);
+
+  return (
+    <div className="industrial-page hmi-workplace hmi-pressure">
+      <HmiAlarmBand manifest={manifest} role="Operator" connected={connected} plantId={plantId} plantContext={plantContext} situation={lead} />
+      <div className="hmi-main-grid">
+        <section className="hmi-process-area">
+          <div className="hmi-process-header">
+            <div>
+              <p className="label-caps text-[var(--text-muted)]">Pressure Mode / Operating Basis Workflow</p>
+              <h1 className="m-0 text-[17px] leading-[20px] font-bold">{lead.title || basis.abnormal_situation || 'Abnormal situation'}</h1>
+            </div>
+            <span className="caption-mono status-warning">Grounded explanation disabled during active decision freeze.</span>
+          </div>
+          <div className="hmi-process-canvas p-5 grid grid-cols-1 lg:grid-cols-2 gap-3">
+            <div className="hmi-operation-note">
+              <p className="label-caps text-[var(--text-muted)]">Operator Single Safe Move</p>
+              <p className="text-[24px] leading-[30px] font-bold mt-2">
+                {formatText(basis.operator_single_safe_move || contract.first_safe_action || 'Verify locally before changing operation.')}
+              </p>
+            </div>
+            <div className="bg-[var(--surface-highest)] border border-[var(--border-strong)] p-4">
+              <p className="label-caps status-critical">Do Not Trust</p>
+              <ValueList values={basis.do_not_trust || contract.do_not_use} status="status-critical" />
+              <p className="label-caps status-safe mt-4">Trusted Substitute</p>
+              <ValueList values={basis.trusted_substitutes || contract.trusted_substitutes} status="status-safe" />
+            </div>
+            <div className="bg-[var(--surface-highest)] border border-[var(--border-strong)] p-4">
+              <p className="label-caps status-warning">Decision Freeze</p>
+              <ValueList values={basis.decision_freeze || contract.blocked_decisions} status="status-warning" />
+              <p className="label-caps text-[var(--text-muted)] mt-4">Exit Condition</p>
+              <ValueList values={basis.exit_condition || contract.exit_conditions} />
+            </div>
+            <div className="bg-[var(--surface-highest)] border border-[var(--border-strong)] p-4">
+              <p className="label-caps text-[var(--text-muted)]">Alarm Collapse Receipt</p>
+              <p className="caption-mono mt-2">Raw signals: {collapse.raw_signal_count ?? asList(lead.affected_sensors).length}</p>
+              <p className="caption-mono">Suppressed alarms: {collapse.suppressed_alarm_count ?? score.suppressed_alarm_count}</p>
+              <p className="caption-mono mt-2 font-semibold">{collapse.operator_question || 'Can the operator trust the primary indication before changing operation?'}</p>
+              <p className="caption-mono text-[var(--text-muted)] mt-2">{collapse.collapse_reason || 'Signals affect the same operating basis.'}</p>
+              <p className="label-caps text-[var(--text-muted)] mt-4">Interaction Compression</p>
+              <p className="text-[22px] font-bold">{score.decision_compression}</p>
+            </div>
+          </div>
+        </section>
+        <aside className="hmi-dock">
+          <DockSection title="Operating Basis" eyebrow="Pressure Mode">
+            <ValueList values={[basis.abnormal_situation || lead.title]} />
+          </DockSection>
+          <DockSection title="Required Operator Actions">
+            <ValueList values={[`${score.required_operator_action_count} action required`]} status="status-warning" />
+          </DockSection>
+          <DockSection title="Read-Only Boundary">
+            <p className="caption-mono text-[var(--text-muted)]">ConfidenceOS is a read-only trust-aware HMI layer beside existing DCS/HMI. It does not write commands, setpoints, or alarm acknowledgements.</p>
+          </DockSection>
+        </aside>
       </div>
     </div>
   );
@@ -1107,11 +683,13 @@ export default function RuntimePlatform() {
     plantId,
     role,
     plantContext,
+    readings,
     confidence,
     incidents,
     handoverDebt,
     confidenceDebt,
     verificationTasks,
+    chartHistory,
   } = storeState;
   const [manifest, setManifest] = useState(null);
   const [selected, setSelected] = useState('');
@@ -1146,13 +724,8 @@ export default function RuntimePlatform() {
     [faceplates, selected],
   );
   const situations = useMemo(
-    () => (manifest?.situations?.length ? manifest.situations : incidents),
+    () => (manifest?.situations?.length ? manifest.situations : incidents || []),
     [manifest, incidents],
-  );
-  const basisLines = useMemo(() => buildBasisLines(manifest), [manifest]);
-  const trustMap = useMemo(
-    () => computeTrustMap(manifest, { ...storeState, incidents, handoverDebt }),
-    [manifest, storeState, incidents, handoverDebt],
   );
   const pressureContext = manifest?.stress_mode
     || ['WARNING', 'CRITICAL'].includes(String(plantContext?.severity || '').toUpperCase())
@@ -1162,91 +735,68 @@ export default function RuntimePlatform() {
   if (!manifest) {
     return (
       <div className="industrial-page p-8">
-        <p className="caption-mono text-[var(--data-mono)]">
-          Loading published Runtime manifest from compiler build, asset model, and reusable templates...
-        </p>
+        <p className="caption-mono text-[var(--data-mono)]">Loading published Runtime manifest from compiler build, asset model, and reusable templates...</p>
       </div>
     );
   }
 
   if (stressMode) {
-    return <PressureModeRuntime manifest={manifest} situations={situations} confidence={confidence} />;
+    return (
+      <PressureModeRuntime
+        manifest={manifest}
+        situations={situations}
+        confidence={confidence}
+        connected={connected}
+        plantId={plantId}
+        plantContext={plantContext}
+      />
+    );
   }
 
   return (
     <div className="industrial-page flex flex-col overflow-hidden">
       <PriorityBand />
-      <div className="flex-1 min-h-0 grid grid-cols-[340px_1fr_390px] gap-[1px] bg-[var(--border-strong)] overflow-hidden">
-      <TrustMapNavigation
-        navigation={manifest.navigation}
-        faceplates={faceplates}
-        selected={selectedFaceplate?.equipment_id || selected}
-        onSelect={setSelected}
-        trustMap={trustMap}
-      />
-      <main className="bg-[var(--surface-base)] flex flex-col overflow-hidden">
-        <RuntimeHeader manifest={manifest} role={role} plantContext={plantContext} connected={connected} plantId={plantId} />
-        <div className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin p-[1px]">
-        <SituationWorkspace situations={situations} basis={manifest.operating_basis} confidence={confidence} />
-        <OperatingBasisLedger basisLines={basisLines} />
-        <ProcessTrustMimic mimic={manifest.process_mimic} />
-        <TrustRubricPanel receipts={manifest.trust_rubric_receipts} selectedFaceplate={selectedFaceplate} />
-        <section className="industrial-panel">
-          <div className="industrial-panel-header">
-            <div>
-              <p className="label-caps text-[var(--text-muted)]">Generated From Template</p>
-              <h2 className="industrial-panel-title text-base">Generated Faceplates</h2>
-            </div>
-            <span className="industrial-badge text-[var(--data-mono)]">{faceplates.length}</span>
-          </div>
-          <div className="industrial-body grid grid-cols-1 xl:grid-cols-2 gap-[1px] bg-[var(--border-strong)]">
-            {faceplates.map((faceplate) => (
-              <GeneratedFaceplate
-                key={faceplate.equipment_id}
-                faceplate={faceplate}
-                selected={selectedFaceplate?.equipment_id === faceplate.equipment_id}
-                onSelect={setSelected}
-              />
-            ))}
-          </div>
-        </section>
-        <DemoPathStrip />
+      <div className="hmi-workplace flex-1">
+        <HmiAlarmBand manifest={manifest} role={role} connected={connected} plantId={plantId} plantContext={plantContext} situation={situations[0]} />
+        <div className="hmi-main-grid">
+          <TrustMapEdgeNav
+            navigation={manifest.navigation}
+            faceplates={faceplates}
+            selectedId={selectedFaceplate?.equipment_id}
+            onSelect={setSelected}
+            situations={situations}
+            handoverDebt={handoverDebt}
+          />
+          <ProcessCanvas
+            manifest={manifest}
+            faceplates={faceplates}
+            readings={readings}
+            confidence={confidence}
+            onSelect={setSelected}
+          />
+          <aside className="hmi-dock">
+            <DockSection title={selectedFaceplate?.title || selectedFaceplate?.equipment_id || 'Generated Faceplate'} eyebrow="Fixed Faceplate Dock">
+              {selectedFaceplate ? (
+                <GeneratedFaceplate faceplate={selectedFaceplate} readings={readings} confidence={confidence} />
+              ) : (
+                <p className="caption-mono text-[var(--text-muted)]">No generated faceplate selected.</p>
+              )}
+            </DockSection>
+            <RoleDock
+              manifest={manifest}
+              selectedFaceplate={selectedFaceplate}
+              confidenceDebt={confidenceDebt}
+              handoverDebt={handoverDebt}
+              verificationTasks={verificationTasks}
+              plantId={plantId}
+            />
+            <DockSection title="Support Level" eyebrow="Level 4 Details">
+              <p className="caption-mono text-[var(--text-muted)]">Screen receipts, assumptions, sensitivity, and audit views are support-level information.</p>
+              <Link to="/studio" className="industrial-control inline-flex mt-2">Open Studio</Link>
+            </DockSection>
+          </aside>
         </div>
-      </main>
-      <aside className="bg-[var(--surface-panel)] overflow-y-auto overflow-x-hidden scrollbar-thin">
-        <section className="industrial-panel border-t-0">
-          <div className="industrial-panel-header">
-            <div>
-              <p className="label-caps text-[var(--text-muted)]">Selected Generated Faceplate</p>
-              <h2 className="industrial-panel-title text-base">{selectedFaceplate?.title || selected}</h2>
-            </div>
-          </div>
-          <div className="industrial-body">
-            {selectedFaceplate ? (
-              <GeneratedFaceplate faceplate={selectedFaceplate} selected onSelect={setSelected} />
-            ) : (
-              <p className="caption-mono text-[var(--data-mono)]">No generated faceplate selected.</p>
-            )}
-          </div>
-        </section>
-        <RoleWorkspace manifest={manifest} confidenceDebt={confidenceDebt} handoverDebt={handoverDebt} verificationTasks={verificationTasks} />
-        <section className="industrial-panel border-t-0">
-          <div className="industrial-panel-header">
-            <h2 className="industrial-panel-title text-base">Unresolved Handover Debt</h2>
-          </div>
-          <div className="industrial-body">
-            {(handoverDebt?.entries || []).slice(0, 4).map((item, index) => (
-              <p key={`${item.type || 'debt'}-${item.sensor_id || item.incident_id || item.decision_id || index}`} className="caption-mono text-[var(--data-mono)] mb-2">
-                {formatText(item.type)}: {item.sensor_id || item.incident_id || item.decision_id || item.description || 'handover required'}
-              </p>
-            ))}
-            {!(handoverDebt?.entries || []).length && (
-              <p className="caption-mono status-safe">No unresolved handover debt reported by live Runtime.</p>
-            )}
-          </div>
-        </section>
-        <ScreenReceipts manifest={manifest} selectedFaceplate={selectedFaceplate} />
-      </aside>
+        <BottomStrip manifest={manifest} situations={situations} handoverDebt={handoverDebt} chartHistory={chartHistory} />
       </div>
     </div>
   );
