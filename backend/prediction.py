@@ -29,6 +29,8 @@ def predict_sensor(confidence_history: list[dict]) -> dict:
         return {
             "model_type": "insufficient_data",
             "model_fit": "insufficient",
+            "forecast_status": "insufficient_history",
+            "sample_count": len(confidence_history),
             "time_to_low_hours": None,
             "time_to_critical_hours": None,
             "range_low": None,
@@ -69,6 +71,8 @@ def predict_sensor(confidence_history: list[dict]) -> dict:
         return {
             "model_type": "insufficient_data",
             "model_fit": "insufficient",
+            "forecast_status": "insufficient_history",
+            "sample_count": len(timestamps),
             "time_to_low_hours": None,
             "time_to_critical_hours": None,
             "range_low": None,
@@ -100,6 +104,8 @@ def predict_sensor(confidence_history: list[dict]) -> dict:
         return {
             "model_type": "error",
             "model_fit": "insufficient",
+            "forecast_status": "model_error",
+            "sample_count": len(timestamps),
             "time_to_low_hours": None,
             "time_to_critical_hours": None,
             "range_low": None,
@@ -197,9 +203,13 @@ def predict_sensor(confidence_history: list[dict]) -> dict:
         current_confidence, time_to_low, time_to_critical, primary_driver
     )
 
+    forecast_status = "active_degradation" if slope < -0.01 and (time_to_low is not None or time_to_critical is not None) else "flat_or_no_degradation"
+
     return {
         "model_type": model_type,
         "model_fit": model_fit,
+        "forecast_status": forecast_status,
+        "sample_count": len(timestamps),
         "slope_per_hour": round(slope, 3),
         "r_squared": round(r_squared, 3),
         "time_to_low_hours": time_to_low,

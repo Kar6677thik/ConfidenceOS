@@ -239,6 +239,7 @@ button:disabled { cursor: not-allowed; }
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  flex-wrap: wrap;
   min-height: 48px;
   padding: 12px 20px;
   background: var(--bg-low);
@@ -251,7 +252,17 @@ button:disabled { cursor: not-allowed; }
   line-height: 24px;
   font-weight: 600;
   min-width: 0;
-  overflow-wrap: anywhere;
+  word-break: normal;
+  overflow-wrap: break-word;
+  white-space: normal;
+}
+
+.industrial-panel-header > div {
+  min-width: 180px;
+}
+
+.industrial-panel-header .industrial-control {
+  white-space: nowrap;
 }
 
 .industrial-body { padding: 20px; }

@@ -22,6 +22,14 @@ function ConfidenceBadge({ conf }) {
   );
 }
 
+function forecastLabel(pred) {
+  const status = pred.forecast_status || pred.model_fit;
+  if (status === 'insufficient_history') return `Collecting history (${pred.sample_count || 0} samples)`;
+  if (status === 'flat_or_no_degradation') return 'No active degradation trend';
+  if (status === 'model_error') return 'Forecast model unavailable';
+  return pred.model_type || 'deterministic trend';
+}
+
 export default function PredictiveTimeline() {
   const { plantId, predictions, predictionsLoading, fetchPredictions } = useStore();
 
@@ -108,7 +116,7 @@ export default function PredictiveTimeline() {
                           {pred.sensor_id}
                         </p>
                         <p className="caption-mono text-[10px] text-[var(--text-muted)]">
-                          {pred.model_type || '-'}
+                          {forecastLabel(pred)}
                         </p>
                       </div>
                     </div>
@@ -117,9 +125,12 @@ export default function PredictiveTimeline() {
                   {/* Track */}
                   <div className="flex-1 relative py-3 px-2 flex items-center">
                     <div className="absolute left-2 right-2 h-2 bg-[var(--bg-elevated)]/30 rounded-full top-1/2 -translate-y-1/2" />
-                    {/* Stable portion */}
+                    {/* Forecast/status portion */}
                     <div className="absolute left-0 h-2 rounded-l-full top-1/2 -translate-y-1/2 transition-all"
-                      style={{ width: `${(low / WINDOW_HOURS) * 100}%`, background: color }}
+                      style={{
+                        width: pred.time_to_low_hours != null ? `${(low / WINDOW_HOURS) * 100}%` : '100%',
+                        background: pred.time_to_low_hours != null ? color : 'var(--border)',
+                      }}
                     />
                     {/* Probability corridor */}
                     {pred.time_to_low_hours != null && (
@@ -166,6 +177,16 @@ export default function PredictiveTimeline() {
               </h2>
             </div>
             <div className="p-4 space-y-3">
+              {rows.filter((pred) => !pred.time_to_low_hours && !pred.time_to_critical_hours).slice(0, 3).map((pred) => (
+                <div key={`${pred.sensor_id}-flat`} className="industrial-card p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="font-data text-[13px] text-[var(--text)]">{pred.sensor_id}</p>
+                    <ConfidenceBadge conf={pred.current_confidence} />
+                  </div>
+                  <p className="caption-mono text-[var(--data-mono)] mt-1">{forecastLabel(pred)}</p>
+                  <p className="caption-mono text-[var(--text-muted)] mt-1">{pred.recommended_action || pred.action}</p>
+                </div>
+              ))}
               {actionQueue.map((pred) => {
                 const hours = pred.time_to_critical_hours ?? pred.time_to_low_hours;
                 const isCrit = pred.time_to_critical_hours != null && pred.time_to_critical_hours < 4;
@@ -206,7 +227,7 @@ export default function PredictiveTimeline() {
               })}
               {actionQueue.length === 0 && (
                 <p className="caption-mono text-[var(--text-muted)] text-[12px]">
-                  No sensors forecast to cross a lower trust tier.
+                  No sensors forecast to cross a lower trust tier. The panel shows deterministic confidence trend status, not predictive failure.
                 </p>
               )}
             </div>

@@ -641,7 +641,7 @@ def _derive_trust_states(confidence: list[dict], readings: list[dict], mass_bala
         quarantine_relationship_id = None
 
         if not reading_available:
-            trust_state = "UNAVAILABLE"
+            trust_state = "NO_LIVE_SAMPLE"
             trust_reason = "No current reading is available for this tag."
             decision_basis_allowed = False
         elif sensor_id == validated_tag and level_quarantined:
@@ -1845,7 +1845,14 @@ def get_fleet_history(hours: float = Query(default=24.0), db: Session = Depends(
             point[plant_id] = round(sum(values) / len(values), 1) if values else None
         trend.append(point)
 
-    return {"hours": hours, "trend": trend}
+    return {
+        "hours": hours,
+        "bucket_minutes": bucket_minutes,
+        "sample_count": len(rows),
+        "source": "confidence_logs",
+        "status": "active" if trend else "insufficient_history",
+        "trend": trend,
+    }
 
 
 # ─── Confidence Degradation Forecast (Module 7) ──────────────────────────────
@@ -2452,6 +2459,12 @@ def run_sandbox(request: SandboxRequest):
         selected_confidence = next((cr for cr in confidence_payload if cr["sensor_id"] == request.sensor_id), None)
 
         if selected_confidence and selected_reading:
+            _apply_sandbox_confidence_degradation(
+                selected_confidence,
+                request.failure_mode,
+                request.severity,
+                time_hours,
+            )
             results.append({
                 "time_hours": round(time_hours, 2),
                 "reading": selected_reading,
@@ -2478,6 +2491,29 @@ def run_sandbox(request: SandboxRequest):
         "sample_count": len(results),
         "results": results,
     }
+
+
+def _apply_sandbox_confidence_degradation(confidence: dict, failure_mode: str, severity: str, time_hours: float) -> None:
+    """Make sandbox trust trajectories visible without touching live confidence state."""
+    factor = {"mild": 0.7, "moderate": 1.0, "severe": 1.45}.get(severity, 1.0)
+    mode_factor = {
+        "calibration_drift": ("calibration", 6.0),
+        "stuck_reading": ("stability", 7.5),
+        "sg_mismatch": ("physical_plausibility", 8.0),
+        "command_state_decoupling": ("cross_sensor", 7.0),
+    }.get(failure_mode, ("stability", 4.0))
+    factor_name, rate = mode_factor
+    penalty = min(75.0, time_hours * rate * factor)
+    baseline = float(confidence.get("confidence_pct", 100.0))
+    adjusted = max(0.0, baseline - penalty)
+    confidence["confidence_pct"] = round(adjusted, 1)
+    confidence["tier"] = "HIGH" if adjusted >= 80 else "MEDIUM" if adjusted >= 50 else "LOW" if adjusted >= 20 else "CRITICAL"
+    sub_scores = dict(confidence.get("sub_scores") or {})
+    current_score = float(sub_scores.get(factor_name, 1.0))
+    sub_scores[factor_name] = round(max(0.0, min(1.0, current_score - penalty / 100.0)), 3)
+    confidence["sub_scores"] = sub_scores
+    confidence["dominant_factor"] = factor_name
+    confidence["recommended_action"] = "Sandbox-only confidence degradation: verify the affected evidence path before using this signal as an operating basis."
 
 
 # ─── Health check ────────────────────────────────────────────────────────────

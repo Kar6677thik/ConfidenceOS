@@ -11,6 +11,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import useStore from '../store';
 import SensorCard from '../components/SensorCard';
 import MassBalanceChart from '../components/MassBalanceChart';
@@ -298,6 +299,8 @@ function StressModeLayout({
 
 // -- Secondary Runtime Support View --
 export default function OperatorDashboard() {
+  const navigate = useNavigate();
+  const [railMessage, setRailMessage] = useState('');
   const {
     connect,
     connected,
@@ -332,6 +335,13 @@ export default function OperatorDashboard() {
     return new Date().toLocaleTimeString();
   }, [readings]);
 
+  const railActions = [
+    { id: 'RT', label: 'RT', title: 'Open primary Runtime', action: () => navigate('/runtime') },
+    { id: 'GR', label: 'GR', title: 'Grounded Operator Explanation', action: () => document.getElementById('grounded-explanation-panel')?.scrollIntoView({ block: 'start' }) },
+    { id: 'SB', label: 'SB', title: 'Shift Channel', action: () => navigate('/handover') },
+    { id: 'SG', label: 'SG', title: 'Signal Graph', action: () => navigate('/graph') },
+  ];
+
   return (
     <div className="industrial-page flex flex-col overflow-hidden">
       {/* Startup mode banner */}
@@ -350,14 +360,22 @@ export default function OperatorDashboard() {
         {/* -- Left Rail (Static layout helper buttons) -- */}
         <aside className="w-12 bg-[var(--bg-low)] border-r border-[var(--border)] flex flex-col justify-between items-center py-4 shrink-0">
           <div className="flex flex-col gap-4">
-            {['TL', 'GR', 'SB', 'SG'].map((item, i) => (
-              <button key={item} className={`w-8 h-8 rounded flex items-center justify-center font-bold text-[11px] caption-mono border border-[var(--border)] hover:bg-[var(--bg-elevated)]
+            {railActions.map((item, i) => (
+              <button
+                key={item.id}
+                type="button"
+                title={item.title}
+                onClick={item.action}
+                className={`w-8 h-8 rounded flex items-center justify-center font-bold text-[11px] caption-mono border border-[var(--border)] hover:bg-[var(--bg-elevated)]
                 ${i === 0 ? 'bg-[var(--bg-elevated)] text-[var(--primary)] border-[var(--primary)]/40' : 'text-[var(--text-muted)]'}`}>
-                {item}
+                {item.label}
               </button>
             ))}
           </div>
-          <div className="flex flex-col gap-2">
+          <div
+            className="flex flex-col gap-2"
+            onClick={() => setRailMessage('Operator support controls are read-only. Use RT, GR, SB, and SG for active navigation. Configuration changes are made in Studio.')}
+          >
             <button className="w-8 h-8 rounded flex items-center justify-center text-[12px] text-[var(--text-muted)] border border-[var(--border)] hover:bg-[var(--bg-elevated)]">⚙</button>
             <button className="w-8 h-8 rounded flex items-center justify-center text-[12px] text-[var(--text-muted)] border border-[var(--border)] hover:bg-[var(--bg-elevated)]">?</button>
           </div>
@@ -378,6 +396,12 @@ export default function OperatorDashboard() {
             </span>
           </div>
           <div className="flex-1 overflow-y-auto scrollbar-thin overflow-x-hidden p-4 gap-4 flex flex-col">
+          {railMessage && (
+            <div className="industrial-card p-3 caption-mono text-[var(--data-mono)] flex items-center justify-between gap-3">
+              <span>{railMessage}</span>
+              <button type="button" onClick={() => setRailMessage('')} className="industrial-control text-[var(--text-muted)]">Dismiss</button>
+            </div>
+          )}
 
           {isStressMode ? (
             <StressModeLayout
@@ -445,9 +469,9 @@ export default function OperatorDashboard() {
         <aside className="w-80 xl:w-96 bg-[var(--bg-surface)] border-l border-[var(--border)] flex flex-col overflow-y-auto scrollbar-thin shrink-0 p-4 gap-4">
           
           {/* Query assistant */}
-          <div className="industrial-card p-0 overflow-hidden shrink-0">
+          <div id="grounded-explanation-panel" className="industrial-card p-0 overflow-hidden shrink-0">
             <div className="industrial-card-header px-4 py-3 border-b border-[var(--border)]">
-              <span className="text-[14px] font-semibold text-[var(--text)]">Advisory Assistant</span>
+              <span className="text-[14px] font-semibold text-[var(--text)]">Grounded Operator Explanation</span>
             </div>
             <div className="h-[380px]">
               <QueryPanel />

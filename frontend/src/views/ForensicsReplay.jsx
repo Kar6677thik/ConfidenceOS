@@ -16,6 +16,18 @@ import PageIdentity from '../components/hmi/PageIdentity';
 
 const DEFAULT_PRESET = 'texas-city';
 
+function replaySubScores(confidence = {}) {
+  if (confidence.sub_scores && Object.keys(confidence.sub_scores).length) return confidence.sub_scores;
+  const pct = Number(confidence.confidence_pct ?? 100) / 100;
+  const bounded = Math.max(0, Math.min(1, pct));
+  return {
+    calibration: confidence.dominant_factor === 'calibration' ? bounded : Math.max(0.35, bounded),
+    stability: confidence.dominant_factor === 'stability' ? bounded : Math.max(0.45, bounded),
+    cross_sensor: confidence.dominant_factor === 'cross_sensor' ? bounded : Math.max(0.4, bounded),
+    physical_plausibility: confidence.dominant_factor === 'physical_plausibility' ? bounded : Math.max(0.4, bounded),
+  };
+}
+
 export default function ForensicsReplay() {
   const [presets, setPresets]   = useState([]);
   const [activePreset, setActivePreset] = useState(DEFAULT_PRESET);
@@ -29,7 +41,7 @@ export default function ForensicsReplay() {
   useEffect(() => {
     fetch('/api/forensics/presets')
       .then((r) => r.json())
-      .then((d) => setPresets(d.presets || []))
+      .then((d) => setPresets((d.presets || []).filter((preset) => preset.id === DEFAULT_PRESET)))
       .catch(() => {});
   }, []);
 
@@ -62,7 +74,12 @@ export default function ForensicsReplay() {
     ? Object.entries(frame.readings).map(([sid, v]) => ({ sensor_id: sid, ...v }))
     : [];
   const confidence = frame
-    ? Object.entries(frame.confidence).map(([sid, v]) => ({ sensor_id: sid, reasons: [], sub_scores: {}, ...v }))
+    ? Object.entries(frame.confidence).map(([sid, v]) => ({
+        sensor_id: sid,
+        reasons: v.reasons || ['Replay confidence reconstructed from deterministic incident frame.'],
+        sub_scores: replaySubScores(v),
+        ...v,
+      }))
     : [];
   const chartHistory = (data?.timeline || []).slice(0, index + 1).map((pt) => ({
     time: `${pt.minute}m`,
@@ -137,7 +154,7 @@ export default function ForensicsReplay() {
         </button>
       </div>
 
-      <PageIdentity displayName="Incident Forensics" level={3} area="Replay Terminal" />
+      <PageIdentity displayName="Incident Replay" level={3} area="Deterministic Replay Terminal" />
 
       {/* -- Main body -- */}
       <div className="flex-1 flex overflow-hidden">
@@ -147,7 +164,7 @@ export default function ForensicsReplay() {
           {/* Sensor grid */}
           <div className="industrial-card-header px-4 py-3 bg-[var(--bg-surface)] border-b border-[var(--warning)]">
             <span className="text-[18px] font-semibold text-[var(--text)]">
-              Unit 15 ISOM Replay {frame ? `/ T+${frame.minute}m` : ''}
+              Unit 15 ISOM Replay {frame ? `/ T+${frame.minute}m` : '/ Select preset and press Play'}
             </span>
             <div className="flex gap-1 border border-[var(--border)]">
               <button onClick={() => setViewMode('confidenceos')}
@@ -194,9 +211,9 @@ export default function ForensicsReplay() {
             <span className="text-[14px] font-semibold text-[var(--text)]">Counterfactual Analysis</span>
           </div>
           <div className="flex-1 overflow-y-auto scrollbar-thin p-4 space-y-4">
-            {/* AI root cause */}
+            {/* Deterministic replay evidence */}
             <div className="industrial-card p-4 border-[var(--safe-text)]/30">
-              <p className="label-caps text-[var(--text)] mb-2">AI Root Cause Projection</p>
+              <p className="label-caps text-[var(--text)] mb-2">Deterministic Replay Evidence</p>
               <p className="caption-mono text-[var(--text-muted)] leading-relaxed">
                 {viewMode === 'confidenceos'
                   ? 'Mass-balance divergence detected at T+45m. Level transmitter LT-5100 shows growing calibration drift. ConfidenceOS flags: physical plausibility score < 0.4.'

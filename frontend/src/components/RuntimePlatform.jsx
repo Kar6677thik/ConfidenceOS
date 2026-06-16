@@ -18,15 +18,16 @@ function asList(value) {
 function statusClass(value) {
   const status = String(value || '').toUpperCase();
   if (['CRITICAL', 'BLOCKING', 'LOW', 'QUARANTINED', 'UNAVAILABLE', 'FAILED'].includes(status)) return 'status-critical';
-  if (['WARNING', 'PASS_WITH_WARNINGS', 'DEGRADED', 'MEDIUM'].includes(status)) return 'status-warning';
+  if (['WARNING', 'PASS_WITH_WARNINGS', 'PUBLISHED_WITH_WARNINGS', 'DEGRADED', 'MEDIUM', 'NOT_PUBLISHED', 'NO_CONFIDENCE_RESULT'].includes(status)) return 'status-warning';
   if (['SUBSTITUTED', 'TRUSTED', 'HIGH', 'PASS', 'PUBLISHED'].includes(status)) return 'status-safe';
+  if (['NO_LIVE_SAMPLE', 'NOT_BOUND', 'RUNTIME_FALLBACK'].includes(status)) return 'text-[var(--data-mono)]';
   return 'text-[var(--text-muted)]';
 }
 
 function priorityTier(value) {
   const status = String(value || '').toUpperCase();
   if (['CRITICAL', 'LOW', 'QUARANTINED', 'UNAVAILABLE', 'BLOCKING'].includes(status)) return 'p1';
-  if (['WARNING', 'MEDIUM', 'DEGRADED'].includes(status)) return 'p2';
+  if (['WARNING', 'MEDIUM', 'DEGRADED', 'NOT_PUBLISHED', 'NO_CONFIDENCE_RESULT'].includes(status)) return 'p2';
   if (status === 'SUBSTITUTED') return 'p3';
   return 'normal';
 }
@@ -38,7 +39,7 @@ function confidenceValue(confidence) {
 
 function signalTrustState(signal) {
   const confidence = signal?.confidence || {};
-  const tier = signal?.trust_state || confidence.trust_state || confidence.tier || confidence.state || 'TRUSTED';
+  const tier = signal?.trust_state || confidence.trust_state || confidence.tier || confidence.state || 'NO_LIVE_SAMPLE';
   const pct = confidenceValue(confidence);
   return { tier: String(tier).toUpperCase(), pct };
 }
@@ -53,7 +54,7 @@ function liveSignal(faceplateSignal, readings, confidence) {
     value: reading.value ?? faceplateSignal?.value ?? '--',
     unit: reading.unit || faceplateSignal?.unit || '',
     confidence: conf,
-    trust_state: faceplateSignal?.trust_state || conf.trust_state || conf.tier || 'TRUSTED',
+    trust_state: faceplateSignal?.trust_state || conf.trust_state || conf.tier || (reading.sensor_id || reading.tag ? 'NO_CONFIDENCE_RESULT' : 'NO_LIVE_SAMPLE'),
   };
 }
 
@@ -144,7 +145,9 @@ function HmiAlarmBand({ manifest, role, connected, plantId, plantContext, situat
   const basis = manifest?.operating_basis || {};
   const lead = situation || {};
   const trust = manifest?.worst_trust_exception || {};
-  const isCritical = ['CRITICAL', 'QUARANTINED', 'LOW'].includes(String(trust.trust_state || lead.severity || '').toUpperCase());
+  const isCritical = ['CRITICAL', 'QUARANTINED', 'LOW', 'FAILED'].includes(String(trust.trust_state || lead.severity || '').toUpperCase());
+  const runtimeStatus = manifest?.runtime_publish_state || manifest?.validation_status || 'LIVE';
+  const buildLabel = manifest?.published_build_id || manifest?.build_id || 'unpublished';
 
   return (
     <div className="hmi-alarm-band">
@@ -162,8 +165,8 @@ function HmiAlarmBand({ manifest, role, connected, plantId, plantContext, situat
         <span className="caption-mono text-[var(--text-muted)] truncate">
           {manifest?.navigation?.name || plantId} / {formatText(manifest?.context || plantContext?.status || 'live')}
         </span>
-        <span className={`caption-mono ${statusClass(manifest?.validation_status)}`}>{manifest?.validation_status || 'LIVE'}</span>
-        <span className="caption-mono text-[var(--text-dim)]">build {String(manifest?.build_id || 'unpublished').slice(0, 14)}</span>
+        <span className={`caption-mono ${statusClass(runtimeStatus)}`}>{formatText(runtimeStatus)}</span>
+        <span className="caption-mono text-[var(--text-dim)]">build {String(buildLabel).slice(0, 18)}</span>
       </div>
       <div className="hmi-band-cell justify-end">
         <span className="caption-mono">{role}</span>
@@ -574,7 +577,11 @@ function BottomStrip({ manifest, situations, handoverDebt, chartHistory }) {
       <section className="hmi-strip-cell">
         <p className="label-caps text-[var(--text-muted)]">Embedded Trend</p>
         <div className="h-[72px] mt-2 border border-[var(--border-strong)] bg-[var(--surface-highest)] relative overflow-hidden">
+          <span className="absolute left-1 top-1 caption-mono text-[9px] text-[var(--text-muted)]">level</span>
+          <span className="absolute right-1 bottom-1 caption-mono text-[9px] text-[var(--text-muted)]">latest samples</span>
           <svg viewBox="0 0 300 72" className="w-full h-full">
+            <line x1="0" y1="12" x2="300" y2="12" stroke="#9a9a9a" strokeWidth="0.5" strokeDasharray="3 3" />
+            <line x1="0" y1="60" x2="300" y2="60" stroke="#9a9a9a" strokeWidth="0.5" strokeDasharray="3 3" />
             <polyline
               fill="none"
               stroke="#005aa0"
@@ -859,6 +866,12 @@ export default function RuntimePlatform() {
             onSelect={setSelected}
           />
           <aside className="hmi-dock">
+            {manifest.runtime_notice && (
+              <DockSection title="Runtime Publish State" eyebrow="Compiler Boundary">
+                <p className="caption-mono status-warning">{manifest.runtime_notice}</p>
+                <Link to="/studio" className="industrial-control inline-flex mt-2">Open Studio</Link>
+              </DockSection>
+            )}
             <DockSection title={selectedFaceplate?.title || selectedFaceplate?.equipment_id || 'Generated Faceplate'} eyebrow="Fixed Faceplate Dock">
               {selectedFaceplate ? (
                 <GeneratedFaceplate faceplate={selectedFaceplate} readings={readings} confidence={confidence} />

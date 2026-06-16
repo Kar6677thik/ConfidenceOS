@@ -255,14 +255,19 @@ def runtime_manifest(role: str = "Operator", context: str = "auto", live_state: 
     last_build = state.get("last_build") or {}
     build_validation = last_build.get("validation") if last_build.get("build_id") == published_build_id else None
     build_receipts = last_build.get("receipts") if last_build.get("build_id") == published_build_id else None
+    has_published_runtime = bool(published and published_build_id)
+    published_status = published.get("validation_status") or (
+        last_build.get("status") if last_build.get("build_id") == published_build_id else None
+    )
+    runtime_status = _runtime_status_from_build(published_status, has_published_runtime)
     build_context = {
-        "build_id": published.get("build_id") or published_build_id or "runtime-ad-hoc",
-        "validation_status": published.get("validation_status") or last_build.get("status") or "PASS_WITH_WARNINGS",
+        "build_id": published.get("build_id") or published_build_id or "runtime-not-published",
+        "validation_status": runtime_status,
         "validation": build_validation or published.get("validation") or validate_assignments(state.get("assignments", [])),
         "receipts": build_receipts or published.get("receipts") or published.get("provenance", {}).get("receipts", []),
         "source_tags": published.get("provenance", {}).get("source_tags", []),
         "published_build_id": published_build_id,
-        "runtime_source": "published_build" if published else "ad_hoc_generation",
+        "runtime_source": "published_build" if has_published_runtime else "not_published_runtime_preview",
         "template_mutations": state.get("template_mutations", {}),
     }
     manifest = generate_screen_manifest(
@@ -277,7 +282,20 @@ def runtime_manifest(role: str = "Operator", context: str = "auto", live_state: 
         "published_build_id": published_build_id,
         "published_revision": state.get("published_revision"),
         "runtime_source": build_context["runtime_source"],
+        "runtime_publish_state": runtime_status,
+        "runtime_notice": None if has_published_runtime else "No published Runtime exists for the active asset model. Publish a passing Studio build before using this as the primary operator view.",
     }
+
+
+def _runtime_status_from_build(status: str | None, has_published_runtime: bool) -> str:
+    if not has_published_runtime:
+        return "NOT_PUBLISHED"
+    normalized = str(status or "PASS_WITH_WARNINGS").upper()
+    if normalized == "PASS":
+        return "PUBLISHED"
+    if normalized in {"PASS_WITH_WARNINGS", "WARNING", "WARNINGS"}:
+        return "PUBLISHED_WITH_WARNINGS"
+    return "PUBLISHED_WITH_WARNINGS"
 
 
 def publish() -> dict:

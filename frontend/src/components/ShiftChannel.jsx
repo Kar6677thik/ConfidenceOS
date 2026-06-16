@@ -17,11 +17,22 @@ function severityClass(value) {
   return 'text-[var(--data-mono)]';
 }
 
+function relativeExpiry(task) {
+  const value = task?.valid_until || task?.valid_until_iso;
+  if (!value) return 'no expiry recorded';
+  const ts = typeof value === 'number' ? value * 1000 : Date.parse(value);
+  if (!Number.isFinite(ts)) return 'expiry unavailable';
+  const diffMinutes = Math.round((ts - Date.now()) / 60000);
+  if (diffMinutes >= 0) return `active for ${diffMinutes} min`;
+  return `expired ${Math.abs(diffMinutes)} min ago`;
+}
+
 export default function ShiftChannel() {
   const { plantId } = useStore();
   const [channel, setChannel] = useState(null);
   const [message, setMessage] = useState('');
   const [author, setAuthor] = useState('Operator');
+  const [showClosedTasks, setShowClosedTasks] = useState(false);
   const verificationTasks = channel?.verification_tasks || [];
   const activeTasks = verificationTasks.filter((item) => item.active || item.handover_required);
   const closedTasks = verificationTasks.filter((item) => !item.active && !item.handover_required);
@@ -114,6 +125,7 @@ export default function ShiftChannel() {
                   <StatusTag tier="LOW" label={task.state} />
                 </div>
                 <p className="caption-mono text-[var(--data-mono)] mt-1">{task.verification_method}</p>
+                <p className="caption-mono text-[var(--text-muted)] mt-1">{relativeExpiry(task)}</p>
                 <p className="caption-mono text-[var(--text)] mt-1">{(task.evidence_required || []).join(' / ')}</p>
                 {!!task.last_evidence_summary && (
                   <p className="caption-mono text-[var(--text-muted)] mt-1">evidence: {task.last_evidence_summary}</p>
@@ -132,18 +144,29 @@ export default function ShiftChannel() {
         {/* 3. Closed history — de-emphasized (static layer) */}
         <section className="industrial-panel border-t-0">
           <div className="industrial-panel-header">
-            <h2 className="industrial-panel-title text-base text-[var(--text-muted)]">Verification History</h2>
-            <span className="industrial-badge text-[var(--text-dim)]">{closedTasks.length}</span>
+            <h2 className="industrial-panel-title text-base text-[var(--text-muted)]">Closed Verification History</h2>
+            <button
+              type="button"
+              onClick={() => setShowClosedTasks((value) => !value)}
+              className="industrial-control text-[var(--data-mono)]"
+            >
+              {showClosedTasks ? 'Hide' : `Show ${closedTasks.length}`}
+            </button>
           </div>
-          <div className="industrial-body space-y-[1px] bg-[var(--border-strong)]">
+          <div className="industrial-body">
+            <p className="caption-mono text-[var(--data-mono)]">
+              Closed and expired tasks are audit history. They do not restore confidence and do not block handover unless listed above.
+            </p>
+            {showClosedTasks && (
+            <div className="space-y-[1px] bg-[var(--border-strong)] mt-3">
             {closedTasks.slice(0, 5).map((task) => (
-              <div key={task.task_id || task.token_id} className="bg-[var(--surface-panel)] p-3 opacity-70">
+              <div key={task.task_id || task.token_id} className="bg-[var(--surface-panel)] p-3 opacity-75">
                 <div className="flex items-center justify-between gap-3">
-                  <p className="label-caps text-[var(--data-mono)]">{task.sensor_id}</p>
+                  <p className="label-caps text-[var(--data-mono)] min-w-0 truncate" title={task.sensor_id}>{task.sensor_id}</p>
                   <StatusTag tier={task.state === 'ACCEPTED' ? 'HIGH' : 'MEDIUM'} label={task.state} />
                 </div>
                 <p className="caption-mono text-[var(--text-muted)] mt-1">
-                  {task.accepted_by ? `accepted by ${task.accepted_by}` : task.rejected_by ? `rejected by ${task.rejected_by}` : task.closeout_status || 'closed'}
+                  {task.accepted_by ? `accepted by ${task.accepted_by}` : task.rejected_by ? `rejected by ${task.rejected_by}` : task.closeout_status || relativeExpiry(task)}
                 </p>
                 {!!task.last_evidence_summary && (
                   <p className="caption-mono text-[var(--data-mono)] mt-1">{task.last_evidence_summary}</p>
@@ -152,6 +175,8 @@ export default function ShiftChannel() {
             ))}
             {!closedTasks.length && (
               <p className="bg-[var(--surface-panel)] p-3 caption-mono text-[var(--text-dim)]">No closed verification tasks yet.</p>
+            )}
+            </div>
             )}
           </div>
         </section>

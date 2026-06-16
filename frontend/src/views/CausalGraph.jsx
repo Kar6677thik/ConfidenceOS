@@ -8,6 +8,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import useStore from '../store';
 import TrustDependencyGraph from '../components/TrustDependencyGraph';
 import { trustColor, chartColors } from '../lib/chartTheme';
@@ -199,6 +200,13 @@ export default function CausalGraph() {
           <p className="leading-relaxed text-[14px] text-[var(--text)]">
             {graph?.narrative || 'No narrative available. Graph data may still be loading.'}
           </p>
+          <div className="industrial-card p-3">
+            <p className="label-caps text-[var(--text-muted)]">Operational Use</p>
+            <p className="caption-mono text-[var(--data-mono)] mt-1">
+              Use this graph to see which sensor relationship affects the current operating decision. Runtime remains the primary place to act on decision freezes.
+            </p>
+            <Link to="/runtime" className="industrial-control inline-flex mt-3">Open Runtime Operating Basis</Link>
+          </div>
           {(graph?.causal_chains || []).length > 0 && (
             <div>
               <p className="label-caps text-[var(--text-muted)] mb-3">Propagation Chains</p>

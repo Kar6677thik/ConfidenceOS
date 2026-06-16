@@ -56,14 +56,21 @@ function IndustrialTooltip({ active, payload, label }) {
 export default function FleetOverview() {
   const { fleetData, fleetLoading, fetchFleet, setPlantId } = useStore();
   const [trend, setTrend] = useState([]);
+  const [trendMeta, setTrendMeta] = useState(null);
   const navigate = useNavigate();
 
   useEffect(() => {
     fetchFleet();
     fetch('/api/fleet/history?hours=24')
       .then((r) => r.json())
-      .then((d) => setTrend(d.trend || []))
-      .catch(() => setTrend([]));
+      .then((d) => {
+        setTrend(d.trend || []);
+        setTrendMeta(d);
+      })
+      .catch(() => {
+        setTrend([]);
+        setTrendMeta(null);
+      });
     const timer = setInterval(fetchFleet, 5000);
     return () => clearInterval(timer);
   }, [fetchFleet]);
@@ -136,6 +143,12 @@ export default function FleetOverview() {
             const color = tierColor(plant.health_pct);
             const label = tierLabel(plant.health_pct);
             const border = tierBorderClass(plant.health_pct);
+            const history = trend.filter((point) => point[plant.plant_id] != null).slice(-16);
+            const points = history.map((point, index) => {
+              const x = history.length <= 1 ? 0 : (index / (history.length - 1)) * 100;
+              const y = 30 - (Math.max(0, Math.min(100, Number(point[plant.plant_id]))) / 100) * 28;
+              return `${x.toFixed(1)},${y.toFixed(1)}`;
+            }).join(' ');
             return (
               <button
                 key={plant.plant_id}
@@ -183,24 +196,13 @@ export default function FleetOverview() {
                 {/* Sparkline */}
                 <div className="mt-auto pt-2 h-16 w-full relative">
                   <p className="label-caps text-[var(--text-dim)] absolute top-0 left-0">4H Trend</p>
-                  <svg className="w-full h-full" preserveAspectRatio="none" viewBox="0 0 100 30">
-                    <polyline
-                      fill="none"
-                      points={plant.health_pct < 50
-                        ? '0,10 15,12 30,18 50,24 65,20 80,26 100,25'
-                        : plant.health_pct < 80
-                        ? '0,12 20,10 40,15 60,12 80,18 100,16'
-                        : '0,8 20,9 40,7 60,9 80,7 100,8'}
-                      stroke={color}
-                      strokeWidth="1.5"
-                    />
-                    <defs>
-                      <linearGradient id={`grad-${plant.plant_id}`} x1="0" x2="0" y1="0" y2="1">
-                        <stop offset="0%" stopColor={color} stopOpacity="0.4" />
-                        <stop offset="100%" stopColor={color} stopOpacity="0" />
-                      </linearGradient>
-                    </defs>
-                  </svg>
+                  {points ? (
+                    <svg className="w-full h-full" preserveAspectRatio="none" viewBox="0 0 100 30">
+                      <polyline fill="none" points={points} stroke={color} strokeWidth="1.5" />
+                    </svg>
+                  ) : (
+                    <p className="caption-mono text-[var(--text-muted)] pt-7">Collecting history</p>
+                  )}
                 </div>
               </button>
             );
@@ -217,6 +219,9 @@ export default function FleetOverview() {
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-[18px] font-semibold text-[var(--text)]">24h Instrument Integrity Trend</h2>
             <div className="flex gap-4">
+              <span className="caption-mono text-[var(--text-muted)]">
+                {trendMeta?.status || 'history unavailable'} / {trendMeta?.sample_count ?? 0} samples
+              </span>
               {Object.entries(PLANT_COLORS).map(([pid, color]) => (
                 <div key={pid} className="flex items-center gap-1.5">
                   <div className="w-2 h-2 rounded-full" style={{ background: color }} />

@@ -613,7 +613,16 @@ def _strongest_evidence(evidence: list[dict]) -> list[str]:
 
 
 def _worst_trust_exception(confidence: list[dict]) -> dict:
-    rank = {"QUARANTINED": 0, "UNAVAILABLE": 1, "DEGRADED": 2, "SUBSTITUTED": 3, "TRUSTED": 4, "HIGH": 4}
+    rank = {
+        "QUARANTINED": 0,
+        "UNAVAILABLE": 1,
+        "DEGRADED": 2,
+        "NO_CONFIDENCE_RESULT": 3,
+        "SUBSTITUTED": 4,
+        "TRUSTED": 5,
+        "HIGH": 5,
+        "NO_LIVE_SAMPLE": 6,
+    }
     rows = []
     for item in confidence or []:
         trust_state = item.get("trust_state")
@@ -630,7 +639,7 @@ def _worst_trust_exception(confidence: list[dict]) -> dict:
         })
     if not rows:
         return {
-            "trust_state": "UNAVAILABLE",
+            "trust_state": "NO_LIVE_SAMPLE",
             "label": "Awaiting live trust evidence",
             "decision_basis_allowed": False,
         }
@@ -706,7 +715,9 @@ def _signal_trust_state(confidence: dict | None, reading: dict | None) -> str:
     if confidence and confidence.get("trust_state"):
         return confidence["trust_state"]
     if not reading:
-        return "UNAVAILABLE"
+        return "NO_LIVE_SAMPLE"
+    if not confidence:
+        return "NO_CONFIDENCE_RESULT"
     tier = (confidence or {}).get("tier")
     if tier in ("LOW", "CRITICAL", "MEDIUM"):
         return "DEGRADED"

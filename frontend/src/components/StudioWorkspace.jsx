@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import useStore from '../store';
 import PageIdentity from './hmi/PageIdentity';
-import StatusTag from './hmi/StatusTag';
 
 const STAGE_LABELS = {
   import: 'Import',
@@ -26,13 +25,6 @@ function statusClass(value) {
   if (['FAILED', 'BLOCKING', 'BLOCKED', 'NOT_READY', 'CRITICAL'].includes(status)) return 'status-critical';
   if (['NOT_RUN', 'LOADING'].includes(status)) return 'status-disabled';
   return 'text-[var(--data-mono)]';
-}
-
-function stageStatusToTier(status) {
-  const s = String(status || '').toUpperCase();
-  if (['FAILED', 'BLOCKING', 'BLOCKED', 'NOT_READY', 'CRITICAL'].includes(s)) return 'CRITICAL';
-  if (['WARNING', 'PASS_WITH_WARNINGS', 'WARNINGS'].includes(s)) return 'MEDIUM';
-  return 'HIGH';
 }
 
 function asList(value) {
@@ -83,14 +75,18 @@ function CompilerPipeline({ build }) {
       right={<span className={`industrial-badge ${statusClass(build?.status || 'NOT_RUN')}`}>{build?.status || 'NOT_RUN'}</span>}
       className="mb-[1px]"
     >
-      <div className="grid grid-cols-2 xl:grid-cols-6 gap-[1px] bg-[var(--border-strong)]">
+      <div className="overflow-x-auto overflow-y-hidden scrollbar-thin">
+      <div className="grid min-w-[920px] grid-cols-6 gap-[1px] bg-[var(--border-strong)]">
         {stages.filter((stage) => stage.id !== 'runtime').map((stage) => (
-          <div key={stage.id} className="bg-[var(--surface-panel)] p-3 min-h-[96px]">
-            <StatusTag tier={stageStatusToTier(stage.status)} label={stage.status || 'NOT RUN'} />
+          <div key={stage.id} className="bg-[var(--surface-panel)] p-3 min-h-[88px]">
+            <span className={`industrial-badge ${statusClass(stage.status || 'NOT_RUN')}`}>
+              {formatText(stage.status || 'NOT_RUN')}
+            </span>
             <p className="label-caps text-[var(--text-muted)] mt-3">Stage</p>
             <p className="caption-mono text-[var(--text)] mt-1">{stage.label || STAGE_LABELS[stage.id] || formatText(stage.id)}</p>
           </div>
         ))}
+      </div>
       </div>
       <div className="mt-4 grid grid-cols-1 xl:grid-cols-3 gap-[1px] bg-[var(--border-strong)]">
         <div className="bg-[var(--surface-panel)] p-3">
@@ -599,6 +595,14 @@ function PublishDiff({ diff }) {
 
 function PublishGuardrails({ build, onPublish, busy, result }) {
   const blocking = build?.validation?.blocking || [];
+  const grouped = Object.values(blocking.reduce((acc, item) => {
+    const key = item.rule || 'blocking';
+    if (!acc[key]) {
+      acc[key] = { rule: key, items: [], message: item.message };
+    }
+    acc[key].items.push(item);
+    return acc;
+  }, {}));
   return (
     <Panel
       eyebrow="Publish Guardrails"
@@ -607,13 +611,24 @@ function PublishGuardrails({ build, onPublish, busy, result }) {
       className="mb-[1px]"
     >
       <div className="space-y-[1px] bg-[var(--border-strong)]">
-        {blocking.length ? blocking.map((item) => (
-          <div key={`${item.rule}-${item.raw_tag || item.asset_id || item.message}`} className="bg-[var(--surface-panel)] p-3">
-            <p className="label-caps status-critical">{formatText(item.rule || 'blocking')}</p>
-            <p className="caption-mono text-[var(--text)] mt-1">{item.message}</p>
-            {(item.raw_tag || item.asset_id) && <p className="caption-mono text-[var(--data-mono)] mt-1">{[item.raw_tag, item.asset_id].filter(Boolean).join(' / ')}</p>}
+        {grouped.length ? grouped.slice(0, 4).map((group) => (
+          <div key={group.rule} className="bg-[var(--surface-panel)] p-3">
+            <div className="flex items-center justify-between gap-3">
+              <p className="label-caps status-critical">{formatText(group.rule)}</p>
+              <span className="industrial-badge status-critical">{group.items.length}</span>
+            </div>
+            <p className="caption-mono text-[var(--text)] mt-1">{group.message}</p>
+            <p className="caption-mono text-[var(--data-mono)] mt-1">
+              {group.items.slice(0, 3).map((item) => [item.raw_tag, item.asset_id].filter(Boolean).join(' / ')).filter(Boolean).join(' ; ')}
+              {group.items.length > 3 ? ` ; +${group.items.length - 3} more` : ''}
+            </p>
           </div>
         )) : <p className="bg-[var(--surface-panel)] p-3 caption-mono status-safe">No blocking guardrails. Publish is enabled for the latest build.</p>}
+        {grouped.length > 4 && (
+          <p className="bg-[var(--surface-panel)] p-3 caption-mono text-[var(--data-mono)]">
+            {grouped.length - 4} additional blocker group(s) hidden from preview. Resolve Mapping Court items to clear publish.
+          </p>
+        )}
       </div>
       {result && (
         <div className="industrial-panel-subtle p-3 mt-4">
@@ -956,7 +971,7 @@ export default function StudioWorkspace() {
           <span className="caption-mono">read-only trust-aware HMI compiler</span>
         </div>
       </div>
-      <div className="grid grid-cols-[320px_1fr_390px] gap-[1px] bg-[var(--border-strong)] overflow-hidden min-h-0">
+      <div className="grid grid-cols-[minmax(280px,320px)_minmax(520px,1fr)_minmax(320px,380px)] gap-[1px] bg-[var(--border-strong)] overflow-hidden min-h-0">
       <aside className="bg-[var(--surface-panel)] overflow-y-auto overflow-x-hidden scrollbar-thin">
         <Panel
           eyebrow="ConfidenceOS Studio"

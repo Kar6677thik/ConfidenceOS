@@ -23,7 +23,7 @@ export default function StatusTag({ tier, label, className = '' }) {
 
   return (
     <span
-      className={`inline-flex items-center gap-1 label-caps border rounded-sm px-1.5 py-0.5 flex-shrink-0 ${className}`}
+      className={`inline-flex items-center gap-1 label-caps border rounded-sm px-1.5 py-0.5 flex-shrink-0 whitespace-nowrap ${className}`}
       style={{ color, borderColor: `${color}60` }}
     >
       <span className="hmi-status-glyph">{glyph}</span>

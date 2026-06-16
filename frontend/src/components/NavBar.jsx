@@ -13,7 +13,7 @@ const SUPPORT_ITEMS = [
   { path: '/integrity',  label: 'Instrument Integrity',   roles: ['Operator', 'Maintenance', 'Engineer', 'Manager', 'Auditor'] },
   { path: '/operator',   label: 'Operator Detail',        roles: ['Operator', 'Maintenance', 'Engineer', 'Manager'] },
   { path: '/predictions',label: 'Degradation Forecast',   roles: ['Operator', 'Maintenance', 'Engineer', 'Manager'] },
-  { path: '/forensics',  label: 'Incident Forensics',     roles: ['Engineer', 'Manager', 'Auditor'] },
+  { path: '/forensics',  label: 'Incident Replay',        roles: ['Engineer', 'Manager', 'Auditor'] },
   { path: '/graph',      label: 'Causal Graph',           roles: ['Engineer', 'Manager'] },
   { path: '/engineer',   label: 'Engineer Analysis',      roles: ['Engineer', 'Manager'] },
   { path: '/compliance', label: 'Compliance Report',      roles: ['Manager', 'Auditor'] },

@@ -103,9 +103,9 @@ export default function HandoverBrief({ apiBase = '/api' }) {
   return (
     <section className="industrial-panel w-full">
       <div className="industrial-panel-header">
-        <h2 className="industrial-panel-title text-base">Shift Handover Brief</h2>
+        <h2 className="industrial-panel-title text-base flex-1 min-w-[180px]">Shift Handover Brief</h2>
         {brief && !loading && (
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2 justify-end">
             <button onClick={handleCopy} className="industrial-control text-[var(--data-mono)]">
               {copied ? 'Copied' : 'Copy'}
             </button>
