@@ -61,7 +61,7 @@ const useStore = create((set, get) => ({
   averageConfidence: 0,   // overall plant health score
 
   // -- Chart history (rolling window) ------------------------------------
-  chartHistory: [],       // array of { time, implied, measured, discrepancy }
+  chartHistory: [],       // array of { time, implied, measured, actual, discrepancy }
 
   // -- UI state ----------------------------------------------------------
   selectedSensorId: null,
@@ -148,6 +148,7 @@ const useStore = create((set, get) => ({
           time: new Date(data.timestamp * 1000).toLocaleTimeString(),
           implied: mb.implied_level,
           measured: mb.measured_level,
+          actual: mb.actual_level,
           discrepancy: mb.discrepancy,
         } : null;
 

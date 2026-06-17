@@ -250,7 +250,11 @@ async def _retention_loop():
 
 app = FastAPI(
     title="ConfidenceOS API",
-    description="Backend for ConfidenceOS V2 — the HMI that knows what it does not know.",
+    description=(
+        "ConfidenceOS — a read-only HMI honesty layer: it shows operators how much to "
+        "trust each reading, uses physics to catch when a sensor is lying, and compiles "
+        "that trust behaviour into reusable HMI screens. The HMI that knows what it does not know."
+    ),
     version="2.0.0",
     lifespan=lifespan,
 )
@@ -618,9 +622,14 @@ def _derive_trust_states(confidence: list[dict], readings: list[dict], mass_bala
     source_tags = relationship.get("source_tags", [])
     inferred_variable = relationship.get("inferred_variable") or f"{validated_tag or 'signal'}_substitute"
     validated_confidence = by_id.get(validated_tag)
+    # Physics is the alarm: the validated level tag is quarantined when its
+    # trust is below HIGH *and* a mass-balance contradiction is active. A frozen
+    # level transmitter scores MEDIUM (stability collapses but range/cross-checks
+    # can lag), yet the flow-implied inventory proves it is lying — so a MEDIUM
+    # tier plus an active physical contradiction is sufficient to quarantine.
     level_quarantined = bool(
         validated_confidence
-        and validated_confidence.get("tier") in ("LOW", "CRITICAL")
+        and validated_confidence.get("tier") in ("MEDIUM", "LOW", "CRITICAL")
         and contradiction_active
     )
     flow_substitute_valid = all(
@@ -646,7 +655,7 @@ def _derive_trust_states(confidence: list[dict], readings: list[dict], mass_bala
             decision_basis_allowed = False
         elif sensor_id == validated_tag and level_quarantined:
             trust_state = "QUARANTINED"
-            trust_reason = "Level confidence is LOW/CRITICAL while mass-balance contradiction is active."
+            trust_reason = "Level trust is degraded while the flow-implied inventory contradicts it (physics is the alarm)."
             decision_basis_allowed = False
             quarantine_relationship_id = relationship.get("id")
         elif sensor_id in source_tags and level_quarantined and flow_substitute_valid:
@@ -2429,6 +2438,12 @@ def health_check():
     return {
         "status": "ok",
         "version": "2.0.0",
+        "product": (
+            "ConfidenceOS is a read-only HMI honesty layer. It reads existing plant tags "
+            "without writing controls, scores how much to trust every reading, and uses "
+            "physics (mass balance) to catch when a sensor is lying. Studio compiles that "
+            "trust behaviour into reusable HMI screens so it scales across plants."
+        ),
         "uptime_seconds": round(plant_a.tag_provider.elapsed(), 1),
         "tick_count": plant_a.tag_provider.tick_count,
         "active_connections": len(active_connections),

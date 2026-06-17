@@ -27,6 +27,72 @@ function relativeExpiry(task) {
   return `expired ${Math.abs(diffMinutes)} min ago`;
 }
 
+const SEVERITY_RANK = { CRITICAL: 4, WARNING: 3, LOW: 2, MEDIUM: 2 };
+
+function sentenceCase(text) {
+  const t = String(text || '').trim();
+  if (!t) return '';
+  const withDot = /[.!?]$/.test(t) ? t : `${t}.`;
+  return withDot.charAt(0).toUpperCase() + withDot.slice(1);
+}
+
+// Compose a plain-English "incoming shift basis" the next operator cannot miss,
+// deterministically from the live channel data (no AI / no key required).
+function buildShiftBasis(channel) {
+  const pinned = channel?.pinned || [];
+  const debt = channel?.handover_debt?.entries || [];
+  const items = (pinned.length ? pinned : debt)
+    .slice()
+    .sort((a, b) => (SEVERITY_RANK[String(b.severity || '').toUpperCase()] || 1)
+      - (SEVERITY_RANK[String(a.severity || '').toUpperCase()] || 1));
+  const blocked = !!channel?.handover_acceptance_blocked;
+  const count = items.length;
+
+  if (count === 0) {
+    return { tone: 'clear', headline: 'No unresolved trust exceptions. Handover is clear.', lines: [] };
+  }
+
+  const headline = blocked
+    ? `Handover BLOCKED — ${count} unresolved trust exception${count > 1 ? 's' : ''} must be carried and cleared.`
+    : `${count} unresolved trust exception${count > 1 ? 's' : ''} to carry into the next shift.`;
+
+  const lines = items.slice(0, 3).map((item) => {
+    const title = sentenceCase(item.title || item.type || 'Unresolved exception');
+    const action = item.required_action ? ` Operating basis: ${sentenceCase(item.required_action)}` : '';
+    return `${title}${action}`.trim();
+  });
+
+  return { tone: blocked ? 'critical' : 'warning', headline, lines };
+}
+
+function ShiftBasisBanner({ channel }) {
+  const basis = buildShiftBasis(channel);
+  const toneClass = basis.tone === 'critical'
+    ? 'border-[var(--alarm-p1)]'
+    : basis.tone === 'warning'
+    ? 'border-[var(--alarm-p2)]'
+    : 'border-[var(--border)]';
+  const headlineClass = basis.tone === 'critical'
+    ? 'status-critical'
+    : basis.tone === 'warning'
+    ? 'status-warning'
+    : 'status-safe';
+
+  return (
+    <div className={`bg-[var(--surface-base)] border-l-4 ${toneClass} px-5 py-3`}>
+      <p className="label-caps text-[var(--text-muted)]">Incoming Shift Basis</p>
+      <p className={`text-[16px] font-bold mt-1 ${headlineClass}`}>{basis.headline}</p>
+      {basis.lines.length > 0 && (
+        <ul className="mt-2 space-y-1">
+          {basis.lines.map((line, index) => (
+            <li key={index} className="caption-mono text-[var(--text)] [overflow-wrap:anywhere]">• {line}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export default function ShiftChannel() {
   const { plantId } = useStore();
   const [channel, setChannel] = useState(null);
@@ -63,7 +129,8 @@ export default function ShiftChannel() {
   };
 
   return (
-    <div className="industrial-page grid grid-rows-[48px_minmax(0,1fr)] bg-[var(--border-strong)] gap-[1px] overflow-hidden">
+    <div className="industrial-page grid grid-rows-[auto_48px_minmax(0,1fr)] bg-[var(--border-strong)] gap-[1px] overflow-hidden">
+      <ShiftBasisBanner channel={channel} />
       <div className="hmi-alarm-band">
         <div className={`hmi-band-cell ${channel?.handover_acceptance_blocked ? 'hmi-band-critical' : ''}`}>
           <span className={`hmi-status-symbol ${channel?.handover_acceptance_blocked ? 'p1' : 'normal'}`}>

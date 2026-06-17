@@ -41,20 +41,33 @@ function StatBlock({ label, value, unit, className = '' }) {
 
 export default function MassBalanceChart({ chartHistory, massBalance, flags }) {
   const currentImplied = massBalance?.implied_level;
-  const currentMeasured = massBalance?.measured_level;
+  const currentMeasured = massBalance?.measured_level;   // what the sensor indicates
+  const currentActual = massBalance?.actual_level;       // physically-true level (ground truth)
   const currentDiscrepancy = massBalance?.discrepancy;
+  const hasActual = currentActual != null;
+
+  const flagList = flags || massBalance?.flags || [];
 
   const highestSeverity = useMemo(() => {
-    const flagList = flags || massBalance?.flags || [];
     if (flagList.length === 0) return null;
     if (flagList.some((flag) => flag.severity === 'CRITICAL')) return 'CRITICAL';
     if (flagList.some((flag) => flag.severity === 'WARNING')) return 'WARNING';
     return 'INFO';
-  }, [flags, massBalance?.flags]);
+  }, [flagList]);
+
+  // How long the physics has disagreed: earliest active flag → now.
+  const divergenceMinutes = useMemo(() => {
+    if (!flagList.length) return null;
+    const stamps = flagList.map((f) => f.timestamp).filter((t) => typeof t === 'number');
+    if (!stamps.length) return null;
+    const oldest = Math.min(...stamps);
+    const secs = Date.now() / 1000 - (oldest > 1e10 ? oldest / 1000 : oldest);
+    return secs > 0 ? Math.round(secs / 60) : 0;
+  }, [flagList]);
 
   const yDomain = useMemo(() => {
     if (!chartHistory || chartHistory.length === 0) return ['auto', 'auto'];
-    const allVals = chartHistory.flatMap((point) => [point.implied, point.measured].filter((value) => value != null));
+    const allVals = chartHistory.flatMap((point) => [point.implied, point.measured, point.actual].filter((value) => value != null));
     if (allVals.length === 0) return ['auto', 'auto'];
     const min = Math.min(...allVals);
     const max = Math.max(...allVals);
@@ -71,16 +84,24 @@ export default function MassBalanceChart({ chartHistory, massBalance, flags }) {
   return (
     <section className="industrial-panel h-full flex flex-col">
       <div className="industrial-panel-header">
-        <h2 className="industrial-panel-title">Mass-Balance Divergence: Implied vs Actual</h2>
+        <h2 className="industrial-panel-title">Physics vs the Sensor: Implied Level vs Indicated Level</h2>
         {highestSeverity && (
           <span className={`industrial-badge ${severityClass}`}>{highestSeverity}</span>
         )}
       </div>
 
       <div className="industrial-body flex flex-col min-h-0 flex-1">
-        <div className="grid grid-cols-3 gap-[1px] bg-[var(--border-strong)] border border-[var(--border-strong)] mb-4">
-          <StatBlock label="Implied" value={currentImplied} unit="ft" className="text-[var(--data-mono)]" />
-          <StatBlock label="Actual" value={currentMeasured} unit="ft" className="text-[var(--safe)]" />
+        {highestSeverity && divergenceMinutes != null && (
+          <p className={`caption-mono mb-3 ${severityClass}`}>
+            Physics has disagreed with the indicated level for ~{divergenceMinutes} min — the reading is not tracking the flow-implied inventory.
+          </p>
+        )}
+        <div className={`grid ${hasActual ? 'grid-cols-2 md:grid-cols-4' : 'grid-cols-3'} gap-[1px] bg-[var(--border-strong)] border border-[var(--border-strong)] mb-4`}>
+          <StatBlock label="Implied (flow)" value={currentImplied} unit="ft" className="text-[var(--data-mono)]" />
+          <StatBlock label="Indicated (sensor)" value={currentMeasured} unit="ft" className="text-[var(--primary)]" />
+          {hasActual && (
+            <StatBlock label="Actual (true)" value={currentActual} unit="ft" className="text-[var(--safe)]" />
+          )}
           <StatBlock
             label="Delta"
             value={currentDiscrepancy}
@@ -89,9 +110,9 @@ export default function MassBalanceChart({ chartHistory, massBalance, flags }) {
           />
         </div>
 
-        <div className="min-h-[300px] flex-1 border border-[var(--border-strong)] bg-[var(--surface-base)]" style={{ minWidth: 0 }}>
+        <div className="h-[300px] w-full shrink-0 border border-[var(--border-strong)] bg-[var(--surface-base)]" style={{ minWidth: 0 }}>
           {chartHistory && chartHistory.length > 1 ? (
-            <ResponsiveContainer width="100%" height="100%" debounce={50}>
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} debounce={80}>
               <LineChart data={chartHistory} margin={{ top: 22, right: 24, left: 0, bottom: 14 }}>
                 <CartesianGrid {...chartGrid} />
                 <XAxis
@@ -109,8 +130,11 @@ export default function MassBalanceChart({ chartHistory, massBalance, flags }) {
                   width={44}
                 />
                 <Tooltip content={<ChartTooltip />} />
-                <Line type="monotone" dataKey="implied" name="Implied Level" stroke={chartColors.muted} strokeWidth={2} dot={false} isAnimationActive={false} />
-                <Line type="monotone" dataKey="measured" name="Actual Level" stroke={chartColors.primary} strokeWidth={4} dot={false} isAnimationActive={false} />
+                <Line type="monotone" dataKey="implied" name="Implied (from flow)" stroke={chartColors.muted} strokeWidth={2} dot={false} isAnimationActive={false} />
+                <Line type="monotone" dataKey="measured" name="Indicated (sensor)" stroke={chartColors.primary} strokeWidth={4} dot={false} isAnimationActive={false} />
+                {hasActual && (
+                  <Line type="monotone" dataKey="actual" name="Actual (true)" stroke={TRUST_COLOR.HIGH} strokeWidth={2} strokeDasharray="2 2" dot={false} isAnimationActive={false} />
+                )}
                 <Line type="monotone" dataKey="discrepancy" name="Discrepancy" stroke={TRUST_COLOR.LOW} strokeWidth={1.5} strokeDasharray="4 4" dot={false} isAnimationActive={false} />
               </LineChart>
             </ResponsiveContainer>

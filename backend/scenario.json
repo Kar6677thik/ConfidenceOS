@@ -1,26 +1,13 @@
 {
   "name": "Texas City Failure Timeline (Compressed)",
-  "description": "Replays the BP Texas City refinery failure modes in compressed time for demo. Level sensor drifts due to specific gravity mismatch, stuck reading on outflow, and valve command-state decoupling.",
+  "description": "Replays the BP Texas City overfill signature in compressed time. The vessel is genuinely filling (net inflow positive) but the level transmitter freezes — indicated level stays flat while the true level keeps rising. Physics (the flow-implied inventory) disagrees with the frozen reading, so the level is quarantined and the trusted flow-implied level becomes the substitute. A decoupled valve, a drifting temperature, and a later-frozen pressure transmitter add realistic accompanying failures.",
   "duration_seconds": 300,
   "failures": [
     {
       "sensor_id": "LT-5100",
-      "failure_type": "sg_mismatch",
-      "start_time": 30,
-      "sg_actual": 0.65,
-      "sg_calibrated": 0.80
-    },
-    {
-      "sensor_id": "LT-5100",
-      "failure_type": "calibration_drift",
-      "start_time": 60,
-      "drift_rate": -0.15
-    },
-    {
-      "sensor_id": "FO-2020",
       "failure_type": "stuck_reading",
-      "start_time": 90,
-      "stuck_duration": 180
+      "start_time": 30,
+      "stuck_duration": 0
     },
     {
       "sensor_id": "ZT-6100",
@@ -28,6 +15,18 @@
       "start_time": 120,
       "commanded_value": 0.0,
       "actual_value": 85.0
+    },
+    {
+      "sensor_id": "TT-4100",
+      "failure_type": "calibration_drift",
+      "start_time": 60,
+      "drift_rate": 0.4
+    },
+    {
+      "sensor_id": "PT-3100",
+      "failure_type": "stuck_reading",
+      "start_time": 150,
+      "stuck_duration": 0
     }
   ]
 }

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import useStore from '../store';
 import PriorityBand from './hmi/PriorityBand';
+import MassBalanceChart from './MassBalanceChart';
 
 function formatText(value) {
   return String(value || '')
@@ -148,6 +149,9 @@ function HmiAlarmBand({ manifest, role, connected, plantId, plantContext, situat
   const isCritical = ['CRITICAL', 'QUARANTINED', 'LOW', 'FAILED'].includes(String(trust.trust_state || lead.severity || '').toUpperCase());
   const runtimeStatus = manifest?.runtime_publish_state || manifest?.validation_status || 'LIVE';
   const buildLabel = manifest?.published_build_id || manifest?.build_id || 'unpublished';
+  // Operators run the plant, not the compiler: publish state and build ids are
+  // engineering internals and must never leak into the operator screen.
+  const showBuildInternals = role !== 'Operator';
 
   return (
     <div className="hmi-alarm-band">
@@ -165,8 +169,12 @@ function HmiAlarmBand({ manifest, role, connected, plantId, plantContext, situat
         <span className="caption-mono text-[var(--text-muted)] truncate">
           {manifest?.navigation?.name || plantId} / {formatText(manifest?.context || plantContext?.status || 'live')}
         </span>
-        <span className={`caption-mono ${statusClass(runtimeStatus)}`}>{formatText(runtimeStatus)}</span>
-        <span className="caption-mono text-[var(--text-dim)]">build {String(buildLabel).slice(0, 18)}</span>
+        {showBuildInternals && (
+          <>
+            <span className={`caption-mono ${statusClass(runtimeStatus)}`}>{formatText(runtimeStatus)}</span>
+            <span className="caption-mono text-[var(--text-dim)]">build {String(buildLabel).slice(0, 18)}</span>
+          </>
+        )}
       </div>
       <div className="hmi-band-cell justify-end">
         <span className="caption-mono">{role}</span>
@@ -356,16 +364,21 @@ function ValueList({ values, empty = 'No active item.', status = 'text-[var(--da
   );
 }
 
-function GeneratedFaceplate({ faceplate, readings, confidence, compact = false }) {
+function GeneratedFaceplate({ faceplate, readings, confidence, compact = false, role = 'Operator' }) {
   const signals = (faceplate?.signals || []).map((signal) => liveSignal(signal, readings, confidence));
+  // Template provenance and generation receipts are engineering detail — the
+  // operator faceplate shows only the equipment and its live trusted signals.
+  const showTemplateInternals = role !== 'Operator';
   return (
     <div className="bg-[var(--surface-highest)] border border-[var(--border-strong)] p-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="label-caps text-[var(--text-muted)]">Generated From Template</p>
+          <p className="label-caps text-[var(--text-muted)]">{showTemplateInternals ? 'Generated From Template' : 'Equipment Faceplate'}</p>
           <p className="caption-mono font-semibold truncate">{faceplate?.equipment_id || faceplate?.title}</p>
         </div>
-        <span className="caption-mono text-[var(--text-muted)]">{faceplate?.template_id} v{faceplate?.template_version || '1.0'}</span>
+        {showTemplateInternals && (
+          <span className="caption-mono text-[var(--text-muted)]">{faceplate?.template_id} v{faceplate?.template_version || '1.0'}</span>
+        )}
       </div>
       <table className="hmi-flat-table mt-3">
         <thead>
@@ -384,7 +397,7 @@ function GeneratedFaceplate({ faceplate, readings, confidence, compact = false }
           })}
         </tbody>
       </table>
-      {!compact && (
+      {!compact && showTemplateInternals && (
         <div className="mt-3">
           <p className="label-caps text-[var(--text-muted)]">Receipt Summary</p>
           <ValueList values={faceplate?.receipt?.generated_because?.slice?.(0, 3)} empty="Receipt attached to generated manifest." />
@@ -627,12 +640,16 @@ function BottomStrip({ manifest, situations, handoverDebt, chartHistory }) {
   );
 }
 
-function PressureModeRuntime({ manifest, situations, confidence, connected, plantId, plantContext }) {
+function PressureModeRuntime({ manifest, situations, confidence, connected, plantId, plantContext, chartHistory, massBalance }) {
   const lead = situations?.[0] || {};
   const basis = manifest?.operating_basis || {};
   const contract = lead.action_contract || {};
   const collapse = lead.alarm_collapse_receipt || basis.alarm_collapse_receipt || lead.alarm_collapse || {};
   const score = decisionScore(lead, confidence);
+  // Physics is the alarm: surface the implied-vs-indicated gap when a
+  // mass-balance contradiction is the basis of the abnormal situation.
+  const hasMassBalanceStory = (massBalance?.flags || []).length > 0
+    || (chartHistory || []).length > 1;
 
   return (
     <div className="industrial-page hmi-workplace hmi-pressure">
@@ -646,24 +663,33 @@ function PressureModeRuntime({ manifest, situations, confidence, connected, plan
             </div>
             <span className="caption-mono status-warning">Grounded explanation disabled during active decision freeze.</span>
           </div>
-          <div className="hmi-process-canvas p-5 grid grid-cols-1 lg:grid-cols-2 gap-3">
+          <div className="hmi-process-canvas p-5 flex flex-col gap-3 overflow-y-auto scrollbar-thin">
+            {/* The star of the abnormal situation: physics disagreeing with the
+                indicated reading. This dominates the operator's view. */}
+            {hasMassBalanceStory && (
+              <div className="h-[460px] w-full shrink-0" style={{ minWidth: 0 }}>
+                <MassBalanceChart chartHistory={chartHistory} massBalance={massBalance} flags={massBalance?.flags} />
+              </div>
+            )}
             <div className="hmi-operation-note">
               <p className="label-caps text-[var(--text-muted)]">Operator Single Safe Move</p>
               <p className="text-[24px] leading-[30px] font-bold mt-2">
                 {formatText(basis.operator_single_safe_move || contract.first_safe_action || 'Verify locally before changing operation.')}
               </p>
             </div>
-            <div className="bg-[var(--surface-highest)] border border-[var(--border-strong)] p-4">
-              <p className="label-caps status-critical">Do Not Trust</p>
-              <ValueList values={basis.do_not_trust || contract.do_not_use} status="status-critical" />
-              <p className="label-caps status-safe mt-4">Trusted Substitute</p>
-              <ValueList values={basis.trusted_substitutes || contract.trusted_substitutes} status="status-safe" />
-            </div>
-            <div className="bg-[var(--surface-highest)] border border-[var(--border-strong)] p-4">
-              <p className="label-caps status-warning">Decision Freeze</p>
-              <ValueList values={basis.decision_freeze || contract.blocked_decisions} status="status-warning" />
-              <p className="label-caps text-[var(--text-muted)] mt-4">Exit Condition</p>
-              <ValueList values={basis.exit_condition || contract.exit_conditions} />
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              <div className="bg-[var(--surface-highest)] border border-[var(--border-strong)] p-4">
+                <p className="label-caps status-critical">Do Not Trust</p>
+                <ValueList values={basis.do_not_trust || contract.do_not_use} status="status-critical" />
+                <p className="label-caps status-safe mt-4">Trusted Substitute</p>
+                <ValueList values={basis.trusted_substitutes || contract.trusted_substitutes} status="status-safe" />
+              </div>
+              <div className="bg-[var(--surface-highest)] border border-[var(--border-strong)] p-4">
+                <p className="label-caps status-warning">Decision Freeze</p>
+                <ValueList values={basis.decision_freeze || contract.blocked_decisions} status="status-warning" />
+                <p className="label-caps text-[var(--text-muted)] mt-4">Exit Condition</p>
+                <ValueList values={basis.exit_condition || contract.exit_conditions} />
+              </div>
             </div>
             <div className="bg-[var(--surface-highest)] border border-[var(--border-strong)] p-4">
               <p className="label-caps text-[var(--text-muted)]">Alarm Collapse Receipt</p>
@@ -755,6 +781,7 @@ export default function RuntimePlatform() {
     confidenceDebt,
     verificationTasks,
     chartHistory,
+    massBalance,
   } = storeState;
   const [manifest, setManifest] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -820,7 +847,7 @@ export default function RuntimePlatform() {
   if (loading && !manifest) {
     return (
       <div className="industrial-page p-8">
-        <p className="caption-mono text-[var(--data-mono)]">Loading published Runtime manifest from compiler build, asset model, and reusable templates...</p>
+        <p className="caption-mono text-[var(--data-mono)]">Loading the trust-aware operator view...</p>
       </div>
     );
   }
@@ -850,6 +877,8 @@ export default function RuntimePlatform() {
         connected={connected}
         plantId={plantId}
         plantContext={plantContext}
+        chartHistory={chartHistory}
+        massBalance={massBalance}
       />
     );
   }
@@ -876,17 +905,17 @@ export default function RuntimePlatform() {
             onSelect={setSelected}
           />
           <aside className="hmi-dock">
-            {manifest.runtime_notice && (
+            {manifest.runtime_notice && role !== 'Operator' && (
               <DockSection title="Runtime Publish State" eyebrow="Compiler Boundary">
                 <p className="caption-mono status-warning">{manifest.runtime_notice}</p>
                 <Link to="/studio" className="industrial-control inline-flex mt-2">Open Studio</Link>
               </DockSection>
             )}
-            <DockSection title={selectedFaceplate?.title || selectedFaceplate?.equipment_id || 'Generated Faceplate'} eyebrow="Fixed Faceplate Dock">
+            <DockSection title={selectedFaceplate?.title || selectedFaceplate?.equipment_id || 'Faceplate'} eyebrow="Fixed Faceplate Dock">
               {selectedFaceplate ? (
-                <GeneratedFaceplate faceplate={selectedFaceplate} readings={readings} confidence={confidence} />
+                <GeneratedFaceplate faceplate={selectedFaceplate} readings={readings} confidence={confidence} role={role} />
               ) : (
-                <p className="caption-mono text-[var(--text-muted)]">No generated faceplate selected.</p>
+                <p className="caption-mono text-[var(--text-muted)]">No faceplate selected.</p>
               )}
             </DockSection>
             <RoleDock
@@ -897,10 +926,12 @@ export default function RuntimePlatform() {
               verificationTasks={verificationTasks}
               plantId={plantId}
             />
-            <DockSection title="Support Level" eyebrow="Level 4 Details">
-              <p className="caption-mono text-[var(--text-muted)]">Screen receipts, assumptions, sensitivity, and audit views are support-level information.</p>
-              <Link to="/studio" className="industrial-control inline-flex mt-2">Open Studio</Link>
-            </DockSection>
+            {role !== 'Operator' && (
+              <DockSection title="Support Level" eyebrow="Level 4 Details">
+                <p className="caption-mono text-[var(--text-muted)]">Screen receipts, assumptions, sensitivity, and audit views are support-level information.</p>
+                <Link to="/studio" className="industrial-control inline-flex mt-2">Open Studio</Link>
+              </DockSection>
+            )}
           </aside>
         </div>
         <BottomStrip manifest={manifest} situations={situations} handoverDebt={handoverDebt} chartHistory={chartHistory} />

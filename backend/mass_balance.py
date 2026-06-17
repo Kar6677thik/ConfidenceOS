@@ -81,11 +81,12 @@ class MassBalanceFlag:
 class MassBalanceState:
     """Current state snapshot for the WebSocket stream."""
     implied_level: float       # flow-integrated implied level
-    measured_level: float      # what the LT sensor reads
+    measured_level: float      # what the LT sensor reads (indicated)
     discrepancy: float         # |implied - measured| delta
     implied_delta: float       # total implied level change within window
     measured_delta: float      # total measured level change within window
     flags: list[MassBalanceFlag]
+    actual_level: Optional[float] = None  # hidden physically-true level (simulator ground truth)
 
     def to_dict(self) -> dict:
         return {
@@ -95,6 +96,7 @@ class MassBalanceState:
             "implied_delta": round(self.implied_delta, 2),
             "measured_delta": round(self.measured_delta, 2),
             "flags": [f.to_dict() for f in self.flags],
+            "actual_level": round(self.actual_level, 2) if self.actual_level is not None else None,
         }
 
 
@@ -177,6 +179,7 @@ class MassBalanceEngine:
         """
         # Extract relevant readings
         level_val = None
+        actual_level = None
         inflow_val = None
         outflow_val = None
         now = None
@@ -185,6 +188,7 @@ class MassBalanceEngine:
         for r in readings:
             if r["sensor_type"] == "level":
                 level_val = r["value"]
+                actual_level = r.get("actual_value")
                 sensor_ids.append(r["sensor_id"])
                 now = r["timestamp"]
             elif r["sensor_type"] == "flow_in":
@@ -253,6 +257,7 @@ class MassBalanceEngine:
             implied_delta=implied_delta,
             measured_delta=measured_delta,
             flags=self.active_flags,
+            actual_level=actual_level,
         )
 
     def _prune_window(self, now: float) -> None:
