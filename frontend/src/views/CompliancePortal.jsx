@@ -176,7 +176,13 @@ export default function CompliancePortal() {
                         <div key={k} className="bg-[var(--bg-elevated)] px-3 py-2 rounded">
                           <p className="label-caps text-[var(--text-muted)] mb-1">{k.replace(/_/g, ' ')}</p>
                           <p className="font-data text-[14px] text-[var(--text)]">
-                            {typeof v === 'number' ? (Number.isInteger(v) ? v : v.toFixed(2)) : String(v)}
+                            {(function fmtVal(val) {
+                              if (val === null || val === undefined) return '—';
+                              if (typeof val === 'number') return Number.isInteger(val) ? val : val.toFixed(2);
+                              if (typeof val !== 'object') return String(val);
+                              if (Array.isArray(val)) return val.map((item) => (typeof item === 'object' && item !== null ? Object.values(item).join(' / ') : String(item))).join('; ');
+                              return Object.entries(val).map(([vk, vv]) => `${vk.replace(/_/g, ' ')}: ${typeof vv === 'object' && vv !== null ? Object.values(vv).join('/') : vv}`).join(' · ');
+                            })(v)}
                           </p>
                         </div>
                       ))}

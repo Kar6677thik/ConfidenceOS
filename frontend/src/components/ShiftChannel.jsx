@@ -98,8 +98,8 @@ export default function ShiftChannel() {
             </span>
           </div>
           <div className="industrial-body space-y-[1px] bg-[var(--border-strong)]">
-            {(channel?.pinned || []).map((item) => (
-              <div key={item.id} className="bg-[var(--surface-panel)] p-3">
+            {(channel?.pinned || []).map((item, index) => (
+              <div key={`${item.id}-${index}`} className="bg-[var(--surface-panel)] p-3">
                 <p className={`label-caps ${severityClass(item.severity)}`}>{item.type}</p>
                 <p className="caption-mono text-[var(--text)] mt-1">{item.title}</p>
                 {!!item.required_action && <p className="caption-mono text-[var(--data-mono)] mt-1">{item.required_action}</p>}
@@ -221,8 +221,8 @@ export default function ShiftChannel() {
             <span className="industrial-badge text-[var(--data-mono)]">{channel?.thread?.length || 0}</span>
           </div>
           <div className="industrial-body space-y-[1px] bg-[var(--border-strong)]">
-            {(channel?.thread || []).map((item) => (
-              <div key={item.id} className="bg-[var(--surface-panel)] p-4">
+            {(channel?.thread || []).map((item, index) => (
+              <div key={`${item.id}-${index}`} className="bg-[var(--surface-panel)] p-4">
                 <div className="flex items-center justify-between gap-3">
                   <p className={`label-caps min-w-0 truncate ${severityClass(item.severity)}`} title={`${item.author || 'ConfidenceOS'} / ${item.type}`}>{item.author || 'ConfidenceOS'} / {item.type}</p>
                   <span className="caption-mono text-[var(--data-mono)] shrink-0">{eventTime(item.timestamp)}</span>

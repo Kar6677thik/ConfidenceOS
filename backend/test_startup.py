@@ -4,9 +4,11 @@ test_startup.py — Tests for the StartupManager class.
 Run from the backend directory with venv activated:
     python test_startup.py
 """
+import sys
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 import time
-import sys
 
 from startup import StartupManager, StaleReadingFlag
 

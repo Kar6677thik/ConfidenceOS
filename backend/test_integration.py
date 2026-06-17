@@ -181,7 +181,7 @@ except Exception as e:
 
 # ─── DB persistence ─────────────────────────────────────────────────────────
 
-time.sleep(1)  # let DB writes settle
+time.sleep(7)  # wait for at least one PERSIST_READINGS_INTERVAL cycle (default 5 s)
 
 code, data = GET("/api/sensors/history/LT-5100?hours=1&limit=10")
 check("GET /api/sensors/history returns 200", code == 200)

@@ -30,8 +30,8 @@ export default function HandoverDebtLedger({ compact = false }) {
   const entries = activeDebt?.entries || [];
   const body = (
     <div className="space-y-[1px] bg-[var(--border-strong)] border border-[var(--border-strong)]">
-      {entries.slice(0, compact ? 5 : 10).map((item) => (
-        <div key={item.id} className="bg-[var(--surface-panel)] p-3">
+      {entries.slice(0, compact ? 5 : 10).map((item, index) => (
+        <div key={`${item.id}-${index}`} className="bg-[var(--surface-panel)] p-3">
           <div className="flex items-center justify-between gap-3">
             <p className={`label-caps ${severityClass(item.severity)}`}>{TYPE_LABELS[item.type] || item.type}</p>
             <span className="caption-mono text-[var(--data-mono)]">handover</span>

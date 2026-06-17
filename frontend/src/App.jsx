@@ -67,6 +67,14 @@ const SHORTCUTS = [
 // App root
 export default function App() {
   const [showHelp, setShowHelp] = useState(false);
+  const connect = useStore((s) => s.connect);
+
+  // Establish WS at app mount so every view gets live data, not just Runtime.
+  // connect() is idempotent (store guards on _ws), so RuntimePlatform calling
+  // it again on mount is harmless.
+  useEffect(() => {
+    connect();
+  }, [connect]);
 
   useKeyboardShortcuts({ onHelpToggle: () => setShowHelp((v) => !v) });
 

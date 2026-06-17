@@ -117,7 +117,11 @@ export default function CausalGraph() {
     }
     svg.addEventListener('wheel', handleWheel, { passive: false });
     return () => svg.removeEventListener('wheel', handleWheel);
-  }, []); // stable: setTransform uses the updater form, svgRef is fixed
+    // Re-run once the SVG actually mounts. On first render `loading` is true and
+    // the <svg> is not in the DOM (svgRef.current is null), so a []-deps effect
+    // would attach the wheel listener never. Re-running when loading flips false
+    // (and on plant change) guarantees the listener binds to the live SVG.
+  }, [loading]); // setTransform uses the updater form, so the handler stays stable
 
   function handlePointerDown(e) {
     if (e.button !== 0) return;

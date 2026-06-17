@@ -89,9 +89,9 @@ export default function MassBalanceChart({ chartHistory, massBalance, flags }) {
           />
         </div>
 
-        <div className="min-h-[300px] flex-1 border border-[var(--border-strong)] bg-[var(--surface-base)]">
+        <div className="min-h-[300px] flex-1 border border-[var(--border-strong)] bg-[var(--surface-base)]" style={{ minWidth: 0 }}>
           {chartHistory && chartHistory.length > 1 ? (
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" debounce={50}>
               <LineChart data={chartHistory} margin={{ top: 22, right: 24, left: 0, bottom: 14 }}>
                 <CartesianGrid {...chartGrid} />
                 <XAxis

@@ -4,10 +4,12 @@ test_simulator.py — Tests for the SensorSimulator class.
 Run from the backend directory with venv activated:
     python test_simulator.py
 """
+import sys
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 import time
 import json
-import sys
 from pathlib import Path
 
 from simulator import SensorSimulator, SensorConfig, DEFAULT_SENSORS

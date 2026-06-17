@@ -346,7 +346,9 @@ function ValueList({ values, empty = 'No active item.', status = 'text-[var(--da
   return (
     <div className="space-y-2">
       {rows.map((item, index) => (
-        <p key={`${typeof item === 'string' ? item : item?.id || index}`} className={`caption-mono ${status}`}>
+        // Index keeps the key unique even when the same item id appears twice in
+        // a section's values (avoids React duplicate-key warnings / dropped rows).
+        <p key={`${typeof item === 'string' ? item : item?.id || 'row'}-${index}`} className={`caption-mono ${status}`}>
           {typeof item === 'string' ? formatText(item) : formatText(item.message || item.title || item.description || item.sensor_id || item.decision_id || item.type)}
         </p>
       ))}
@@ -514,7 +516,10 @@ function RoleDock({ manifest, selectedFaceplate, confidenceDebt, handoverDebt, v
     const receipt = selectedFaceplate?.receipt || {};
     return (
       <>
-        <DockSection title="Signal Binding" eyebrow="Engineer Workspace">
+        <DockSection title="Field Verification" eyebrow="Engineer Workspace">
+          <VerificationTaskControls tasks={sectionItems('verification_task').length ? sectionItems('verification_task') : verificationTasks} role={role} plantId={plantId} />
+        </DockSection>
+        <DockSection title="Signal Binding">
           <ValueList values={(selectedFaceplate?.signals || []).map((signal) => `${signal.tag}: ${signal.role || signal.sensor_type || 'signal'} -> ${selectedFaceplate.equipment_id}`)} />
         </DockSection>
         <DockSection title="Template Receipt">
@@ -539,6 +544,11 @@ function RoleDock({ manifest, selectedFaceplate, confidenceDebt, handoverDebt, v
           <p className={`caption-mono ${(handoverDebt?.handover_acceptance_blocked || handoverDebt?.handover_acceptance === 'blocked') ? 'status-critical' : 'status-safe'}`}>
             {(handoverDebt?.handover_acceptance_blocked || handoverDebt?.handover_acceptance === 'blocked') ? 'Blocked until verification debt clears.' : 'Unblocked.'}
           </p>
+        </DockSection>
+        <DockSection title="Field Verification">
+          {/* Manager can accept/reject a field-checked task; Auditor sees it read-only
+              (legalTransitionsForRole returns no actions for Auditor). */}
+          <VerificationTaskControls tasks={verificationTasks} role={role} plantId={plantId} />
         </DockSection>
         <DockSection title="Published Build">
           <ValueList values={[manifest?.published_build_id || manifest?.build_id || 'No published build id listed']} />

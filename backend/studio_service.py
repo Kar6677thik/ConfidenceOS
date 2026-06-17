@@ -605,13 +605,17 @@ async def suggest_template_for_asset(asset_description: str) -> dict:
     the real template library. Compiler validates; engineer approves.
     """
     catalog = get_template_catalog()
+    # get_template_catalog() returns a dict; the equipment templates (the closed
+    # set the AI may choose from) live under "equipment_templates".
+    equipment_templates = catalog.get("equipment_templates", []) if isinstance(catalog, dict) else []
     available_templates = [
         {
             "template_id": t.get("template_id"),
             "label": t.get("label", t.get("template_id")),
-            "required_signal_roles": t.get("required_signal_roles", []),
+            "required_signal_roles": t.get("required_signal_roles", t.get("required_signal_types", [])),
         }
-        for t in catalog
+        for t in equipment_templates
+        if isinstance(t, dict)
     ]
     state = get_state()
     signals = get_signals()

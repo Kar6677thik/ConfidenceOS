@@ -121,8 +121,8 @@ function DriftSparkline({ driftData }) {
   return (
     <div>
       <h3 className="label-caps text-[var(--text-muted)] mb-3">Drift Trend</h3>
-      <div className="industrial-panel-subtle p-3">
-        <ResponsiveContainer width="100%" height={80}>
+      <div className="industrial-panel-subtle p-3" style={{ minWidth: 0 }}>
+        <ResponsiveContainer width="100%" height={80} debounce={50}>
           <LineChart data={driftData}>
             <YAxis hide domain={['auto', 'auto']} />
             <Line type="monotone" dataKey="value" stroke="#00FF41" strokeWidth={2} dot={false} isAnimationActive={false} />
