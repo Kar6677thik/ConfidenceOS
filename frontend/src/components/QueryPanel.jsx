@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import useStore from '../store';
 
 export default function QueryPanel() {
-  const { queryHistory, queryLoading, askQuestion, plantContext, incidents } = useStore();
+  const { queryHistory, queryLoading, askQuestion, plantContext, incidents, confidence } = useStore();
   const [input, setInput] = useState('');
   const scrollRef = useRef(null);
   const activeDecisionFreeze = (incidents || []).some((incident) => (
@@ -25,8 +25,14 @@ export default function QueryPanel() {
     await askQuestion(question);
   };
 
+  // Name the actually-degraded sensor rather than a hardcoded tag, so the
+  // prompt reflects the live model/plant. Falls back to a generic question.
+  const flagged = (confidence || [])
+    .filter((c) => c.tier && c.tier !== 'HIGH')
+    .sort((a, b) => (a.confidence_pct ?? 100) - (b.confidence_pct ?? 100));
+  const flaggedSensor = flagged[0]?.sensor_id;
   const suggestions = [
-    'Why is LT-5100 flagged?',
+    flaggedSensor ? `Why is ${flaggedSensor} flagged?` : 'Why is the primary signal flagged?',
     'What is the operating basis?',
     'Which trusted substitute should I use?',
     'What verification is required?',

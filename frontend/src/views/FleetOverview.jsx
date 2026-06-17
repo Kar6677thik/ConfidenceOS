@@ -57,19 +57,22 @@ export default function FleetOverview() {
   const { fleetData, fleetLoading, fetchFleet, setPlantId } = useStore();
   const [trend, setTrend] = useState([]);
   const [trendMeta, setTrendMeta] = useState(null);
+  const [trendError, setTrendError] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
     fetchFleet();
     fetch('/api/fleet/history?hours=24')
-      .then((r) => r.json())
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => {
         setTrend(d.trend || []);
         setTrendMeta(d);
+        setTrendError(false);
       })
       .catch(() => {
         setTrend([]);
         setTrendMeta(null);
+        setTrendError(true);
       });
     const timer = setInterval(fetchFleet, 5000);
     return () => clearInterval(timer);
@@ -219,8 +222,10 @@ export default function FleetOverview() {
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-[18px] font-semibold text-[var(--text)]">24h Instrument Integrity Trend</h2>
             <div className="flex gap-4">
-              <span className="caption-mono text-[var(--text-muted)]">
-                {trendMeta?.status || 'history unavailable'} / {trendMeta?.sample_count ?? 0} samples
+              <span className="caption-mono text-[var(--text-muted)]" title="Provenance of this trend">
+                {trendError
+                  ? 'trend fetch failed'
+                  : `source: ${trendMeta?.source || 'confidence_logs'} · ${trendMeta?.sample_count ?? 0} samples · ${trendMeta?.bucket_minutes ?? 15}-min buckets`}
               </span>
               {Object.entries(PLANT_COLORS).map(([pid, color]) => (
                 <div key={pid} className="flex items-center gap-1.5">
@@ -231,6 +236,18 @@ export default function FleetOverview() {
             </div>
           </div>
           <div className="h-[260px] border-l border-b border-[var(--border-subtle)]">
+            {trendError ? (
+              <div className="h-full grid place-items-center text-center px-6">
+                <div>
+                  <p className="caption-mono status-warning">Instrument integrity trend unavailable</p>
+                  <p className="caption-mono text-[var(--text-dim)] mt-1">Could not load /api/fleet/history. Live fleet cards above are unaffected.</p>
+                </div>
+              </div>
+            ) : trend.length === 0 ? (
+              <div className="h-full grid place-items-center text-center px-6">
+                <p className="caption-mono text-[var(--text-dim)]">Collecting confidence history — trend appears as samples accumulate.</p>
+              </div>
+            ) : (
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={trend} margin={{ top: 16, right: 16, left: 0, bottom: 8 }}>
                 <CartesianGrid {...chartGrid} strokeDasharray="4 2" />
@@ -247,6 +264,7 @@ export default function FleetOverview() {
                 ))}
               </LineChart>
             </ResponsiveContainer>
+            )}
           </div>
         </div>
 

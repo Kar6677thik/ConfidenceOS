@@ -30,6 +30,16 @@ function forecastLabel(pred) {
   return pred.model_type || 'deterministic trend';
 }
 
+// Honest one-line explanation so a flat/empty forecast reads as deliberate,
+// not broken — distinguishes "stable" from "not enough data to project".
+function forecastDetail(pred) {
+  const status = pred.forecast_status || pred.model_fit;
+  if (status === 'insufficient_history') return 'Not enough confidence history yet to project a trend.';
+  if (status === 'flat_or_no_degradation') return 'Confidence is stable over the window — nothing to project.';
+  if (status === 'model_error') return 'Forecast model could not run; deterministic status only.';
+  return null;
+}
+
 export default function PredictiveTimeline() {
   const { plantId, predictions, predictionsLoading, fetchPredictions } = useStore();
 
@@ -184,6 +194,9 @@ export default function PredictiveTimeline() {
                     <ConfidenceBadge conf={pred.current_confidence} />
                   </div>
                   <p className="caption-mono text-[var(--data-mono)] mt-1">{forecastLabel(pred)}</p>
+                  {forecastDetail(pred) && (
+                    <p className="caption-mono text-[var(--text-dim)] mt-1">{forecastDetail(pred)}</p>
+                  )}
                   <p className="caption-mono text-[var(--text-muted)] mt-1">{pred.recommended_action || pred.action}</p>
                 </div>
               ))}

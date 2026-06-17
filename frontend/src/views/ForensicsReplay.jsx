@@ -13,7 +13,7 @@ import { useEffect, useState } from 'react';
 import SensorCard from '../components/SensorCard';
 import MassBalanceChart from '../components/MassBalanceChart';
 import PageIdentity from '../components/hmi/PageIdentity';
-import { LoadFailed } from '../components/PanelSkeleton';
+import { LoadFailed, EmptyState } from '../components/PanelSkeleton';
 
 const DEFAULT_PRESET = 'texas-city';
 
@@ -42,9 +42,11 @@ export default function ForensicsReplay() {
   // Load preset list
   useEffect(() => {
     fetch('/api/forensics/presets')
-      .then((r) => r.json())
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((d) => setPresets((d.presets || []).filter((preset) => preset.id === DEFAULT_PRESET)))
-      .catch(() => {});
+      // Don't fail silently — keep a fallback entry so the control still renders;
+      // the preset-data fetch below surfaces the actual error state.
+      .catch(() => setPresets([{ id: DEFAULT_PRESET, name: 'Texas City - 2005' }]));
   }, []);
 
   // Load selected preset
@@ -165,6 +167,10 @@ export default function ForensicsReplay() {
         {/* Main canvas */}
         <main className="flex-1 min-w-0 overflow-y-auto scrollbar-thin bg-[var(--bg-base)] p-1">
           {!data && presetError && <LoadFailed message={presetError} />}
+          {data && !presetError && (data.timeline?.length ?? 0) === 0 && (
+            <EmptyState icon="history_toggle_off" title="No replay frames"
+              body="This preset loaded but contains no timeline data to replay." />
+          )}
           {/* Sensor grid */}
           <div className="industrial-card-header px-4 py-3 bg-[var(--bg-surface)] border-b border-[var(--warning)]">
             <span className="text-[18px] font-semibold text-[var(--text)]">

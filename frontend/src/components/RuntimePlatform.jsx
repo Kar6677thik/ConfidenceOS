@@ -906,7 +906,10 @@ export default function RuntimePlatform() {
           />
           <aside className="hmi-dock">
             {manifest.runtime_notice && role !== 'Operator' && (
-              <DockSection title="Runtime Publish State" eyebrow="Compiler Boundary">
+              <DockSection
+                title={manifest.runtime_preview ? 'Generated Preview' : 'Runtime Publish State'}
+                eyebrow={manifest.runtime_preview ? 'Metadata Only — No Live Tags' : 'Compiler Boundary'}
+              >
                 <p className="caption-mono status-warning">{manifest.runtime_notice}</p>
                 <Link to="/studio" className="industrial-control inline-flex mt-2">Open Studio</Link>
               </DockSection>

@@ -7,14 +7,16 @@
  * Stitch mockup: (no dedicated HTML - uses App.jsx logic)
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import useStore from '../store';
 import { chartColors, chartGrid, axisTick, axisLine, TRUST_COLOR } from '../lib/chartTheme';
 import PageIdentity from '../components/hmi/PageIdentity';
 import StatusTag from '../components/hmi/StatusTag';
 
-const SENSOR_IDS    = ['LT-5100', 'FI-2010', 'FO-2020', 'PT-3100', 'TT-4100', 'ZT-6100'];
+// Fallback only — the live list is fetched from the active asset model
+// (/api/model/signals) so the sandbox reflects whatever model is loaded.
+const FALLBACK_SENSOR_IDS = ['LT-5100', 'FI-2010', 'FO-2020', 'PT-3100', 'TT-4100', 'ZT-6100'];
 const FAILURE_MODES = [
   { value: 'calibration_drift',       label: 'Calibration Drift' },
   { value: 'stuck_reading',            label: 'Stuck Reading' },
@@ -52,6 +54,22 @@ export default function SandboxSimulator() {
   const [result,  setResult]  = useState(null);
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState(null);
+  const [sensorIds, setSensorIds] = useState(FALLBACK_SENSOR_IDS);
+
+  // Populate the sensor dropdown from the active asset model rather than a
+  // hardcoded six-sensor list; fall back to the constant on error.
+  useEffect(() => {
+    fetch('/api/model/signals')
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        const ids = (data?.signals || []).map((s) => s.tag || s.id).filter(Boolean);
+        if (ids.length) {
+          setSensorIds(ids);
+          setForm((prev) => (ids.includes(prev.sensor_id) ? prev : { ...prev, sensor_id: ids[0] }));
+        }
+      })
+      .catch(() => { /* keep fallback list */ });
+  }, []);
 
   const run = async () => {
     setLoading(true);
@@ -108,7 +126,7 @@ export default function SandboxSimulator() {
             <select value={form.sensor_id}
               onChange={(e) => setForm({ ...form, sensor_id: e.target.value })}
               className="industrial-select">
-              {SENSOR_IDS.map((id) => <option key={id} value={id}>{id}</option>)}
+              {sensorIds.map((id) => <option key={id} value={id}>{id}</option>)}
             </select>
           </div>
 

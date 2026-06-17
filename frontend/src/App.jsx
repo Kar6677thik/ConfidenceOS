@@ -44,7 +44,7 @@ function BottomStatus() {
         <span className="hidden md:block">System Logs</span>
         <span>UTC: {clock.toLocaleTimeString()}</span>
         <span className={connected ? 'status-safe' : 'status-critical'}>
-          {connected ? 'API Online' : 'API Offline'}
+          {connected ? 'Live stream connected' : 'Live stream offline'}
         </span>
         {timestamp && (
           <span className="hidden lg:block">

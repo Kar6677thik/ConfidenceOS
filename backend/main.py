@@ -966,11 +966,12 @@ def get_generated_screens(
     plant = plant_manager.get(plant_id)
     live_state = _runtime_live_state(plant_id, plant)
     try:
-        return studio_runtime_manifest(
+        manifest = studio_runtime_manifest(
             role=role,
             context=context,
             live_state=live_state,
         )
+        return _annotate_generated_preview(manifest, live_state)
     except Exception as exc:
         assignments = studio_overview().get("state", {}).get("assignments", [])
         manifest = generate_screen_manifest(
@@ -999,11 +1000,33 @@ def get_generated_screens(
                 }],
             },
         )
-        return {
+        return _annotate_generated_preview({
             **manifest,
             "runtime_source": "fallback_runtime_generation",
             "runtime_warning": str(exc),
-        }
+        }, live_state)
+
+
+def _annotate_generated_preview(manifest: dict, live_state: dict) -> dict:
+    """Flag the Runtime as a metadata-only preview when the active asset model's
+    signals have no matching live tags in the stream (e.g. a non-Texas-City model
+    is active while the live simulator still streams the demo tags). Engineer/
+    Manager see this honesty notice; Operator gating is handled in the frontend.
+    """
+    try:
+        model_tags = {s.get("tag") for s in get_signals() if s.get("tag")}
+        live_tags = {r.get("sensor_id") for r in (live_state.get("readings") or []) if r.get("sensor_id")}
+    except Exception:
+        return manifest
+    if model_tags and live_tags and not (model_tags & live_tags):
+        manifest["runtime_preview"] = True
+        manifest["runtime_notice"] = (
+            "Generated from metadata — preview only (no live tags bound). "
+            "The active asset model's signals are not present in this plant's live stream."
+        )
+    else:
+        manifest.setdefault("runtime_preview", False)
+    return manifest
 
 
 @app.get("/api/runtime/navigation")

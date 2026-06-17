@@ -7,8 +7,14 @@ probable causal chains when anomalies propagate across sensors.
 
 from datetime import datetime
 
+from asset_model import load_asset_model, mass_balance_validation
+from model_graph import get_signals
 
-# Pre-defined sensor relationship graphs per plant topology.
+
+# Fallback sensor relationship graphs per plant topology, used only when the
+# active asset model exposes no usable graph relationships. The live topology is
+# now derived from the active model (see `_topology_from_model`), so the graph
+# reflects whatever asset model is loaded rather than hardcoded Texas-City edges.
 # Edges represent physical causal relationships:
 #   A → B means "a problem with A can cause anomalous readings in B"
 
@@ -51,22 +57,87 @@ PLANT_TOPOLOGIES = {
 }
 
 
+def _topology_from_model(plant_id: str) -> dict | None:
+    """Derive a sensor→sensor causal topology from the active asset model.
+
+    Sensor→sensor edges are obtained by (a) direct sensor-to-sensor graph
+    relationships, (b) collapsing one non-sensor hop (e.g. FI → implied_level →
+    LT becomes FI → LT, FI → V-5100 is dropped), and (c) the mass-balance
+    relationship (each source tag → the validated tag). Returns None if the
+    model yields no edges so the caller can fall back to the static topology.
+    """
+    try:
+        model = load_asset_model()
+    except Exception:
+        return None
+
+    signals = get_signals(model)
+    sensor_ids = {s.get("tag") for s in signals if s.get("tag")}
+    if not sensor_ids:
+        return None
+
+    raw = model.get("graph_relationships", [])
+    adj: dict[str, list[str]] = {}
+    for rel in raw:
+        src, dst = rel.get("source"), rel.get("target")
+        if src and dst:
+            adj.setdefault(src, []).append(dst)
+
+    edges: set[tuple[str, str]] = set()
+    # (a) direct sensor → sensor relationships
+    for rel in raw:
+        src, dst = rel.get("source"), rel.get("target")
+        if src in sensor_ids and dst in sensor_ids and src != dst:
+            edges.add((src, dst))
+    # (b) collapse a single non-sensor intermediate node (equipment / implied_level)
+    for src, targets in adj.items():
+        if src not in sensor_ids:
+            continue
+        for mid in targets:
+            if mid in sensor_ids:
+                continue
+            for dst in adj.get(mid, []):
+                if dst in sensor_ids and dst != src:
+                    edges.add((src, dst))
+    # (c) mass-balance: each source tag drives the validated tag
+    rel = mass_balance_validation(model)
+    validated = rel.get("validated_tag")
+    if validated in sensor_ids:
+        for src in rel.get("source_tags", []):
+            if src in sensor_ids and src != validated:
+                edges.add((src, validated))
+
+    if not edges:
+        return None
+
+    plant = model.get("hierarchy", {}).get("plant", {})
+    name = plant.get("name") or model.get("model_id") or "Active Asset Model"
+    return {
+        "name": name,
+        "edges": sorted(edges),
+        "sensor_ids": sorted(sensor_ids),
+        "source": "active_asset_model",
+    }
+
+
 def get_graph_state(plant_id: str, confidence_data: dict) -> dict:
     """
     Get the current causal graph state with nodes colored by confidence tier
     and edges highlighted when both endpoints are anomalous.
-    
+
     Args:
         plant_id: which plant
         confidence_data: {sensor_id: {confidence_pct, tier, reasons, ...}}
-    
+
     Returns:
         dict with 'nodes', 'edges', 'causal_chains', 'root_cause', 'narrative'
     """
-    topology = PLANT_TOPOLOGIES.get(plant_id, PLANT_TOPOLOGIES["plant-a"])
-    
-    # Build nodes
-    all_sensor_ids = set()
+    # Prefer the live, metadata-driven topology; fall back to static demo edges.
+    topology = _topology_from_model(plant_id) or PLANT_TOPOLOGIES.get(plant_id, PLANT_TOPOLOGIES["plant-a"])
+
+    # Build the node set from the model's full signal list when available, so
+    # every sensor appears even if it has no causal edge; otherwise from edges.
+    all_sensor_ids = set(topology.get("sensor_ids", []))
     for src, dst in topology["edges"]:
         all_sensor_ids.add(src)
         all_sensor_ids.add(dst)
