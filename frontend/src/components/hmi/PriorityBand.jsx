@@ -4,9 +4,14 @@
  * ABB guideline: alarm band at top, most eye-catching, no overlap.
  * Redundant coding: color + shape glyph + priority letter (never color-only).
  * Reads worst trust tier from the live store; no props required.
+ *
+ * Edge-triggered alarm: beeps once when trust tier transitions into CRITICAL,
+ * respecting the mute state from alarmSound.js.
  */
+import { useRef, useEffect } from 'react';
 import useStore from '../../store';
 import { priorityGlyph, priorityLetter } from '../../lib/hmiFormat';
+import { beepCritical } from '../../lib/alarmSound';
 
 const TIER_RANK  = { CRITICAL: 0, LOW: 1, MEDIUM: 2, HIGH: 3 };
 const TIER_COLOR = {
@@ -25,6 +30,23 @@ function findWorstTier(confidence) {
 export default function PriorityBand() {
   const { confidence, massBalance, connected } = useStore();
 
+  // Compute derived values before any conditional return so hooks stay unconditional.
+  const worst = findWorstTier(confidence);
+  const mbFlags = massBalance?.flags?.length || 0;
+  const nonNominalCount = (confidence || []).filter((c) => c.tier && c.tier !== 'HIGH').length;
+  const allClear = !worst && mbFlags === 0;
+
+  const effectiveTier = !connected ? 'CRITICAL' : allClear ? 'HIGH' : (worst?.tier || 'MEDIUM');
+  const prevTierRef = useRef(null);
+
+  // Beep once on transition into CRITICAL — edge triggered, not level triggered.
+  useEffect(() => {
+    if (effectiveTier === 'CRITICAL' && prevTierRef.current !== 'CRITICAL') {
+      beepCritical();
+    }
+    prevTierRef.current = effectiveTier;
+  }); // intentionally no dep array — runs every render to track transitions
+
   if (!connected) {
     return (
       <div className="hmi-priority-band" style={{ borderBottomColor: 'var(--alarm-p1)' }}>
@@ -36,11 +58,6 @@ export default function PriorityBand() {
       </div>
     );
   }
-
-  const worst = findWorstTier(confidence);
-  const mbFlags = massBalance?.flags?.length || 0;
-  const nonNominalCount = (confidence || []).filter((c) => c.tier && c.tier !== 'HIGH').length;
-  const allClear = !worst && mbFlags === 0;
 
   if (allClear) {
     return (

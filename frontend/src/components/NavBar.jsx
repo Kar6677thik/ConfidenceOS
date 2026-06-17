@@ -1,5 +1,7 @@
+import { useState, useEffect } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import useStore from '../store';
+import { isMuted as isAlarmMuted, setMuted as setAlarmMuted, onMuteChange } from '../lib/alarmSound';
 
 const ROLES = ['Operator', 'Maintenance', 'Engineer', 'Manager', 'Auditor'];
 
@@ -20,14 +22,14 @@ const SUPPORT_ITEMS = [
   { path: '/sandbox',    label: 'Simulation Sandbox',     roles: ['Engineer'] },
 ];
 
-function countActiveAlerts(confidence, massBalance, staleFlags) {
+export function countActiveAlerts(confidence, massBalance, staleFlags) {
   const confidenceAlerts = (confidence || []).filter((item) => item.tier && item.tier !== 'HIGH').length;
   const massAlerts = massBalance?.flags?.length || 0;
   const staleAlerts = staleFlags?.length || 0;
   return confidenceAlerts + massAlerts + staleAlerts;
 }
 
-function worstTrustException(confidence, connected) {
+export function worstTrustException(confidence, connected) {
   if (!connected) {
     return { label: 'Live trust state unavailable', status: 'status-critical' };
   }
@@ -61,6 +63,9 @@ export default function NavBar() {
   } = useStore();
   const location = useLocation();
   const navigate = useNavigate();
+
+  const [muted, setMutedState] = useState(() => isAlarmMuted());
+  useEffect(() => onMuteChange(setMutedState), []);
   const visibleItems = NAV_ITEMS.filter((item) => item.roles.includes(role));
   const supportItems = SUPPORT_ITEMS.filter((item) => item.roles.includes(role));
   const activeSupport = supportItems.some((item) => item.path === location.pathname) ? location.pathname : '';
@@ -132,6 +137,17 @@ export default function NavBar() {
             Integrity {averageConfidence}%
           </div>
         )}
+
+        <button
+          onClick={() => setAlarmMuted(!muted)}
+          className="industrial-control shrink-0 px-2"
+          title={muted ? 'Alarm muted — click or press M to unmute' : 'Alarm sound on — click or press M to mute'}
+          aria-label={muted ? 'Unmute alarm' : 'Mute alarm'}
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: '16px', lineHeight: 1 }}>
+            {muted ? 'volume_off' : 'volume_up'}
+          </span>
+        </button>
 
         <div className="flex items-center gap-2 caption-mono">
           <span className={`led-square ${connected ? 'status-safe dot-blink' : 'status-critical'}`} />

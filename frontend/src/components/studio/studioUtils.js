@@ -1,0 +1,31 @@
+export function formatText(value) {
+  return String(value || '')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+export function statusClass(value) {
+  const status = String(value || '').toUpperCase();
+  if (['PASS', 'READY', 'PUBLISHED', 'VALID', 'APPROVED', 'IGNORED'].includes(status)) return 'status-safe';
+  if (['WARNING', 'PASS_WITH_WARNINGS', 'WARNINGS'].includes(status)) return 'status-warning';
+  if (['FAILED', 'BLOCKING', 'BLOCKED', 'NOT_READY', 'CRITICAL'].includes(status)) return 'status-critical';
+  if (['NOT_RUN', 'LOADING'].includes(status)) return 'status-disabled';
+  return 'text-[var(--data-mono)]';
+}
+
+export function asList(value) {
+  if (Array.isArray(value)) return value.filter(Boolean);
+  if (value == null || value === '') return [];
+  return [value];
+}
+
+export async function fetchJson(url, options) {
+  const res = await fetch(url, options);
+  const payload = await res.json().catch(() => null);
+  if (!res.ok) {
+    const err = new Error(`Request failed: ${res.status}`);
+    err.payload = payload;
+    throw err;
+  }
+  return payload;
+}

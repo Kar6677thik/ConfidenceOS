@@ -8,6 +8,7 @@
 import { useEffect, useState } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import useStore from './store';
+import useKeyboardShortcuts from './lib/useKeyboardShortcuts';
 
 // Navigation
 import NavBar from './components/NavBar';
@@ -55,8 +56,28 @@ function BottomStatus() {
   );
 }
 
+const SHORTCUTS = [
+  ['1', 'Navigate to Runtime'],
+  ['2', 'Navigate to Studio (Engineer / Manager only)'],
+  ['3', 'Navigate to Shift Channel'],
+  ['M', 'Toggle alarm mute'],
+  ['?', 'Toggle this help overlay'],
+];
+
 // App root
 export default function App() {
+  const [showHelp, setShowHelp] = useState(false);
+
+  useKeyboardShortcuts({ onHelpToggle: () => setShowHelp((v) => !v) });
+
+  // Close help overlay on Escape
+  useEffect(() => {
+    if (!showHelp) return;
+    function onEsc(e) { if (e.key === 'Escape') setShowHelp(false); }
+    window.addEventListener('keydown', onEsc);
+    return () => window.removeEventListener('keydown', onEsc);
+  }, [showHelp]);
+
   return (
     <div className="industrial-app">
       <NavBar />
@@ -82,6 +103,44 @@ export default function App() {
         </ErrorBoundary>
       </main>
       <BottomStatus />
+
+      {/* Keyboard shortcuts help overlay */}
+      {showHelp && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center"
+          style={{ background: 'rgba(0,0,0,0.72)' }}
+          onClick={() => setShowHelp(false)}
+        >
+          <div
+            className="industrial-card p-6 max-w-sm w-full mx-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-[var(--text)] font-semibold">Keyboard Shortcuts</span>
+              <button
+                className="caption-mono text-[var(--text-muted)] hover:text-[var(--text)]"
+                onClick={() => setShowHelp(false)}
+                aria-label="Close shortcuts overlay"
+              >
+                ESC
+              </button>
+            </div>
+            <div className="space-y-3">
+              {SHORTCUTS.map(([key, desc]) => (
+                <div key={key} className="flex items-start gap-4">
+                  <kbd className="industrial-badge font-mono shrink-0 text-[var(--text)] px-2 py-0.5 min-w-[2rem] text-center">
+                    {key}
+                  </kbd>
+                  <span className="caption-mono text-[var(--text-muted)]">{desc}</span>
+                </div>
+              ))}
+            </div>
+            <p className="caption-mono text-[var(--text-muted)] mt-4 pt-3 border-t border-[var(--border)]">
+              Shortcuts are disabled while typing in inputs.
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

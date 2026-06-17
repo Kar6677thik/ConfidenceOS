@@ -13,6 +13,7 @@ import { useEffect, useState } from 'react';
 import SensorCard from '../components/SensorCard';
 import MassBalanceChart from '../components/MassBalanceChart';
 import PageIdentity from '../components/hmi/PageIdentity';
+import { LoadFailed } from '../components/PanelSkeleton';
 
 const DEFAULT_PRESET = 'texas-city';
 
@@ -31,6 +32,7 @@ function replaySubScores(confidence = {}) {
 export default function ForensicsReplay() {
   const [presets, setPresets]   = useState([]);
   const [activePreset, setActivePreset] = useState(DEFAULT_PRESET);
+  const [presetError, setPresetError] = useState('');
   const [data, setData]         = useState(null);
   const [index, setIndex]       = useState(0);
   const [playing, setPlaying]   = useState(false);
@@ -47,10 +49,11 @@ export default function ForensicsReplay() {
 
   // Load selected preset
   useEffect(() => {
+    setPresetError('');
     fetch(`/api/forensics/presets/${activePreset}`)
       .then((r) => r.json())
       .then((d) => { setData(d); setIndex(0); setPlaying(false); })
-      .catch(() => {});
+      .catch(() => setPresetError('Replay preset unavailable — check API connection.'));
   }, [activePreset]);
 
   // Playback timer
@@ -161,6 +164,7 @@ export default function ForensicsReplay() {
 
         {/* Main canvas */}
         <main className="flex-1 min-w-0 overflow-y-auto scrollbar-thin bg-[var(--bg-base)] p-1">
+          {!data && presetError && <LoadFailed message={presetError} />}
           {/* Sensor grid */}
           <div className="industrial-card-header px-4 py-3 bg-[var(--bg-surface)] border-b border-[var(--warning)]">
             <span className="text-[18px] font-semibold text-[var(--text)]">
