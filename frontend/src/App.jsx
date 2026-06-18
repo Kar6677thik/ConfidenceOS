@@ -13,6 +13,7 @@ import useKeyboardShortcuts from './lib/useKeyboardShortcuts';
 // Navigation
 import NavBar from './components/NavBar';
 import ErrorBoundary from './components/ErrorBoundary';
+import AbnormalityLab from './components/AbnormalityLab';
 import RuntimePlatform from './components/RuntimePlatform';
 import StudioWorkspace from './components/StudioWorkspace';
 import ShiftChannel from './components/ShiftChannel';
@@ -31,6 +32,7 @@ import EngineerDeepDive   from './views/EngineerDeepDive';
 function BottomStatus() {
   const { connected, timestamp } = useStore();
   const [clock, setClock] = useState(() => new Date());
+  const [labOpen, setLabOpen] = useState(false);
 
   useEffect(() => {
     const timer = setInterval(() => setClock(new Date()), 1000);
@@ -51,7 +53,19 @@ function BottomStatus() {
             Last Tick: {new Date(timestamp * 1000).toLocaleTimeString()}
           </span>
         )}
+        <button
+          onClick={() => setLabOpen((v) => !v)}
+          title="Abnormality Lab (demo)"
+          aria-label="Toggle Abnormality Lab"
+          className="flex items-center"
+          style={{ background: 'none', border: 'none', cursor: 'pointer', color: labOpen ? 'var(--primary, #0a84ff)' : 'inherit', padding: 0 }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M9 3h6M9 3v6l-5 9a1 1 0 00.9 1.5h14.2A1 1 0 0020 18l-5-9V3" />
+          </svg>
+        </button>
       </div>
+      {labOpen && <AbnormalityLab onClose={() => setLabOpen(false)} />}
     </footer>
   );
 }

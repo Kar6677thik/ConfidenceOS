@@ -157,6 +157,20 @@ class SandboxRequest(BaseModel):
     severity: str = "moderate"
     duration_hours: float = 6.0
 
+
+class SimInjectRequest(BaseModel):
+    """Demo-only: inject one failure into the LIVE simulator (Abnormality Lab).
+    Optional params fall back to sensible per-type demo defaults when omitted."""
+    plant_id: str = "plant-a"
+    sensor_id: str
+    failure_type: str
+    drift_rate: Optional[float] = None
+    stuck_duration: Optional[float] = None
+    sg_actual: Optional[float] = None
+    sg_calibrated: Optional[float] = None
+    commanded_value: Optional[float] = None
+    actual_value: Optional[float] = None
+
 class VerificationTokenRequest(BaseModel):
     sensor_id: str
     verification_type: str = "field_check"
@@ -1840,6 +1854,83 @@ def reset_scenario(plant_id: str = Query(default="plant-a")):
     plant.tag_provider.reset()
     plant.mass_balance_engine.reset()
     return {"status": "reset"}
+
+
+# ─── Abnormality Lab (demo cheat panel) ──────────────────────────────────────
+# These two endpoints manipulate the SIMULATOR — the demo data source — so a
+# presenter can trigger sensor failures live. They do NOT write any plant
+# control command (the read-only-to-plant contract is unchanged; tag_provider
+# .write_tag still raises). They are scoped to the simulator-backed provider.
+
+_VALID_FAILURE_TYPES = {
+    "calibration_drift", "stuck_reading", "sg_mismatch", "command_state_decoupling",
+}
+
+
+def _require_simulator_plant(plant_id: str):
+    """Return the plant if it is simulator-backed; else 400 (demo-only feature)."""
+    from tag_provider import SimulatorProvider
+    plant = plant_manager.get(plant_id)
+    if not isinstance(plant.tag_provider, SimulatorProvider) or getattr(plant, "simulator", None) is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Live failure injection is only supported on the simulator provider (demo-only).",
+        )
+    return plant
+
+
+@app.post("/api/sim/inject")
+def sim_inject(request: SimInjectRequest):
+    """Demo-only: inject a single failure into the LIVE simulator so the trust
+    pipeline reacts immediately. Configures the simulated source — not a plant
+    control write."""
+    from simulator import FailureConfig
+    plant = _require_simulator_plant(request.plant_id)
+    if request.failure_type not in _VALID_FAILURE_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"failure_type must be one of {sorted(_VALID_FAILURE_TYPES)}",
+        )
+    if request.sensor_id not in plant.simulator.sensors:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Unknown sensor '{request.sensor_id}'. Known: {sorted(plant.simulator.sensors)}",
+        )
+    # Fire immediately: start_time = current elapsed seconds.
+    start = plant.simulator.elapsed()
+    failure = FailureConfig(
+        sensor_id=request.sensor_id,
+        failure_type=request.failure_type,
+        start_time=start,
+        drift_rate=request.drift_rate if request.drift_rate is not None else 0.5,
+        stuck_duration=request.stuck_duration if request.stuck_duration is not None else 0.0,
+        sg_actual=request.sg_actual if request.sg_actual is not None else 0.65,
+        sg_calibrated=request.sg_calibrated if request.sg_calibrated is not None else 0.80,
+        commanded_value=request.commanded_value if request.commanded_value is not None else 0.0,
+        actual_value=request.actual_value if request.actual_value is not None else 85.0,
+    )
+    plant.simulator.failures.append(failure)
+    return {
+        "status": "injected",
+        "demo_only": True,
+        "failure": {
+            "sensor_id": failure.sensor_id,
+            "failure_type": failure.failure_type,
+            "start_time": round(start, 1),
+        },
+        "active_failures": len(plant.simulator.failures),
+    }
+
+
+@app.post("/api/sim/clear")
+def sim_clear(plant_id: str = Query(default="plant-a")):
+    """Demo-only: clear all injected failures from the LIVE simulator and reset
+    it to normal operation. Does not write any plant control."""
+    plant = _require_simulator_plant(plant_id)
+    plant.simulator.failures.clear()
+    plant.tag_provider.reset()
+    plant.mass_balance_engine.reset()
+    return {"status": "cleared", "demo_only": True, "active_failures": 0}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
