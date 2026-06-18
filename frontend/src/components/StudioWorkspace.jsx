@@ -15,12 +15,6 @@ import RuntimePreview from './studio/RuntimePreview';
 import ScreenReceipts from './studio/ScreenReceipts';
 import { fetchJson, statusClass } from './studio/studioUtils';
 
-const TABS = [
-  { id: 'build', label: 'Build & Mapping' },
-  { id: 'templates', label: 'Templates & Tests' },
-  { id: 'publish', label: 'Preview & Publish' },
-];
-
 function modelLabel(value) {
   return String(value || 'Studio')
     .replace(/_/g, ' ')
@@ -58,7 +52,6 @@ export default function StudioWorkspace() {
   const [publishResult, setPublishResult] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
-  const [activeTab, setActiveTab] = useState('build');
 
   const refresh = async () => {
     const [studio, importedSignals, buildPayload, testPayload, courtPayload] = await Promise.all([
@@ -158,7 +151,6 @@ export default function StudioWorkspace() {
         ? 'Optional AI explanations attached. Deterministic mapping remains authoritative; review and approve each tag.'
         : 'Deterministic mapping complete. AI explanation unavailable; review and approve each tag.',
     );
-    setActiveTab('build');
   });
 
   const runBuild = () => runAction(async () => {
@@ -166,7 +158,6 @@ export default function StudioWorkspace() {
     setBuild(payload);
     setPublishResult(null);
     setActionMessage(payload.can_publish ? 'Build passed with publish readiness.' : 'Build failed. Resolve blocking guardrails and run again.');
-    setActiveTab(payload.can_publish ? 'publish' : 'build');
   });
 
   const generatePreview = () => runAction(async () => {
@@ -176,14 +167,12 @@ export default function StudioWorkspace() {
       body: JSON.stringify({ role, context: 'auto' }),
     });
     setPreview(payload);
-    setActiveTab('publish');
   });
 
   const publish = () => runAction(async () => {
     try {
       const payload = await fetchJson('/api/studio/publish', { method: 'POST' });
       setPublishResult(payload);
-      setActiveTab('publish');
     } catch (err) {
       setPublishResult(err.payload?.detail || err.payload || { status: 'blocked', reason: err.message });
       throw err;
@@ -200,7 +189,6 @@ export default function StudioWorkspace() {
     setManualAsset('');
     setManualRole('');
     setManualReason('');
-    setActiveTab('build');
   });
 
   const approveSelected = () => runAction(async () => {
@@ -211,7 +199,6 @@ export default function StudioWorkspace() {
       body: JSON.stringify({ raw_tag: selectedItem.raw_tag }),
     });
     setActionMessage(`${payload.mapping?.raw_tag || selectedItem.raw_tag} approved. Run build again.`);
-    setActiveTab('build');
   });
 
   const ignoreSelected = () => runAction(async () => {
@@ -222,7 +209,6 @@ export default function StudioWorkspace() {
       body: JSON.stringify({ raw_tag: selectedItem.raw_tag, reason: ignoreReason }),
     });
     setActionMessage(`${payload.mapping?.raw_tag || selectedItem.raw_tag} ignored. Run build again.`);
-    setActiveTab('build');
   });
 
   const keepBlocking = () => runAction(async () => {
@@ -233,7 +219,6 @@ export default function StudioWorkspace() {
       body: JSON.stringify({ raw_tag: selectedItem.raw_tag }),
     });
     setActionMessage(`${selectedItem.raw_tag} remains blocking. Publish stays disabled.`);
-    setActiveTab('build');
   });
 
   const manualMapSelected = () => runAction(async () => {
@@ -250,7 +235,6 @@ export default function StudioWorkspace() {
       }),
     });
     setActionMessage(`${payload.mapping?.raw_tag || selectedItem.raw_tag} manually mapped. Run build again.`);
-    setActiveTab('build');
   });
 
   const switchAssetModel = (modelKey) => runAction(async () => {
@@ -267,7 +251,6 @@ export default function StudioWorkspace() {
     setManualRole('');
     setManualReason('');
     setActionMessage('Asset model switched. Run build to compile the selected model.');
-    setActiveTab('build');
   });
 
   const toggleVerificationMutation = (enabled) => runAction(async () => {
@@ -279,21 +262,13 @@ export default function StudioWorkspace() {
     setPreview(null);
     setPublishResult(null);
     setActionMessage('Template mutation updated. Run build to see publish diff and receipts.');
-    setActiveTab('templates');
   });
 
   const importResult = () => {
     setActionMessage('Imported tag list parsed. Run deterministic mapping to update Mapping Court.');
-    setActiveTab('build');
     refresh().catch((err) => {
       setActionMessage(err.message || 'Imported tags parsed, but Studio refresh failed.');
     });
-  };
-
-  const tabBadge = (tabId) => {
-    if (tabId === 'build') return build?.status || 'NOT_RUN';
-    if (tabId === 'templates') return tests?.status || 'NOT_RUN';
-    return build?.can_publish ? 'READY' : 'BLOCKED';
   };
 
   const pageTitle = modelLabel(overview?.selected_asset_model);
@@ -339,20 +314,6 @@ export default function StudioWorkspace() {
 
         <main className="bg-[var(--surface-base)] flex flex-col overflow-hidden">
           <PageIdentity displayName={pageTitle} level={2} area="Engineering Configuration Workspace" />
-          <div className="flex items-center gap-[1px] bg-[var(--border-strong)] overflow-x-auto overflow-y-hidden scrollbar-thin">
-            {TABS.map((tab) => (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setActiveTab(tab.id)}
-                className={`min-w-[190px] bg-[var(--surface-panel)] px-4 py-3 text-left border-b-2 ${activeTab === tab.id ? 'border-[var(--primary)]' : 'border-transparent'}`}
-              >
-                <span className="label-caps text-[var(--text-muted)]">{tab.label}</span>
-                <span className={`industrial-badge ml-3 ${statusClass(tabBadge(tab.id))}`}>{tabBadge(tab.id)}</span>
-              </button>
-            ))}
-          </div>
-
           <div className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin p-[1px]">
             {loading && !overview ? (
               <PanelSkeleton rows={6} />
@@ -360,8 +321,8 @@ export default function StudioWorkspace() {
               <LoadFailed message={loadError} onRetry={doLoad} />
             ) : (
               <>
-                {activeTab === 'build' && (
-                  <>
+                <div className="studio-board">
+                  <section className="studio-board-section">
                     <CompilerPipeline build={build} />
                     <div className="grid grid-cols-1 2xl:grid-cols-[minmax(360px,0.8fr)_minmax(0,1.2fr)] gap-[1px] bg-[var(--border-strong)]">
                       <DirtyTagGauntlet
@@ -397,18 +358,14 @@ export default function StudioWorkspace() {
                         actionMessage={actionMessage}
                       />
                     </div>
-                  </>
-                )}
+                  </section>
 
-                {activeTab === 'templates' && (
-                  <>
+                  <section className="studio-board-section">
                     <TemplateBindingTable validation={validation} busy={busy} />
                     <TemplateTestSuite tests={tests} />
-                  </>
-                )}
+                  </section>
 
-                {activeTab === 'publish' && (
-                  <>
+                  <section className="studio-board-section">
                     <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.7fr)] gap-[1px] bg-[var(--border-strong)]">
                       <PasteImportPanel busy={busy} onImportResult={importResult} />
                       <PublishGuardrails build={build} onPublish={publish} busy={busy} result={publishResult} />
@@ -416,8 +373,8 @@ export default function StudioWorkspace() {
                     <PublishDiff diff={build?.publish_diff || overview?.diff?.compiler_publish_diff} />
                     <RuntimePreview manifest={runtimeManifest} />
                     <ScreenReceipts manifest={runtimeManifest} />
-                  </>
-                )}
+                  </section>
+                </div>
               </>
             )}
           </div>

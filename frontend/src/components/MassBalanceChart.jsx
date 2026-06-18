@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   LineChart,
   Line,
@@ -46,7 +46,13 @@ export default function MassBalanceChart({ chartHistory, massBalance, flags }) {
   const currentDiscrepancy = massBalance?.discrepancy;
   const hasActual = currentActual != null;
 
-  const flagList = flags || massBalance?.flags || [];
+  const flagList = useMemo(() => flags || massBalance?.flags || [], [flags, massBalance?.flags]);
+  const [nowSeconds, setNowSeconds] = useState(() => Date.now() / 1000);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowSeconds(Date.now() / 1000), 30000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const highestSeverity = useMemo(() => {
     if (flagList.length === 0) return null;
@@ -61,9 +67,9 @@ export default function MassBalanceChart({ chartHistory, massBalance, flags }) {
     const stamps = flagList.map((f) => f.timestamp).filter((t) => typeof t === 'number');
     if (!stamps.length) return null;
     const oldest = Math.min(...stamps);
-    const secs = Date.now() / 1000 - (oldest > 1e10 ? oldest / 1000 : oldest);
+    const secs = nowSeconds - (oldest > 1e10 ? oldest / 1000 : oldest);
     return secs > 0 ? Math.round(secs / 60) : 0;
-  }, [flagList]);
+  }, [flagList, nowSeconds]);
 
   const yDomain = useMemo(() => {
     if (!chartHistory || chartHistory.length === 0) return ['auto', 'auto'];

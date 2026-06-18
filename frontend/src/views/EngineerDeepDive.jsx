@@ -11,7 +11,6 @@ import { useEffect, useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer } from 'recharts';
 import useStore from '../store';
 import { chartGrid, axisTick, axisLine } from '../lib/chartTheme';
-import PageIdentity from '../components/hmi/PageIdentity';
 
 function SubScoreBar({ label, value }) {
   const pct   = value != null ? Math.round(value * 100) : null;
@@ -88,8 +87,12 @@ export default function EngineerDeepDive() {
     <div className="industrial-page flex overflow-hidden">
 
       {/* -- Left sidebar - sensor selector -- */}
-      <aside className="w-56 flex flex-col bg-[var(--bg-low)] border-r border-[var(--border)] overflow-y-auto scrollbar-thin">
-        <PageIdentity displayName="Engineer Deep-Dive" level={3} area="Sub-Score Analysis" plant={plantId} />
+      <aside className="w-80 min-w-72 flex flex-col bg-[var(--bg-low)] border-r border-[var(--border)] overflow-y-auto scrollbar-thin">
+        <div className="border-b border-[var(--border)] bg-[var(--surface-elevated)] p-4">
+          <p className="label-caps text-[var(--text-muted)]">Engineer Analysis</p>
+          <h1 className="m-0 mt-1 text-[20px] leading-[24px] font-bold text-[var(--text)]">Confidence Evidence</h1>
+          <p className="caption-mono text-[var(--text-muted)] mt-1">{plantId?.toUpperCase()} / Sub-score analysis</p>
+        </div>
         {sensorIds.map((sid) => {
           const conf = confidence.find((c) => c.sensor_id === sid);
           const pct  = conf?.confidence_pct ?? null;

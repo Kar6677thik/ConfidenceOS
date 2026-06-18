@@ -273,6 +273,18 @@ button:disabled { cursor: not-allowed; }
   word-break: break-word;
 }
 
+.studio-board {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: var(--border-strong);
+}
+
+.studio-board-section {
+  min-width: 0;
+  background: var(--surface-base);
+}
+
 /* -- ABB-style HMI workplace primitives ---------------------------------- */
 .hmi-workplace {
   height: 100%;
@@ -357,12 +369,12 @@ button:disabled { cursor: not-allowed; }
 }
 
 .hmi-process-header {
-  height: 42px;
+  min-height: 42px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 0 14px;
+  padding: 6px 14px;
   background: var(--surface-elevated);
   border-bottom: 1px solid var(--border-strong);
 }
@@ -416,6 +428,7 @@ button:disabled { cursor: not-allowed; }
   align-items: baseline;
   gap: 4px;
   min-width: 86px;
+  max-width: 150px;
   padding: 3px 6px;
   background: var(--surface-value);
   border: 1px solid #777;
@@ -425,6 +438,9 @@ button:disabled { cursor: not-allowed; }
   font-size: 15px;
   line-height: 18px;
   font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .hmi-status-symbol {
@@ -490,6 +506,15 @@ button:disabled { cursor: not-allowed; }
   background: var(--surface-highest);
   color: var(--text);
   padding: 8px 10px;
+}
+
+.hmi-alert-ribbon {
+  border-left: 8px solid var(--alarm-p1);
+  background: var(--surface-highest);
+  color: var(--text);
+  padding: 10px 12px;
+  position: relative;
+  z-index: 1;
 }
 
 .hmi-pressure {

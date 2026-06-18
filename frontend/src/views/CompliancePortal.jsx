@@ -18,6 +18,56 @@ const REPORT_TYPES = [
   { value: 'handover', label: 'Shift Handover Log Only' },
 ];
 
+function formatValue(value) {
+  if (value === null || value === undefined || value === '') return 'not logged';
+  if (typeof value === 'number') return Number.isInteger(value) ? String(value) : value.toFixed(2);
+  if (typeof value !== 'object') return String(value);
+  return JSON.stringify(value);
+}
+
+function DetailRows({ value }) {
+  if (Array.isArray(value)) {
+    if (!value.length) return <p className="caption-mono text-[var(--text-dim)]">No rows logged in this period.</p>;
+    return (
+      <div className="space-y-2">
+        {value.slice(0, 12).map((item, index) => (
+          <div key={index} className="border border-[var(--border)] bg-[var(--surface)] px-3 py-2">
+            {typeof item === 'object' && item !== null ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1">
+                {Object.entries(item).slice(0, 8).map(([key, itemValue]) => (
+                  <p key={key} className="caption-mono text-[var(--text-muted)]">
+                    <span className="text-[var(--text-dim)]">{key.replace(/_/g, ' ')}:</span> {formatValue(itemValue)}
+                  </p>
+                ))}
+              </div>
+            ) : (
+              <p className="caption-mono text-[var(--text-muted)]">{formatValue(item)}</p>
+            )}
+          </div>
+        ))}
+        {value.length > 12 && (
+          <p className="caption-mono text-[var(--text-dim)]">Showing 12 of {value.length} rows. Download PDF for full report text.</p>
+        )}
+      </div>
+    );
+  }
+
+  if (typeof value === 'object' && value !== null) {
+    return (
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        {Object.entries(value).map(([key, itemValue]) => (
+          <div key={key} className="border border-[var(--border)] bg-[var(--surface)] px-3 py-2 min-w-0">
+            <p className="label-caps text-[var(--text-muted)] mb-1">{key.replace(/_/g, ' ')}</p>
+            <DetailRows value={itemValue} />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return <p className="caption-mono text-[var(--text-muted)]">{formatValue(value)}</p>;
+}
+
 export default function CompliancePortal() {
   const { plantId } = useStore();
   const [hours, setHours]           = useState(24);
@@ -96,7 +146,7 @@ export default function CompliancePortal() {
             disabled={loading}
             className="w-full industrial-control text-[var(--safe-text)] border-[var(--safe-text)]/60 disabled:opacity-40"
           >
-            {loading ? 'Generating...' : '⬡ Generate Report'}
+            {loading ? 'Generating...' : 'Generate Report'}
           </button>
 
           <button
@@ -104,7 +154,7 @@ export default function CompliancePortal() {
             disabled={!report?.pdf_base64}
             className="w-full industrial-control text-[var(--text-muted)] disabled:opacity-30"
           >
-            ↓ Download PDF
+            Download PDF
           </button>
 
           {error && (
@@ -117,11 +167,12 @@ export default function CompliancePortal() {
           <div className="space-y-2 pt-4 border-t border-[var(--border)]">
             <p className="label-caps text-[var(--text-muted)]">What is included</p>
             {[
-              'Sensor confidence history & calibration log',
-              'Alarm count, false-positive rate, silence rate',
-              'Mass-balance divergence events',
-              'Shift handover summaries',
-              'Digital signature metadata',
+              'Logged anomaly counts and top contributing sensors',
+              'Sensor trust history and calibration age where available',
+              'Mass-balance divergence flags captured in the selected window',
+              'Shift handover entries recorded by ConfidenceOS',
+              'Unsigned SHA-256 content hash and generator provenance',
+              'Explicit limitations: trust score is not a calibrated probability',
             ].map((line) => (
               <div key={line} className="flex items-start gap-2">
                 <span className="material-symbols-outlined text-[14px] text-[var(--primary)] mt-0.5">check</span>
@@ -170,6 +221,8 @@ export default function CompliancePortal() {
                   </p>
                 </div>
                 <div className="p-4">
+                  <DetailRows value={section} />
+                  <div className="hidden">
                   {typeof section === 'object' ? (
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                       {Object.entries(section).map(([k, v]) => (
@@ -190,9 +243,17 @@ export default function CompliancePortal() {
                   ) : (
                     <p className="caption-mono text-[var(--text-muted)]">{String(section)}</p>
                   )}
+                  </div>
                 </div>
               </div>
             ))}
+
+            {report.limitations?.length > 0 && (
+              <div className="industrial-card p-4 border-[var(--warning)]">
+                <p className="label-caps text-[var(--warning)] mb-3">Report limitations</p>
+                <DetailRows value={report.limitations} />
+              </div>
+            )}
 
             {/* Provenance block - tamper-evident content hash, NOT a cryptographic signature */}
             <div className="industrial-card p-4 border-[var(--border)]">

@@ -10,6 +10,32 @@ function formatText(value) {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+function displayText(value) {
+  if (value == null || value === '') return '';
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+    return formatText(value);
+  }
+  if (Array.isArray(value)) {
+    return value.map(displayText).filter(Boolean).join(' / ');
+  }
+  if (typeof value === 'object') {
+    return displayText(
+      value.message
+      || value.title
+      || value.description
+      || value.statement
+      || value.sensor_id
+      || value.decision_id
+      || value.type
+      || Object.entries(value)
+        .filter(([, item]) => item != null && typeof item !== 'object')
+        .map(([key, item]) => `${formatText(key)}: ${item}`)
+        .join(' / '),
+    );
+  }
+  return String(value);
+}
+
 function asList(value) {
   if (Array.isArray(value)) return value.filter(Boolean);
   if (value == null || value === '') return [];
@@ -47,15 +73,17 @@ function signalTrustState(signal) {
 
 function liveSignal(faceplateSignal, readings, confidence) {
   const tag = faceplateSignal?.tag || faceplateSignal?.sensor_id || faceplateSignal?.id;
-  const reading = (readings || []).find((item) => item.sensor_id === tag || item.tag === tag) || {};
+  const manifestReading = faceplateSignal?.reading || {};
+  const reading = (readings || []).find((item) => item.sensor_id === tag || item.tag === tag) || manifestReading || {};
   const conf = (confidence || []).find((item) => item.sensor_id === tag || item.tag === tag) || faceplateSignal?.confidence || {};
+  const hasReading = reading?.sensor_id || reading?.tag || reading?.value != null;
   return {
     ...faceplateSignal,
     tag,
     value: reading.value ?? faceplateSignal?.value ?? '--',
     unit: reading.unit || faceplateSignal?.unit || '',
     confidence: conf,
-    trust_state: faceplateSignal?.trust_state || conf.trust_state || conf.tier || (reading.sensor_id || reading.tag ? 'NO_CONFIDENCE_RESULT' : 'NO_LIVE_SAMPLE'),
+    trust_state: faceplateSignal?.trust_state || conf.trust_state || conf.tier || (hasReading ? 'NO_CONFIDENCE_RESULT' : 'NO_LIVE_SAMPLE'),
   };
 }
 
@@ -134,9 +162,10 @@ function TrustStatusSymbol({ state }) {
 
 function HmiLiveValue({ signal }) {
   const trust = signalTrustState(signal);
+  const value = signal.value == null || typeof signal.value === 'object' ? '--' : signal.value;
   return (
     <span className="hmi-live-value" title={`${signal.tag} ${formatText(trust.tier)}`}>
-      <span>{signal.value}</span>
+      <span>{value}</span>
       {signal.unit && <span className="text-[11px] font-normal">{signal.unit}</span>}
     </span>
   );
@@ -324,7 +353,7 @@ function ProcessCanvas({ manifest, faceplates, readings, confidence, onSelect })
             <div xmlns="http://www.w3.org/1999/xhtml" className="hmi-operation-note">
               <p className="label-caps text-[var(--text-muted)]">Operating Basis</p>
               <p className="caption-mono font-semibold mt-1">{basis.abnormal_situation || 'No abnormal situation active.'}</p>
-              <p className="caption-mono text-[var(--text-muted)] mt-1">{asList(basis.evidence).slice(0, 2).map(formatText).join(' / ') || 'live process values within operating basis'}</p>
+              <p className="caption-mono text-[var(--text-muted)] mt-1">{asList(basis.evidence).slice(0, 2).map(displayText).join(' / ') || 'live process values within operating basis'}</p>
             </div>
           </foreignObject>
         </svg>
@@ -357,7 +386,7 @@ function ValueList({ values, empty = 'No active item.', status = 'text-[var(--da
         // Index keeps the key unique even when the same item id appears twice in
         // a section's values (avoids React duplicate-key warnings / dropped rows).
         <p key={`${typeof item === 'string' ? item : item?.id || 'row'}-${index}`} className={`caption-mono ${status}`}>
-          {typeof item === 'string' ? formatText(item) : formatText(item.message || item.title || item.description || item.sensor_id || item.decision_id || item.type)}
+          {displayText(item)}
         </p>
       ))}
     </div>
@@ -671,6 +700,7 @@ function PressureModeRuntime({ manifest, situations, confidence, connected, plan
   // mass-balance contradiction is the basis of the abnormal situation.
   const hasMassBalanceStory = (massBalance?.flags || []).length > 0
     || (chartHistory || []).length > 1;
+  const flagMessages = asList(massBalance?.flags).map(displayText);
 
   return (
     <div className="industrial-page hmi-workplace hmi-pressure">
@@ -685,10 +715,16 @@ function PressureModeRuntime({ manifest, situations, confidence, connected, plan
             <span className="caption-mono status-warning">Grounded explanation disabled during active decision freeze.</span>
           </div>
           <div className="hmi-process-canvas p-5 flex flex-col gap-3 overflow-y-auto scrollbar-thin">
+            {flagMessages.length > 0 && (
+              <div className="hmi-alert-ribbon">
+                <p className="label-caps status-critical">Mass-balance evidence</p>
+                <ValueList values={flagMessages} status="status-critical" />
+              </div>
+            )}
             {/* The star of the abnormal situation: physics disagreeing with the
                 indicated reading. This dominates the operator's view. */}
             {hasMassBalanceStory && (
-              <div className="h-[460px] w-full shrink-0" style={{ minWidth: 0 }}>
+              <div className="h-[340px] w-full shrink-0" style={{ minWidth: 0 }}>
                 <MassBalanceChart chartHistory={chartHistory} massBalance={massBalance} flags={massBalance?.flags} />
               </div>
             )}
@@ -926,12 +962,18 @@ export default function RuntimePlatform() {
             onSelect={setSelected}
           />
           <aside className="hmi-dock">
-            {manifest.runtime_notice && role !== 'Operator' && (
+            {manifest.runtime_notice && (
               <DockSection
-                title={manifest.runtime_preview ? 'Generated Preview' : 'Runtime Publish State'}
+                title={manifest.runtime_preview ? 'Generated Preview' : 'Runtime Live Binding'}
                 eyebrow={manifest.runtime_preview ? 'Metadata Only — No Live Tags' : 'Compiler Boundary'}
               >
                 <p className="caption-mono status-warning">{manifest.runtime_notice}</p>
+                {manifest.demo_alias_bindings?.length > 0 && role !== 'Operator' && (
+                  <ValueList
+                    values={manifest.demo_alias_bindings.map((item) => `${item.target_tag} bound from ${item.source_tag}`)}
+                    status="text-[var(--data-mono)]"
+                  />
+                )}
                 <Link to="/studio" className="industrial-control inline-flex mt-2">Open Studio</Link>
               </DockSection>
             )}

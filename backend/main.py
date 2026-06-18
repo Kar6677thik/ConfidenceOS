@@ -59,7 +59,7 @@ from causal_graph import get_graph_state
 from adaptive_thresholds import compute_adaptive_envelopes
 from advisory import detect_plant_context, build_incidents, build_timeline_events
 from assumptions import build_confidence_explanation, confidence_engine_config, load_assumptions
-from asset_model import load_asset_model, mass_balance_validation
+from asset_model import active_asset_model_key, load_asset_model, mass_balance_validation
 from model_graph import get_assets, get_model_graph, get_navigation, get_signals
 from screen_generator import equipment_manifest
 from screen_generator import generate_screen_manifest
@@ -694,6 +694,90 @@ def _derive_trust_states(confidence: list[dict], readings: list[dict], mass_bala
     return decorated
 
 
+PUMP_STATION_DEMO_ALIASES = {
+    "LIT-100": {"source": "LT-5100", "unit": "%", "sensor_type": "level", "scale": 0.5, "offset": 0.0},
+    "FIT-101": {"source": "FI-2010", "unit": "m3/h", "sensor_type": "flow_in", "scale": 0.227, "offset": 0.0},
+    "FIT-102": {"source": "FO-2020", "unit": "m3/h", "sensor_type": "flow_out", "scale": 0.227, "offset": 0.0},
+    "VIB-101": {"source": "ZT-6100", "unit": "mm/s", "sensor_type": "vibration", "scale": 0.08, "offset": 1.2},
+}
+
+
+def _apply_demo_asset_model_bindings(live_state: dict) -> dict:
+    """Bind the pump-station metadata model to deterministic demo live values.
+
+    This is not a control integration and not a second simulator. It is a
+    transparent demo binding so the same generated Runtime can show live values
+    for a second asset model while the read-only simulator still emits the
+    original Texas City tag stream.
+    """
+    if active_asset_model_key() != "pump_station":
+        live_state["live_binding_status"] = "native_live_tags"
+        live_state.setdefault("demo_alias_bindings", [])
+        live_state.setdefault("unbound_tags", [])
+        return live_state
+
+    readings = list(live_state.get("readings") or [])
+    confidence = list(live_state.get("confidence") or [])
+    reading_by_id = {row.get("sensor_id"): row for row in readings if row.get("sensor_id")}
+    confidence_by_id = {row.get("sensor_id"): row for row in confidence if row.get("sensor_id")}
+    model_tags = {signal.get("tag") for signal in get_signals() if signal.get("tag")}
+    live_tags = set(reading_by_id)
+    alias_receipts = []
+
+    if model_tags & live_tags:
+        live_state["live_binding_status"] = "native_live_tags"
+        live_state["demo_alias_bindings"] = []
+        live_state["unbound_tags"] = sorted(model_tags - live_tags)
+        return live_state
+
+    for target, spec in PUMP_STATION_DEMO_ALIASES.items():
+        source = spec["source"]
+        source_reading = reading_by_id.get(source)
+        if not source_reading:
+            continue
+        raw_value = source_reading.get("value")
+        try:
+            value = round(float(raw_value) * float(spec.get("scale", 1.0)) + float(spec.get("offset", 0.0)), 2)
+        except (TypeError, ValueError):
+            value = raw_value
+        readings.append({
+            **source_reading,
+            "sensor_id": target,
+            "tag": target,
+            "value": value,
+            "unit": spec["unit"],
+            "sensor_type": spec["sensor_type"],
+            "demo_bound_from": source,
+            "read_only_demo_binding": True,
+        })
+        source_confidence = confidence_by_id.get(source)
+        if source_confidence:
+            confidence.append({
+                **source_confidence,
+                "sensor_id": target,
+                "tag": target,
+                "sensor_type": spec["sensor_type"],
+                "trust_reason": (
+                    f"Read-only demo binding from {source}; use for pump-station generated HMI demonstration only."
+                ),
+                "demo_bound_from": source,
+                "read_only_demo_binding": True,
+            })
+        alias_receipts.append({
+            "target_tag": target,
+            "source_tag": source,
+            "read_only": True,
+            "purpose": "demo live binding for alternate asset model",
+        })
+
+    live_state["readings"] = readings
+    live_state["confidence"] = confidence
+    live_state["demo_alias_bindings"] = alias_receipts
+    live_state["live_binding_status"] = "demo_alias_live_tags" if alias_receipts else "metadata_only_no_live_tags"
+    live_state["unbound_tags"] = sorted(model_tags - {row.get("sensor_id") for row in readings if row.get("sensor_id")})
+    return live_state
+
+
 def _runtime_live_state(plant_id: str, plant) -> dict:
     """Collect frontend-friendly live state for generated Runtime manifests."""
     confidence = list(plant.latest_confidence.values())
@@ -702,7 +786,7 @@ def _runtime_live_state(plant_id: str, plant) -> dict:
     now = time.time()
     verification_tasks = [normalize_verification_task(task, now) for task in plant.verification_tokens or []]
     active_tasks = active_verification_tokens(plant.verification_tokens, now)
-    return {
+    live_state = {
         "plant_id": plant_id,
         "readings": plant.latest_readings,
         "confidence": confidence,
@@ -716,6 +800,7 @@ def _runtime_live_state(plant_id: str, plant) -> dict:
         "handover_debt": plant.latest_handover_debt,
         "confidence_debt": plant.latest_confidence_debt,
     }
+    return _apply_demo_asset_model_bindings(live_state)
 
 
 @app.websocket("/ws/sensors")
@@ -1024,6 +1109,16 @@ def _annotate_generated_preview(manifest: dict, live_state: dict) -> dict:
     is active while the live simulator still streams the demo tags). Engineer/
     Manager see this honesty notice; Operator gating is handled in the frontend.
     """
+    manifest["live_binding_status"] = live_state.get("live_binding_status", "unknown")
+    manifest["demo_alias_bindings"] = live_state.get("demo_alias_bindings", [])
+    manifest["unbound_tags"] = live_state.get("unbound_tags", [])
+    if live_state.get("live_binding_status") == "demo_alias_live_tags":
+        manifest["runtime_preview"] = False
+        manifest["runtime_notice"] = (
+            "Live demo binding active: pump-station tags are read-only aliases "
+            "from the simulator stream. No control commands or setpoints are written."
+        )
+        return manifest
     try:
         model_tags = {s.get("tag") for s in get_signals() if s.get("tag")}
         live_tags = {r.get("sensor_id") for r in (live_state.get("readings") or []) if r.get("sensor_id")}
@@ -2215,6 +2310,12 @@ async def generate_compliance_report(request: ComplianceRequest, db: Session = D
             },
             "recommendations": recommendations,
         },
+        "limitations": [
+            "Generated from ConfidenceOS logged simulator/runtime data only.",
+            "Confidence values are governed trust scores, not calibrated probabilities.",
+            "This report does not certify regulatory compliance or replace DCS/HMI records.",
+            "False-positive, silence-rate, and digital-signature claims are not made unless source data exists.",
+        ],
     }
     # Honest provenance: a SHA-256 content hash + generator identity. This is NOT a
     # cryptographic signature — it lets a reader verify the report wasn't altered, without
@@ -2246,12 +2347,12 @@ def _generate_compliance_recommendations(alarm_by_severity, sensor_reliability, 
         if age > 60:
             recs.append({
                 "priority": "critical",
-                "action": f"Calibrate {sid} immediately — {age:.0f} days since last calibration.",
+                "action": f"Calibrate {sid} immediately - {age:.0f} days since last calibration.",
             })
         elif age > 40:
             recs.append({
                 "priority": "high",
-                "action": f"Schedule calibration for {sid} within 1 week — {age:.0f} days elapsed.",
+                "action": f"Schedule calibration for {sid} within 1 week - {age:.0f} days elapsed.",
             })
 
     # Flag mass-balance issues
@@ -2282,7 +2383,12 @@ def _format_compliance_report_text(report: dict) -> str:
     alarm = sections.get("alarm_summary", {})
     mb = sections.get("mass_balance_summary", {})
     handover = sections.get("shift_handover_log", {})
+    reliability = sections.get("sensor_reliability", {})
     recommendations = sections.get("recommendations", [])
+    severity_items = alarm.get("by_severity", {}) or {}
+    top_sensors = alarm.get("top_10_sensors", []) or []
+    flags = mb.get("flags", []) or []
+    handover_entries = handover.get("entries", []) or []
 
     lines = [
         "ConfidenceOS Operational Summary Report",
@@ -2291,18 +2397,75 @@ def _format_compliance_report_text(report: dict) -> str:
         f"Period: {report.get('period_hours')} hours",
         f"Generated: {report.get('generated_at')}",
         "",
+        "Scope And Limitations",
+    ]
+    lines.extend([f"- {item}" for item in report.get("limitations", [])])
+    lines.extend([
+        "",
         "Alarm Summary",
         f"Total alarms: {alarm.get('total_alarms', 0)}",
         f"Alarm rate/hour: {alarm.get('alarm_rate_per_hour', 0)}",
+        "By severity:",
+    ])
+    if severity_items:
+        for severity, count in sorted(severity_items.items()):
+            lines.append(f"- {severity}: {count}")
+    else:
+        lines.append("- No anomaly rows were available in this reporting window.")
+    lines.append("Top contributing sensors:")
+    if top_sensors:
+        for item in top_sensors:
+            lines.append(f"- {item.get('sensor_id', 'UNKNOWN')}: {item.get('count', 0)} events")
+    else:
+        lines.append("- No sensor alarm concentration detected.")
+    lines.extend([
+        "",
+        "Sensor Trust Summary",
+    ])
+    if reliability:
+        for sid, rel in sorted(reliability.items()):
+            tier_dist = rel.get("tier_distribution", {}) or {}
+            dist = ", ".join(f"{key} {value}%" for key, value in tier_dist.items())
+            lines.append(
+                f"- {sid}: current {rel.get('current_confidence', 'n/a')}%, "
+                f"calibration age {rel.get('calibration_age', 'n/a')} days, "
+                f"{rel.get('data_points', 0)} samples ({dist})"
+            )
+    else:
+        lines.append("- No confidence history rows were available in this reporting window.")
+    lines.extend([
         "",
         "Mass-Balance Summary",
         f"Total flags: {mb.get('total_flags', 0)}",
+        "Flag details:",
+    ])
+    if flags:
+        for flag in flags[:20]:
+            lines.append(
+                f"- {flag.get('timestamp', flag.get('created_at', 'n/a'))}: "
+                f"{flag.get('severity', 'INFO')} / {flag.get('sensor_id', 'UNKNOWN')} / "
+                f"{flag.get('anomaly_type', 'mass_balance')} / {flag.get('description', flag.get('message', 'no description'))}"
+            )
+    else:
+        lines.append("- No mass-balance flags logged in this period.")
+    lines.extend([
         "",
         "Shift Handover Log",
         f"Generated handovers: {handover.get('count', 0)}",
+        "Entries:",
+    ])
+    if handover_entries:
+        for entry in handover_entries[:12]:
+            lines.append(
+                f"- {entry.get('generated_at', 'n/a')} / {entry.get('source', 'unknown')}: "
+                f"{entry.get('brief_text', '').replace(chr(10), ' ')[:220]}"
+            )
+    else:
+        lines.append("- No handover entries logged in this period.")
+    lines.extend([
         "",
         "Recommendations",
-    ]
+    ])
     for rec in recommendations:
         lines.append(f"- {rec.get('priority', 'info').upper()}: {rec.get('action', '')}")
     provenance = report.get("provenance", {})
@@ -2321,22 +2484,46 @@ def _pdf_escape(text: str) -> str:
 
 
 def _build_simple_pdf(text: str) -> bytes:
-    """Create a minimal single-page PDF containing plain report text."""
-    lines = text.splitlines()[:42]
-    content_lines = ["BT", "/F1 10 Tf", "50 780 Td", "14 TL"]
-    for line in lines:
-        content_lines.append(f"({_pdf_escape(line[:95])}) Tj")
-        content_lines.append("T*")
-    content_lines.append("ET")
-    stream = "\n".join(content_lines).encode("latin-1", "replace")
+    """Create a small multi-page PDF containing plain report text."""
+    wrapped_lines = []
+    for line in text.splitlines():
+        if not line:
+            wrapped_lines.append("")
+            continue
+        while len(line) > 95:
+            wrapped_lines.append(line[:95])
+            line = "  " + line[95:]
+        wrapped_lines.append(line)
 
+    pages = [wrapped_lines[i:i + 48] for i in range(0, len(wrapped_lines), 48)] or [[]]
     objects = [
         b"1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n",
-        b"2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n",
-        b"3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >> endobj\n",
-        b"4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n",
-        b"5 0 obj << /Length " + str(len(stream)).encode("ascii") + b" >> stream\n" + stream + b"\nendstream endobj\n",
+        b"2 0 obj << /Type /Pages /Kids ["
+        + b" ".join(f"{3 + i * 2} 0 R".encode("ascii") for i in range(len(pages)))
+        + b"] /Count "
+        + str(len(pages)).encode("ascii")
+        + b" >> endobj\n",
     ]
+    for index, page_lines in enumerate(pages):
+        page_obj = 3 + index * 2
+        content_obj = page_obj + 1
+        content_lines = ["BT", "/F1 10 Tf", "50 780 Td", "14 TL"]
+        for line in page_lines:
+            content_lines.append(f"({_pdf_escape(line)}) Tj")
+            content_lines.append("T*")
+        content_lines.append("ET")
+        stream = "\n".join(content_lines).encode("latin-1", "replace")
+        objects.append(
+            f"{page_obj} 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+            f"/Resources << /Font << /F1 {3 + len(pages) * 2} 0 R >> >> /Contents {content_obj} 0 R >> endobj\n".encode("ascii")
+        )
+        objects.append(
+            f"{content_obj} 0 obj << /Length {len(stream)} >> stream\n".encode("ascii")
+            + stream
+            + b"\nendstream endobj\n"
+        )
+    font_obj = 3 + len(pages) * 2
+    objects.append(f"{font_obj} 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n".encode("ascii"))
     pdf = bytearray(b"%PDF-1.4\n")
     offsets = [0]
     for obj in objects:

@@ -51,10 +51,9 @@ export default function ForensicsReplay() {
 
   // Load selected preset
   useEffect(() => {
-    setPresetError('');
     fetch(`/api/forensics/presets/${activePreset}`)
       .then((r) => r.json())
-      .then((d) => { setData(d); setIndex(0); setPlaying(false); })
+      .then((d) => { setPresetError(''); setData(d); setIndex(0); setPlaying(false); })
       .catch(() => setPresetError('Replay preset unavailable — check API connection.'));
   }, [activePreset]);
 
@@ -97,17 +96,17 @@ export default function ForensicsReplay() {
     <div className="industrial-page flex flex-col overflow-hidden">
 
       {/* -- Replay control bar -- */}
-      <div className="flex-shrink-0 bg-[var(--bg-surface)] border-b border-[var(--warning)] px-5 py-3 flex items-center gap-5">
+      <div className="flex-shrink-0 bg-[var(--bg-surface)] border-b border-[var(--warning)] px-5 py-3 flex flex-wrap items-center gap-3">
         {/* Mode badge */}
         <span className="industrial-badge text-[var(--warning)] border-[var(--warning)]">
-          ▶ Replay
+          Replay
         </span>
 
         {/* Preset selector */}
         <select
           value={activePreset}
           onChange={(e) => setActivePreset(e.target.value)}
-          className="industrial-select w-48"
+          className="industrial-select min-w-[240px] flex-1 max-w-[560px]"
         >
           {presets.map((p) => (
             <option key={p.id} value={p.id}>{p.name}</option>
@@ -118,12 +117,12 @@ export default function ForensicsReplay() {
         </select>
 
         {/* Play / Pause */}
-        <button onClick={() => setPlaying((v) => !v)} className="industrial-control text-[var(--text)] px-4">
-          {playing ? '⏸ Pause' : '▶ Play'}
+        <button onClick={() => setPlaying((v) => !v)} className="industrial-control text-[var(--text)] px-4 shrink-0">
+          {playing ? 'Pause' : 'Play'}
         </button>
 
         {/* Timeline scrubber */}
-        <div className="flex-1 min-w-0">
+        <div className="flex-[2_1_420px] min-w-[300px]">
           <div className="flex justify-between caption-mono text-[10px] text-[var(--text-muted)] mb-1">
             <span>MAR 23, 2005 - 00:00</span>
             <span className="text-[var(--primary)]">T+{frame?.minute ?? 0}m</span>
@@ -143,19 +142,19 @@ export default function ForensicsReplay() {
         </div>
 
         {/* Speed selector */}
-        <div className="flex border border-[var(--border)] rounded overflow-hidden">
+        <div className="flex border border-[var(--border)] rounded overflow-hidden shrink-0">
           {[1, 5, 10, 30].map((s) => (
             <button key={s} onClick={() => setSpeed(s)}
               className={`px-3 py-1 caption-mono border-r border-[var(--border)] last:border-r-0 transition-colors
                 ${speed === s ? 'bg-[var(--bg-elevated)] text-[var(--primary)]' : 'text-[var(--text-muted)]'}`}>
-              {s}×
+              {s}x
             </button>
           ))}
         </div>
 
         {/* Exit */}
-        <button onClick={() => { setPlaying(false); setIndex(0); }} className="industrial-control text-[var(--text-muted)]">
-          ✕ Reset
+        <button onClick={() => { setPlaying(false); setIndex(0); }} className="industrial-control text-[var(--text-muted)] shrink-0">
+          Reset
         </button>
       </div>
 

@@ -87,7 +87,6 @@ export default function CausalGraph() {
   const dragRef = useRef({ active: false, moved: false, startClientX: 0, startClientY: 0, startTx: 0, startTy: 0, startK: 1 });
 
   useEffect(() => {
-    setLoading(true);
     fetch(`/api/graph/${plantId}`)
       .then((r) => r.json())
       .then((d) => { setGraph(d); setLoading(false); })

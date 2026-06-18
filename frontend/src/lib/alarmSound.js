@@ -40,7 +40,7 @@ export function beepCritical() {
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
     osc.start(ctx.currentTime);
     osc.stop(ctx.currentTime + 0.35);
-  } catch (_e) {
+  } catch {
     // Autoplay policy or no Web Audio — silent fail.
   }
 }

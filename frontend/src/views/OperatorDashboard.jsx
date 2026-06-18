@@ -372,12 +372,23 @@ export default function OperatorDashboard() {
               </button>
             ))}
           </div>
-          <div
-            className="flex flex-col gap-2"
-            onClick={() => setRailMessage('Operator support controls are read-only. Use RT, GR, SB, and SG for active navigation. Configuration changes are made in Studio.')}
-          >
-            <button className="w-8 h-8 rounded flex items-center justify-center text-[12px] text-[var(--text-muted)] border border-[var(--border)] hover:bg-[var(--bg-elevated)]">⚙</button>
-            <button className="w-8 h-8 rounded flex items-center justify-center text-[12px] text-[var(--text-muted)] border border-[var(--border)] hover:bg-[var(--bg-elevated)]">?</button>
+          <div className="flex flex-col gap-2">
+            <button
+              type="button"
+              title="Explain support rail"
+              onClick={() => setRailMessage('RT opens the primary Runtime, GR jumps to the grounded explanation, SB opens Shift Channel, and SG opens the signal graph. These controls are read-only navigation shortcuts.')}
+              className="w-8 h-8 rounded flex items-center justify-center text-[10px] font-bold text-[var(--text-muted)] border border-[var(--border)] hover:bg-[var(--bg-elevated)]"
+            >
+              INFO
+            </button>
+            <button
+              type="button"
+              title="Read-only boundary"
+              onClick={() => setRailMessage('ConfidenceOS does not write setpoints, controller modes, tag values, or alarm acknowledgements. Configuration changes belong in Studio and require engineer approval.')}
+              className="w-8 h-8 rounded flex items-center justify-center text-[10px] font-bold text-[var(--text-muted)] border border-[var(--border)] hover:bg-[var(--bg-elevated)]"
+            >
+              HELP
+            </button>
           </div>
         </aside>
 

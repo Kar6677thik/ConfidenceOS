@@ -3,7 +3,7 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import useStore from '../store';
 import NavBar from '../components/NavBar';
-import { worstTrustException, countActiveAlerts } from '../components/NavBar';
+import { worstTrustException, countActiveAlerts } from '../components/navBarUtils';
 
 // Stub WebSocket so store.connect() doesn't throw
 beforeEach(() => {
