@@ -18,7 +18,7 @@ export default function RuntimePreview({ manifest }) {
               {screens.map((screen) => (
                 <div key={screen.generated_id || screen.screen_id} className="bg-[var(--surface-panel)] p-3">
                   <p className="caption-mono text-[var(--text)]">{screen.title}</p>
-                  <p className="caption-mono text-[var(--data-mono)] mt-1">{screen.sections?.join(' / ')}</p>
+                  <p className="caption-mono text-[var(--data-mono)] mt-1 machine-token">{screen.sections?.join(' / ')}</p>
                 </div>
               ))}
             </div>
@@ -30,7 +30,7 @@ export default function RuntimePreview({ manifest }) {
                 <div key={faceplate.generated_id || faceplate.equipment_id} className="bg-[var(--surface-panel)] p-3">
                   <p className="label-caps status-safe">{faceplate.template_label}</p>
                   <p className="caption-mono text-[var(--text)] mt-1">{faceplate.title}</p>
-                  <p className="caption-mono text-[var(--data-mono)] mt-1">{faceplate.signals?.map((signal) => signal.tag).join(' / ')}</p>
+                  <p className="caption-mono text-[var(--data-mono)] mt-1 machine-token">{faceplate.signals?.map((signal) => signal.tag).join(' / ')}</p>
                 </div>
               ))}
             </div>

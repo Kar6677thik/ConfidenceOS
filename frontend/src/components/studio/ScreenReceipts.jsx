@@ -8,15 +8,15 @@ function ReceiptPanel({ item, label }) {
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="label-caps text-[var(--text-muted)]">{label}</p>
-          <p className="caption-mono text-[var(--text)] mt-1">{item?.generated_id}</p>
+          <p className="caption-mono text-[var(--text)] mt-1 machine-token">{item?.generated_id}</p>
         </div>
         <span className={`industrial-badge ${statusClass(item?.validation_status)}`}>{item?.validation_status}</span>
       </div>
       <div className="grid grid-cols-2 gap-[1px] bg-[var(--border-strong)] mt-3">
-        <p className="bg-[var(--surface-base)] p-2 caption-mono text-[var(--data-mono)]">Asset {item?.asset_id}</p>
-        <p className="bg-[var(--surface-base)] p-2 caption-mono text-[var(--data-mono)]">Template {item?.template_id}</p>
-        <p className="bg-[var(--surface-base)] p-2 caption-mono text-[var(--data-mono)]">Role {item?.role_policy}</p>
-        <p className="bg-[var(--surface-base)] p-2 caption-mono text-[var(--data-mono)]">Context {item?.context_policy}</p>
+        <p className="bg-[var(--surface-base)] p-2 caption-mono text-[var(--data-mono)] machine-token">Asset {item?.asset_id}</p>
+        <p className="bg-[var(--surface-base)] p-2 caption-mono text-[var(--data-mono)] machine-token">Template {item?.template_id}</p>
+        <p className="bg-[var(--surface-base)] p-2 caption-mono text-[var(--data-mono)] machine-token">Role {item?.role_policy}</p>
+        <p className="bg-[var(--surface-base)] p-2 caption-mono text-[var(--data-mono)] machine-token">Context {item?.context_policy}</p>
       </div>
       <p className="label-caps text-[var(--text-muted)] mt-3">Generated Because</p>
       <ul className="mt-2 space-y-1">
@@ -31,7 +31,7 @@ function ReceiptPanel({ item, label }) {
         </>
       )}
       <p className="label-caps text-[var(--text-muted)] mt-3">Source Files</p>
-      <p className="caption-mono text-[var(--data-mono)] mt-1">{asList(receipt.source_files).join(' / ') || 'none listed'}</p>
+      <p className="caption-mono text-[var(--data-mono)] mt-1 machine-token">{asList(receipt.source_files).join(' / ') || 'none listed'}</p>
     </div>
   );
 }

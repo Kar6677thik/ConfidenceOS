@@ -11,6 +11,21 @@ const STAGE_LABELS = {
   runtime: 'Runtime',
 };
 
+const STATUS_LABELS = {
+  PASS: 'PASS',
+  PASS_WITH_WARNINGS: 'WARN',
+  WARNING: 'WARN',
+  BLOCKING: 'BLOCK',
+  BLOCKED: 'BLOCK',
+  FAILED: 'FAIL',
+  NOT_RUN: 'WAIT',
+};
+
+function compactStatus(value) {
+  const status = String(value || 'NOT_RUN').toUpperCase();
+  return STATUS_LABELS[status] || status;
+}
+
 export default function CompilerPipeline({ build }) {
   const stages = build?.stages || [
     { id: 'import', status: 'NOT_RUN' },
@@ -28,11 +43,11 @@ export default function CompilerPipeline({ build }) {
       className="mb-[1px]"
     >
       <div className="overflow-x-auto overflow-y-hidden scrollbar-thin">
-      <div className="grid min-w-[920px] grid-cols-6 gap-[1px] bg-[var(--border-strong)]">
+      <div className="grid min-w-[980px] grid-cols-6 gap-[1px] bg-[var(--border-strong)]">
         {stages.filter((stage) => stage.id !== 'runtime').map((stage) => (
-          <div key={stage.id} className="bg-[var(--surface-panel)] p-3 min-h-[88px]">
-            <span className={`industrial-badge ${statusClass(stage.status || 'NOT_RUN')}`}>
-              {formatText(stage.status || 'NOT_RUN')}
+          <div key={stage.id} className="bg-[var(--surface-panel)] p-3 min-h-[92px]">
+            <span className={`industrial-badge ${statusClass(stage.status || 'NOT_RUN')}`} title={formatText(stage.status || 'NOT_RUN')}>
+              {compactStatus(stage.status)}
             </span>
             <p className="label-caps text-[var(--text-muted)] mt-3">Stage</p>
             <p className="caption-mono text-[var(--text)] mt-1">{stage.label || STAGE_LABELS[stage.id] || formatText(stage.id)}</p>

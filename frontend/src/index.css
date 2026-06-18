@@ -88,10 +88,9 @@ button:disabled { cursor: not-allowed; }
 .font-data, .caption-mono {
   font-family: Geist, ui-monospace, 'JetBrains Mono', Consolas, monospace;
   font-variant-numeric: tabular-nums;
-  /* Allow long unbroken IDs/tags to wrap instead of spilling, and let these
-     shrink when used as flex/grid children. */
+  /* Let text shrink inside flex/grid children without forcing letter stacks. */
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow-wrap: normal;
 }
 
 .label-caps {
@@ -100,7 +99,8 @@ button:disabled { cursor: not-allowed; }
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  overflow-wrap: anywhere;
+  white-space: normal;
+  overflow-wrap: normal;
 }
 
 .caption-mono {
@@ -258,7 +258,7 @@ button:disabled { cursor: not-allowed; }
 }
 
 .industrial-panel-header > div {
-  min-width: 180px;
+  min-width: 0;
 }
 
 .industrial-panel-header .industrial-control {
@@ -266,6 +266,12 @@ button:disabled { cursor: not-allowed; }
 }
 
 .industrial-body { padding: 20px; }
+
+.machine-token {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
 
 /* -- ABB-style HMI workplace primitives ---------------------------------- */
 .hmi-workplace {

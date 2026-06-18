@@ -15,11 +15,11 @@ export default function TemplateBindingTable({ validation, busy }) {
         </div>
         {rows.map((row) => (
           <div key={`${row.asset_id}-${row.template_id}`} className="grid grid-cols-1 xl:grid-cols-[120px_150px_1fr_1fr_1fr_120px] gap-[1px] bg-[var(--border-strong)]">
-            <p className="bg-[var(--surface-panel)] p-3 caption-mono text-[var(--text)]">{row.asset_id}</p>
-            <p className="bg-[var(--surface-panel)] p-3 caption-mono text-[var(--data-mono)]">{row.template_id}</p>
-            <p className="bg-[var(--surface-panel)] p-3 caption-mono text-[var(--data-mono)]">{asList(row.required_signal_types).join(' / ') || 'none'}</p>
-            <p className="bg-[var(--surface-panel)] p-3 caption-mono text-[var(--data-mono)]">{asList(row.present_signal_types).join(' / ') || 'none'}</p>
-            <p className="bg-[var(--surface-panel)] p-3 caption-mono text-[var(--data-mono)]">{asList(row.missing_signal_types).join(' / ') || 'none'}</p>
+            <p className="bg-[var(--surface-panel)] p-3 caption-mono text-[var(--text)] machine-token">{row.asset_id}</p>
+            <p className="bg-[var(--surface-panel)] p-3 caption-mono text-[var(--data-mono)] machine-token">{row.template_id}</p>
+            <p className="bg-[var(--surface-panel)] p-3 caption-mono text-[var(--data-mono)] machine-token">{asList(row.required_signal_types).join(' / ') || 'none'}</p>
+            <p className="bg-[var(--surface-panel)] p-3 caption-mono text-[var(--data-mono)] machine-token">{asList(row.present_signal_types).join(' / ') || 'none'}</p>
+            <p className="bg-[var(--surface-panel)] p-3 caption-mono text-[var(--data-mono)] machine-token">{asList(row.missing_signal_types).join(' / ') || 'none'}</p>
             <p className={`bg-[var(--surface-panel)] p-3 caption-mono ${statusClass(row.status)}`}>{formatText(row.status)}</p>
           </div>
         ))}

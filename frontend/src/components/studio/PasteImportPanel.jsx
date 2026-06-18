@@ -70,7 +70,7 @@ export default function PasteImportPanel({ busy, onImportResult }) {
                 </span>
               </div>
               {prop.ai_proposed_canonical_tag && (
-                <p className="caption-mono text-[var(--data-mono)] mt-1">{'->'} {prop.ai_proposed_canonical_tag}</p>
+                <p className="caption-mono text-[var(--data-mono)] mt-1 machine-token">{'->'} {prop.ai_proposed_canonical_tag}</p>
               )}
               {prop.ai_rationale && (
                 <p className="caption-mono text-[var(--text-muted)] mt-1 text-xs">{prop.ai_rationale}</p>
@@ -82,7 +82,7 @@ export default function PasteImportPanel({ busy, onImportResult }) {
             <div className="bg-[var(--surface-panel)] p-3">
               <p className="label-caps status-critical">Unresolved Tags - Manual Mapping Required</p>
               <ul className="mt-2 space-y-1">
-                {result.unresolved.map((tag) => <li key={tag} className="caption-mono text-[var(--data-mono)]">{tag}</li>)}
+                {result.unresolved.map((tag) => <li key={tag} className="caption-mono text-[var(--data-mono)] machine-token">{tag}</li>)}
               </ul>
             </div>
           )}

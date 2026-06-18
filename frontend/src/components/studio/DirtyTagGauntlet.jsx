@@ -7,7 +7,8 @@ export default function DirtyTagGauntlet({ court, selectedRawTag, onSelect }) {
   const buckets = ['mapped', 'ambiguous', 'unmapped', 'ignored', 'blocking'];
   return (
     <Panel eyebrow="Dirty Tag Import Gauntlet" title="Imported Raw Tags" className="mb-[1px]">
-      <div className="grid grid-cols-5 gap-[1px] bg-[var(--border-strong)] mb-4">
+      <div className="overflow-x-auto overflow-y-hidden scrollbar-thin mb-4">
+      <div className="grid min-w-[520px] grid-cols-5 gap-[1px] bg-[var(--border-strong)]">
         {buckets.map((bucket) => (
           <div key={bucket} className="bg-[var(--surface-panel)] p-3">
             <p className="label-caps text-[var(--text-muted)]">{bucket}</p>
@@ -15,19 +16,20 @@ export default function DirtyTagGauntlet({ court, selectedRawTag, onSelect }) {
           </div>
         ))}
       </div>
+      </div>
       <div className="space-y-[1px] bg-[var(--border-strong)]">
         {rows.map((row) => (
           <button
             key={row.raw_tag}
             onClick={() => onSelect(row.raw_tag)}
-            className={`w-full grid grid-cols-[1fr_1fr_105px] gap-[1px] text-left bg-[var(--border-strong)] ${selectedRawTag === row.raw_tag ? 'outline outline-1 outline-[var(--primary)]' : ''}`}
+            className={`w-full grid grid-cols-1 lg:grid-cols-[minmax(160px,1fr)_minmax(160px,1fr)_112px] gap-[1px] text-left bg-[var(--border-strong)] ${selectedRawTag === row.raw_tag ? 'outline outline-1 outline-[var(--primary)]' : ''}`}
           >
             <div className="bg-[var(--surface-panel)] p-3">
-              <p className="caption-mono text-[var(--text)]">{row.raw_tag}</p>
+              <p className="caption-mono text-[var(--text)] machine-token">{row.raw_tag}</p>
               <p className="label-caps text-[var(--text-muted)] mt-1">raw tag</p>
             </div>
             <div className="bg-[var(--surface-panel)] p-3">
-              <p className="caption-mono text-[var(--data-mono)]">{row.proposed_canonical_tag || 'unresolved'}</p>
+              <p className="caption-mono text-[var(--data-mono)] machine-token">{row.proposed_canonical_tag || 'unresolved'}</p>
               <p className="label-caps text-[var(--text-muted)] mt-1">canonical mapping</p>
             </div>
             <div className="bg-[var(--surface-panel)] p-3">

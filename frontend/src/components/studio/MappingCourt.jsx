@@ -85,7 +85,7 @@ export default function MappingCourt({
         ].map(([label, value]) => (
           <div key={label} className="bg-[var(--surface-panel)] p-3">
             <p className="label-caps text-[var(--text-muted)]">{label}</p>
-            <p className="caption-mono text-[var(--text)] mt-1">{value}</p>
+            <p className="caption-mono text-[var(--text)] mt-1 machine-token">{value}</p>
           </div>
         ))}
       </div>
@@ -103,7 +103,7 @@ export default function MappingCourt({
           </ul>
         </div>
       </div>
-      <div className="mt-4 grid grid-cols-1 xl:grid-cols-[1fr_140px_140px_140px] gap-[1px] bg-[var(--border-strong)]">
+      <div className="mt-4 grid grid-cols-1 xl:grid-cols-[minmax(260px,1fr)_minmax(160px,0.35fr)_minmax(150px,0.3fr)_minmax(150px,0.3fr)] gap-[1px] bg-[var(--border-strong)]">
         <div className="bg-[var(--surface-panel)] p-3">
           <label className="label-caps text-[var(--text-muted)]" htmlFor="ignore-reason">Ignored Reason</label>
           <input
@@ -115,10 +115,10 @@ export default function MappingCourt({
           />
         </div>
         <div className="bg-[var(--surface-panel)] p-3 flex items-center">
-          <button disabled={busy || !item?.proposed_canonical_tag} onClick={onApprove} className="industrial-control status-safe w-full disabled:opacity-40">Approve Mapping</button>
+          <button disabled={busy || !item?.proposed_canonical_tag} onClick={onApprove} className="industrial-control status-safe w-full disabled:opacity-40">Approve</button>
         </div>
         <div className="bg-[var(--surface-panel)] p-3 flex items-center">
-          <button disabled={busy || !item} onClick={onIgnore} className="industrial-control status-warning w-full disabled:opacity-40">Mark Ignored</button>
+          <button disabled={busy || !item} onClick={onIgnore} className="industrial-control status-warning w-full disabled:opacity-40">Ignore</button>
         </div>
         <div className="bg-[var(--surface-panel)] p-3 flex items-center">
           <button disabled={busy || !item} onClick={onKeepBlocking} className="industrial-control status-critical w-full disabled:opacity-40">Keep Blocking</button>
@@ -133,7 +133,7 @@ export default function MappingCourt({
             </div>
             <span className="industrial-badge text-[var(--data-mono)]">approval required</span>
           </div>
-          <div className="grid grid-cols-1 xl:grid-cols-4 gap-[1px] bg-[var(--border-strong)] mt-3">
+          <div className="grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-4 gap-[1px] bg-[var(--border-strong)] mt-3">
             <div className="bg-[var(--surface-panel)] p-3">
               <label className="label-caps text-[var(--text-muted)]" htmlFor="manual-canonical">Canonical Signal</label>
               <select id="manual-canonical" value={manualCanonical} onChange={(event) => onManualCanonical(event.target.value)} className="industrial-input mt-2">

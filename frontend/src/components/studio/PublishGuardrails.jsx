@@ -15,7 +15,7 @@ export default function PublishGuardrails({ build, onPublish, busy, result }) {
     <Panel
       eyebrow="Publish Guardrails"
       title="Readiness Gate"
-      right={<button disabled={busy || !build?.can_publish} onClick={onPublish} className="industrial-control status-safe disabled:opacity-40">Publish Latest Build</button>}
+      right={<button disabled={busy || !build?.can_publish} onClick={onPublish} className="industrial-control status-safe disabled:opacity-40">Publish Runtime</button>}
       className="mb-[1px]"
     >
       <div className="space-y-[1px] bg-[var(--border-strong)]">
@@ -26,7 +26,7 @@ export default function PublishGuardrails({ build, onPublish, busy, result }) {
               <span className="industrial-badge status-critical">{group.items.length}</span>
             </div>
             <p className="caption-mono text-[var(--text)] mt-1">{group.message}</p>
-            <p className="caption-mono text-[var(--data-mono)] mt-1">
+            <p className="caption-mono text-[var(--data-mono)] mt-1 machine-token">
               {group.items.slice(0, 3).map((item) => [item.raw_tag, item.asset_id].filter(Boolean).join(' / ')).filter(Boolean).join(' ; ')}
               {group.items.length > 3 ? ` ; +${group.items.length - 3} more` : ''}
             </p>

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import useStore from '../store';
 import PageIdentity from './hmi/PageIdentity';
 import { PanelSkeleton, LoadFailed } from './PanelSkeleton';
-import Panel from './studio/Panel';
+import WorkflowRail from './studio/WorkflowRail';
 import CompilerPipeline from './studio/CompilerPipeline';
 import DirtyTagGauntlet from './studio/DirtyTagGauntlet';
 import MappingCourt from './studio/MappingCourt';
@@ -14,6 +14,29 @@ import PublishGuardrails from './studio/PublishGuardrails';
 import RuntimePreview from './studio/RuntimePreview';
 import ScreenReceipts from './studio/ScreenReceipts';
 import { fetchJson, statusClass } from './studio/studioUtils';
+
+const TABS = [
+  { id: 'build', label: 'Build & Mapping' },
+  { id: 'templates', label: 'Templates & Tests' },
+  { id: 'publish', label: 'Preview & Publish' },
+];
+
+function modelLabel(value) {
+  return String(value || 'Studio')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function selectBestMappingItem(items, currentRawTag) {
+  if (!items?.length) return '';
+  if (currentRawTag && items.some((item) => item.raw_tag === currentRawTag)) return currentRawTag;
+  return (
+    items.find((item) => item.blocking)?.raw_tag
+    || items.find((item) => String(item.bucket || '').toLowerCase() === 'unmapped')?.raw_tag
+    || items.find((item) => String(item.bucket || '').toLowerCase() === 'ambiguous')?.raw_tag
+    || items[0].raw_tag
+  );
+}
 
 export default function StudioWorkspace() {
   const { role } = useStore();
@@ -35,6 +58,7 @@ export default function StudioWorkspace() {
   const [publishResult, setPublishResult] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
+  const [activeTab, setActiveTab] = useState('build');
 
   const refresh = async () => {
     const [studio, importedSignals, buildPayload, testPayload, courtPayload] = await Promise.all([
@@ -49,10 +73,7 @@ export default function StudioWorkspace() {
     setBuild(buildPayload);
     setTests(testPayload);
     setCourt(courtPayload);
-    if (!selectedRawTag && courtPayload?.items?.length) {
-      const first = courtPayload.items.find((item) => item.blocking) || courtPayload.items[0];
-      setSelectedRawTag(first.raw_tag);
-    }
+    setSelectedRawTag((current) => selectBestMappingItem(courtPayload?.items, current));
   };
 
   const doLoad = () => {
@@ -60,10 +81,9 @@ export default function StudioWorkspace() {
     setLoadError('');
     refresh()
       .then(() => setLoading(false))
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       .catch((err) => {
         setLoading(false);
-        setLoadError(err.message || 'Studio data unavailable — check API connection.');
+        setLoadError(err.message || 'Studio data unavailable - check API connection.');
         setOverview(null);
         setImported(null);
         setBuild(null);
@@ -73,8 +93,19 @@ export default function StudioWorkspace() {
   };
 
   useEffect(() => {
-    doLoad();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Initial load synchronizes Studio with backend compiler state.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    refresh()
+      .then(() => setLoading(false))
+      .catch((err) => {
+        setLoading(false);
+        setLoadError(err.message || 'Studio data unavailable - check API connection.');
+        setOverview(null);
+        setImported(null);
+        setBuild(null);
+        setTests(null);
+        setCourt(null);
+      });
   }, []);
 
   const mappingItems = useMemo(
@@ -124,9 +155,10 @@ export default function StudioWorkspace() {
     setCourtAiLabel(payload.ai_label || '');
     setActionMessage(
       payload.ai_assisted
-        ? 'Optional AI explanations attached to Mapping Court items. Deterministic mapping remains authoritative; review and approve each tag.'
-        : 'Deterministic mapping complete. AI explanation unavailable (no key). Review and approve each tag.',
+        ? 'Optional AI explanations attached. Deterministic mapping remains authoritative; review and approve each tag.'
+        : 'Deterministic mapping complete. AI explanation unavailable; review and approve each tag.',
     );
+    setActiveTab('build');
   });
 
   const runBuild = () => runAction(async () => {
@@ -134,6 +166,7 @@ export default function StudioWorkspace() {
     setBuild(payload);
     setPublishResult(null);
     setActionMessage(payload.can_publish ? 'Build passed with publish readiness.' : 'Build failed. Resolve blocking guardrails and run again.');
+    setActiveTab(payload.can_publish ? 'publish' : 'build');
   });
 
   const generatePreview = () => runAction(async () => {
@@ -143,12 +176,14 @@ export default function StudioWorkspace() {
       body: JSON.stringify({ role, context: 'auto' }),
     });
     setPreview(payload);
+    setActiveTab('publish');
   });
 
   const publish = () => runAction(async () => {
     try {
       const payload = await fetchJson('/api/studio/publish', { method: 'POST' });
       setPublishResult(payload);
+      setActiveTab('publish');
     } catch (err) {
       setPublishResult(err.payload?.detail || err.payload || { status: 'blocked', reason: err.message });
       throw err;
@@ -165,6 +200,7 @@ export default function StudioWorkspace() {
     setManualAsset('');
     setManualRole('');
     setManualReason('');
+    setActiveTab('build');
   });
 
   const approveSelected = () => runAction(async () => {
@@ -175,6 +211,7 @@ export default function StudioWorkspace() {
       body: JSON.stringify({ raw_tag: selectedItem.raw_tag }),
     });
     setActionMessage(`${payload.mapping?.raw_tag || selectedItem.raw_tag} approved. Run build again.`);
+    setActiveTab('build');
   });
 
   const ignoreSelected = () => runAction(async () => {
@@ -185,6 +222,7 @@ export default function StudioWorkspace() {
       body: JSON.stringify({ raw_tag: selectedItem.raw_tag, reason: ignoreReason }),
     });
     setActionMessage(`${payload.mapping?.raw_tag || selectedItem.raw_tag} ignored. Run build again.`);
+    setActiveTab('build');
   });
 
   const keepBlocking = () => runAction(async () => {
@@ -195,6 +233,7 @@ export default function StudioWorkspace() {
       body: JSON.stringify({ raw_tag: selectedItem.raw_tag }),
     });
     setActionMessage(`${selectedItem.raw_tag} remains blocking. Publish stays disabled.`);
+    setActiveTab('build');
   });
 
   const manualMapSelected = () => runAction(async () => {
@@ -211,6 +250,7 @@ export default function StudioWorkspace() {
       }),
     });
     setActionMessage(`${payload.mapping?.raw_tag || selectedItem.raw_tag} manually mapped. Run build again.`);
+    setActiveTab('build');
   });
 
   const switchAssetModel = (modelKey) => runAction(async () => {
@@ -227,6 +267,7 @@ export default function StudioWorkspace() {
     setManualRole('');
     setManualReason('');
     setActionMessage('Asset model switched. Run build to compile the selected model.');
+    setActiveTab('build');
   });
 
   const toggleVerificationMutation = (enabled) => runAction(async () => {
@@ -238,7 +279,24 @@ export default function StudioWorkspace() {
     setPreview(null);
     setPublishResult(null);
     setActionMessage('Template mutation updated. Run build to see publish diff and receipts.');
+    setActiveTab('templates');
   });
+
+  const importResult = () => {
+    setActionMessage('Imported tag list parsed. Run deterministic mapping to update Mapping Court.');
+    setActiveTab('build');
+    refresh().catch((err) => {
+      setActionMessage(err.message || 'Imported tags parsed, but Studio refresh failed.');
+    });
+  };
+
+  const tabBadge = (tabId) => {
+    if (tabId === 'build') return build?.status || 'NOT_RUN';
+    if (tabId === 'templates') return tests?.status || 'NOT_RUN';
+    return build?.can_publish ? 'READY' : 'BLOCKED';
+  };
+
+  const pageTitle = modelLabel(overview?.selected_asset_model);
 
   return (
     <div className="industrial-page grid grid-rows-[48px_minmax(0,1fr)] bg-[var(--border-strong)] gap-[1px] overflow-hidden">
@@ -260,127 +318,110 @@ export default function StudioWorkspace() {
           <span className="caption-mono">read-only trust-aware HMI compiler</span>
         </div>
       </div>
-      <div className="grid grid-cols-[minmax(280px,320px)_minmax(520px,1fr)_minmax(320px,380px)] gap-[1px] bg-[var(--border-strong)] overflow-hidden min-h-0">
-      <aside className="bg-[var(--surface-panel)] overflow-y-auto overflow-x-hidden scrollbar-thin">
-        <Panel
-          eyebrow="ConfidenceOS Studio"
-          title="HMI Compiler Controls"
-          right={<span className={`industrial-badge ${busy ? 'status-warning' : 'status-safe'}`}>{busy ? 'working' : 'ready'}</span>}
-          className="border-t-0"
-        >
-          <div className="space-y-3">
-            <div>
-              <label className="label-caps text-[var(--text-muted)]" htmlFor="asset-model-select">Asset Model</label>
-              <select
-                id="asset-model-select"
-                value={overview?.selected_asset_model || overview?.state?.selected_asset_model || 'texas_city_vessel'}
-                onChange={(event) => switchAssetModel(event.target.value)}
-                className="industrial-input mt-2"
-                disabled={busy}
-              >
-                {(overview?.asset_models || [
-                  { key: 'texas_city_vessel', label: 'Texas City Demo Vessel' },
-                  { key: 'pump_station', label: 'Pump Station Demo' },
-                ]).map((model) => (
-                  <option key={model.key} value={model.key}>{model.label}</option>
-                ))}
-              </select>
-            </div>
-            <div className="border border-[var(--border-strong)] bg-[var(--surface-base)] p-3">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="label-caps text-[var(--text-muted)]">Controlled Template Mutation</p>
-                  <p className="caption-mono text-[var(--text)] mt-1">Require manual verification when primary level is quarantined.</p>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={!!(overview?.template_mutations || overview?.state?.template_mutations)?.require_manual_verification_when_level_quarantined}
-                  onChange={(event) => toggleVerificationMutation(event.target.checked)}
-                  disabled={busy}
-                  className="mt-1"
-                />
-              </div>
-            </div>
-            <button onClick={runAutoMap} disabled={busy} className="industrial-control w-full disabled:opacity-40" style={{borderColor: 'var(--safe)', color: 'var(--safe-text)'}}>Run Deterministic Mapping</button>
-            <button onClick={runBuild} disabled={busy} className="industrial-control status-safe w-full disabled:opacity-40">Run Build</button>
-            <button onClick={generatePreview} disabled={busy} className="industrial-control text-[var(--text)] w-full disabled:opacity-40">Generate Preview</button>
-            <button onClick={publish} disabled={busy || !build?.can_publish} className="industrial-control status-warning w-full disabled:opacity-40">Publish Latest Build</button>
-            <button onClick={reset} disabled={busy} className="industrial-control text-[var(--data-mono)] w-full disabled:opacity-40">Reset Demo Default</button>
-          </div>
-          <div className="industrial-panel-subtle p-3 mt-4">
-            <p className="label-caps text-[var(--text-muted)]">Demo Loop</p>
-            <p className="caption-mono text-[var(--data-mono)] mt-2">Run build / resolve dirty tag / run build again / publish latest build.</p>
-          </div>
-        </Panel>
-        <DirtyTagGauntlet court={court} selectedRawTag={selectedItem?.raw_tag} onSelect={(tag) => { setSelectedRawTag(tag); setIgnoreReason(''); setActionMessage(''); }} />
-        <Panel eyebrow="Imported Source" title="Read-Only Tag Provider">
-          <div className="grid grid-cols-2 gap-[1px] bg-[var(--border-strong)]">
-            <div className="bg-[var(--surface-panel)] p-3">
-              <p className="label-caps text-[var(--text-muted)]">Asset Signals</p>
-              <p className="font-data text-2xl status-safe mt-1">{imported?.signals?.length || 0}</p>
-            </div>
-            <div className="bg-[var(--surface-panel)] p-3">
-              <p className="label-caps text-[var(--text-muted)]">Raw Tags</p>
-              <p className="font-data text-2xl status-safe mt-1">{mappingItems.length}</p>
-            </div>
-          </div>
-          <p className="caption-mono text-[var(--data-mono)] mt-3">{imported?.source || 'Waiting for Studio import.'}</p>
-        </Panel>
-      </aside>
 
-      <main className="bg-[var(--surface-base)] flex flex-col overflow-hidden">
-        <PageIdentity
-          displayName={overview?.selected_asset_model
-            ? overview.selected_asset_model.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
-            : 'Studio'}
-          level={2}
-          area="Engineering Configuration Workspace"
+      <div className="grid grid-cols-[minmax(320px,360px)_minmax(0,1fr)] gap-[1px] bg-[var(--border-strong)] overflow-hidden min-h-0">
+        <WorkflowRail
+          overview={overview}
+          imported={imported}
+          court={court}
+          build={build}
+          preview={runtimeManifest}
+          busy={busy}
+          actionMessage={actionMessage}
+          onRunAutoMap={runAutoMap}
+          onRunBuild={runBuild}
+          onGeneratePreview={generatePreview}
+          onPublish={publish}
+          onReset={reset}
+          onSwitchAssetModel={switchAssetModel}
+          onToggleVerificationMutation={toggleVerificationMutation}
         />
-        <div className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin p-[1px]">
-          {loading && !overview ? (
-            <PanelSkeleton rows={6} />
-          ) : loadError ? (
-            <LoadFailed message={loadError} onRetry={doLoad} />
-          ) : (
-            <>
-              <CompilerPipeline build={build} />
-              <MappingCourt
-                item={selectedItem}
-                aiLabel={courtAiLabel}
-                assets={graphAssets}
-                signals={graphSignals}
-                signalRoles={signalRoles}
-                ignoreReason={ignoreReason}
-                onIgnoreReason={setIgnoreReason}
-                manualCanonical={manualCanonical}
-                onManualCanonical={setManualCanonical}
-                manualAsset={manualAsset}
-                onManualAsset={setManualAsset}
-                manualRole={manualRole}
-                onManualRole={setManualRole}
-                manualReason={manualReason}
-                onManualReason={setManualReason}
-                onManualMap={manualMapSelected}
-                onApprove={approveSelected}
-                onIgnore={ignoreSelected}
-                onKeepBlocking={keepBlocking}
-                busy={busy}
-                actionMessage={actionMessage}
-              />
-              <TemplateBindingTable validation={validation} busy={busy} />
-              <TemplateTestSuite tests={tests} />
-              <PublishDiff diff={build?.publish_diff || overview?.diff?.compiler_publish_diff} />
-              <RuntimePreview manifest={runtimeManifest} />
-            </>
-          )}
-        </div>
-      </main>
 
-      <aside className="bg-[var(--surface-panel)] overflow-y-auto overflow-x-hidden scrollbar-thin">
-        <PasteImportPanel busy={busy} onImportResult={() => {}} />
-        <PublishGuardrails build={build} onPublish={publish} busy={busy} result={publishResult} />
-        <ScreenReceipts manifest={runtimeManifest} />
-      </aside>
+        <main className="bg-[var(--surface-base)] flex flex-col overflow-hidden">
+          <PageIdentity displayName={pageTitle} level={2} area="Engineering Configuration Workspace" />
+          <div className="flex items-center gap-[1px] bg-[var(--border-strong)] overflow-x-auto overflow-y-hidden scrollbar-thin">
+            {TABS.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={`min-w-[190px] bg-[var(--surface-panel)] px-4 py-3 text-left border-b-2 ${activeTab === tab.id ? 'border-[var(--primary)]' : 'border-transparent'}`}
+              >
+                <span className="label-caps text-[var(--text-muted)]">{tab.label}</span>
+                <span className={`industrial-badge ml-3 ${statusClass(tabBadge(tab.id))}`}>{tabBadge(tab.id)}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin p-[1px]">
+            {loading && !overview ? (
+              <PanelSkeleton rows={6} />
+            ) : loadError ? (
+              <LoadFailed message={loadError} onRetry={doLoad} />
+            ) : (
+              <>
+                {activeTab === 'build' && (
+                  <>
+                    <CompilerPipeline build={build} />
+                    <div className="grid grid-cols-1 2xl:grid-cols-[minmax(360px,0.8fr)_minmax(0,1.2fr)] gap-[1px] bg-[var(--border-strong)]">
+                      <DirtyTagGauntlet
+                        court={court}
+                        selectedRawTag={selectedItem?.raw_tag}
+                        onSelect={(tag) => {
+                          setSelectedRawTag(tag);
+                          setIgnoreReason('');
+                          setActionMessage('');
+                        }}
+                      />
+                      <MappingCourt
+                        item={selectedItem}
+                        aiLabel={courtAiLabel}
+                        assets={graphAssets}
+                        signals={graphSignals}
+                        signalRoles={signalRoles}
+                        ignoreReason={ignoreReason}
+                        onIgnoreReason={setIgnoreReason}
+                        manualCanonical={manualCanonical}
+                        onManualCanonical={setManualCanonical}
+                        manualAsset={manualAsset}
+                        onManualAsset={setManualAsset}
+                        manualRole={manualRole}
+                        onManualRole={setManualRole}
+                        manualReason={manualReason}
+                        onManualReason={setManualReason}
+                        onManualMap={manualMapSelected}
+                        onApprove={approveSelected}
+                        onIgnore={ignoreSelected}
+                        onKeepBlocking={keepBlocking}
+                        busy={busy}
+                        actionMessage={actionMessage}
+                      />
+                    </div>
+                  </>
+                )}
+
+                {activeTab === 'templates' && (
+                  <>
+                    <TemplateBindingTable validation={validation} busy={busy} />
+                    <TemplateTestSuite tests={tests} />
+                  </>
+                )}
+
+                {activeTab === 'publish' && (
+                  <>
+                    <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.7fr)] gap-[1px] bg-[var(--border-strong)]">
+                      <PasteImportPanel busy={busy} onImportResult={importResult} />
+                      <PublishGuardrails build={build} onPublish={publish} busy={busy} result={publishResult} />
+                    </div>
+                    <PublishDiff diff={build?.publish_diff || overview?.diff?.compiler_publish_diff} />
+                    <RuntimePreview manifest={runtimeManifest} />
+                    <ScreenReceipts manifest={runtimeManifest} />
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        </main>
       </div>
     </div>
   );

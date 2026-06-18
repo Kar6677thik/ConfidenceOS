@@ -9,7 +9,7 @@ export function statusClass(value) {
   if (['PASS', 'READY', 'PUBLISHED', 'VALID', 'APPROVED', 'IGNORED'].includes(status)) return 'status-safe';
   if (['WARNING', 'PASS_WITH_WARNINGS', 'WARNINGS'].includes(status)) return 'status-warning';
   if (['FAILED', 'BLOCKING', 'BLOCKED', 'NOT_READY', 'CRITICAL'].includes(status)) return 'status-critical';
-  if (['NOT_RUN', 'LOADING'].includes(status)) return 'status-disabled';
+  if (['NOT_RUN', 'LOADING', 'WAIT', 'OPTIONAL'].includes(status)) return 'status-disabled';
   return 'text-[var(--data-mono)]';
 }
 
