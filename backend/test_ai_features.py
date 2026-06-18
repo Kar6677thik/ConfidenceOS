@@ -28,7 +28,7 @@ def check(name: str, condition: bool, info: str = ""):
 
 # --- 1. AI mapping graceful fallback (no key) --------------------------------
 
-async def test_ai_mapping_fallback_no_key():
+async def _ai_mapping_fallback_no_key():
     """explain_mapping and parse_arbitrary_tags degrade gracefully when no API key."""
     # Remove key so _ai_available() returns False
     original = os.environ.pop("ANTHROPIC_API_KEY", None)
@@ -64,7 +64,7 @@ async def test_ai_mapping_fallback_no_key():
 
 # --- 2. Template suggestion constrained to real library ----------------------
 
-async def test_suggest_template_validates_against_library():
+async def _suggest_template_validates_against_library():
     """suggest_template must only return template_ids from the provided list."""
     import ai_mapping
     ai_mapping._AI_AVAILABLE = None  # ensure fallback
@@ -246,12 +246,20 @@ def test_semantic_diff_generalizes_beyond_vessel():
 
 # --- Runner ------------------------------------------------------------------
 
+def test_ai_mapping_fallback_no_key():
+    asyncio.run(_ai_mapping_fallback_no_key())
+
+
+def test_suggest_template_validates_against_library():
+    asyncio.run(_suggest_template_validates_against_library())
+
+
 async def run_all():
     print("\n-- AI Mapping Fallback (no key) -------------------------")
-    await test_ai_mapping_fallback_no_key()
+    await _ai_mapping_fallback_no_key()
 
     print("\n-- Template Suggestion Constrained to Library -----------")
-    await test_suggest_template_validates_against_library()
+    await _suggest_template_validates_against_library()
 
     print("\n-- Pump-Station: No Texas City Vocabulary ---------------")
     test_pump_station_no_texas_city_vocabulary()
