@@ -5,7 +5,25 @@ import PriorityBand from './hmi/PriorityBand';
 import MassBalanceChart from './MassBalanceChart';
 
 function formatText(value) {
-  return String(value || '')
+  if (value == null || value === '') return '';
+  if (Array.isArray(value)) return value.map(formatText).filter(Boolean).join(' / ');
+  if (String(value).toUpperCase() === 'NO_LIVE_SAMPLE') return 'Metadata Only';
+  if (typeof value === 'object') {
+    const candidate = value.message
+      || value.title
+      || value.description
+      || value.statement
+      || value.sensor_id
+      || value.decision_id
+      || value.tag
+      || value.type;
+    if (candidate) return formatText(candidate);
+    return Object.entries(value)
+      .filter(([, item]) => item != null && typeof item !== 'object')
+      .map(([key, item]) => `${formatText(key)}: ${item}`)
+      .join(' / ');
+  }
+  return String(value)
     .replace(/_/g, ' ')
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
@@ -47,7 +65,7 @@ function statusClass(value) {
   if (['CRITICAL', 'BLOCKING', 'LOW', 'QUARANTINED', 'UNAVAILABLE', 'FAILED'].includes(status)) return 'status-critical';
   if (['WARNING', 'PASS_WITH_WARNINGS', 'PUBLISHED_WITH_WARNINGS', 'DEGRADED', 'MEDIUM', 'NOT_PUBLISHED', 'NO_CONFIDENCE_RESULT'].includes(status)) return 'status-warning';
   if (['SUBSTITUTED', 'TRUSTED', 'HIGH', 'PASS', 'PUBLISHED'].includes(status)) return 'status-safe';
-  if (['NO_LIVE_SAMPLE', 'NOT_BOUND', 'RUNTIME_FALLBACK'].includes(status)) return 'text-[var(--data-mono)]';
+  if (['METADATA_ONLY', 'NO_LIVE_SAMPLE', 'NOT_BOUND', 'RUNTIME_FALLBACK'].includes(status)) return 'text-[var(--data-mono)]';
   return 'text-[var(--text-muted)]';
 }
 
@@ -64,9 +82,19 @@ function confidenceValue(confidence) {
   return Number.isFinite(Number(pct)) ? Math.round(Number(pct)) : null;
 }
 
+function confidenceSubScores(confidence) {
+  const subs = confidence?.sub_scores || {};
+  return [
+    ['Calibration', subs.calibration],
+    ['Stability', subs.stability],
+    ['Cross Sensor', subs.cross_sensor],
+    ['Plausibility', subs.physical_plausibility],
+  ].filter(([, value]) => Number.isFinite(Number(value)));
+}
+
 function signalTrustState(signal) {
   const confidence = signal?.confidence || {};
-  const tier = signal?.trust_state || confidence.trust_state || confidence.tier || confidence.state || 'NO_LIVE_SAMPLE';
+  const tier = signal?.trust_state || confidence.trust_state || confidence.tier || confidence.state || 'METADATA_ONLY';
   const pct = confidenceValue(confidence);
   return { tier: String(tier).toUpperCase(), pct };
 }
@@ -83,7 +111,7 @@ function liveSignal(faceplateSignal, readings, confidence) {
     value: reading.value ?? faceplateSignal?.value ?? '--',
     unit: reading.unit || faceplateSignal?.unit || '',
     confidence: conf,
-    trust_state: faceplateSignal?.trust_state || conf.trust_state || conf.tier || (hasReading ? 'NO_CONFIDENCE_RESULT' : 'NO_LIVE_SAMPLE'),
+    trust_state: faceplateSignal?.trust_state || conf.trust_state || conf.tier || (hasReading ? 'NO_CONFIDENCE_RESULT' : 'METADATA_ONLY'),
   };
 }
 
@@ -162,11 +190,12 @@ function TrustStatusSymbol({ state }) {
 
 function HmiLiveValue({ signal }) {
   const trust = signalTrustState(signal);
-  const value = signal.value == null || typeof signal.value === 'object' ? '--' : signal.value;
+  const isMetadataOnly = trust.tier === 'METADATA_ONLY' || trust.tier === 'NO_LIVE_SAMPLE';
+  const value = isMetadataOnly || signal.value == null || typeof signal.value === 'object' ? 'metadata-only' : signal.value;
   return (
     <span className="hmi-live-value" title={`${signal.tag} ${formatText(trust.tier)}`}>
       <span>{value}</span>
-      {signal.unit && <span className="text-[11px] font-normal">{signal.unit}</span>}
+      {!isMetadataOnly && signal.unit && <span className="text-[11px] font-normal">{signal.unit}</span>}
     </span>
   );
 }
@@ -393,6 +422,135 @@ function ValueList({ values, empty = 'No active item.', status = 'text-[var(--da
   );
 }
 
+function DemoControlStrip({ demoState, busy, onReset, onStart }) {
+  const phase = demoState?.phase || 'NORMAL_BASELINE';
+  const failures = asList(demoState?.active_failures).map((item) => item.operator_label || displayText(item));
+  const story = asList(demoState?.operator_story);
+  const activeIndex = Math.max(0, Number(demoState?.phase_index ?? 0));
+  return (
+    <section className="hmi-demo-strip">
+      <div className="min-w-0">
+        <p className="label-caps text-[var(--text-muted)]">Judge Demo State</p>
+        <p className="caption-mono font-semibold truncate">
+          {formatText(phase)} / {demoState?.stream_status || 'stream pending'} / tick {demoState?.tick_count ?? '--'}
+        </p>
+        <div className="hmi-demo-failures mt-1">
+          {failures.length ? failures.map((failure) => (
+            <span key={failure}>{failure}</span>
+          )) : (
+            <span>Normal baseline. No simulator trust failure injected.</span>
+          )}
+        </div>
+        {story.length > 0 && (
+          <div className="hmi-demo-timeline mt-2" aria-label="Judge demo timeline">
+            {story.map((item, index) => (
+              <span key={item} className={index <= activeIndex ? 'active' : ''}>
+                {index + 1}. {item}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        <button type="button" disabled={busy} onClick={onReset} className="industrial-control">Reset Judge Demo</button>
+        <button type="button" disabled={busy} onClick={onStart} className="industrial-control status-warning">Start Abnormal Situation</button>
+      </div>
+    </section>
+  );
+}
+
+function WhatChangedPanel({ demoState, basis, situation }) {
+  const phase = demoState?.phase || 'NORMAL_BASELINE';
+  const changed = phase !== 'NORMAL_BASELINE';
+  const doNotTrust = displayText(asList(basis?.do_not_trust || situation?.action_contract?.do_not_use)[0]);
+  const safeMove = displayText(basis?.operator_single_safe_move || situation?.action_contract?.first_safe_action);
+  return (
+    <div className="bg-[var(--surface-highest)] border border-[var(--border-strong)] p-4">
+      <p className="label-caps text-[var(--text-muted)]">What Changed</p>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
+        <div>
+          <p className="label-caps text-[var(--text-dim)]">Before</p>
+          <p className="caption-mono">Primary indication allowed in operating basis.</p>
+        </div>
+        <div>
+          <p className="label-caps text-[var(--text-dim)]">Now</p>
+          <p className={`caption-mono ${changed ? 'status-warning' : 'status-safe'}`}>
+            {changed ? `${doNotTrust || 'Primary indication'} removed from decision basis.` : 'No trust exception active.'}
+          </p>
+        </div>
+        <div>
+          <p className="label-caps text-[var(--text-dim)]">Required Action</p>
+          <p className="caption-mono font-semibold">{safeMove || 'Continue normal monitoring.'}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ConfidenceEvidenceLedger({ confidence, situation, basis }) {
+  const affected = new Set([
+    ...asList(situation?.affected_sensors),
+    ...asList(basis?.do_not_trust),
+  ].map(String));
+  const rows = (confidence || []).filter((item) => affected.size ? affected.has(String(item.sensor_id)) : true).slice(0, 3);
+  if (!rows.length) {
+    return (
+      <div className="bg-[var(--surface-highest)] border border-[var(--border-strong)] p-4">
+        <p className="label-caps text-[var(--text-muted)]">Confidence Evidence Ledger</p>
+        <p className="caption-mono text-[var(--text-muted)] mt-2">
+          Waiting for confidence evidence from the live simulator stream. The display will show formula factors, strongest evidence, and counter-evidence when samples arrive.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="bg-[var(--surface-highest)] border border-[var(--border-strong)] p-4">
+      <p className="label-caps text-[var(--text-muted)]">Confidence Evidence Ledger</p>
+      <p className="caption-mono text-[var(--text-muted)] mt-1">
+        Confidence is a governed trust rubric, not probability. The score explains whether a reading can be used as operating basis.
+      </p>
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 mt-3">
+        {rows.map((item) => {
+          const evidence = asList(item.evidence);
+          const problem = evidence.find((entry) => !['OK', 'INFO'].includes(String(entry?.status || '').toUpperCase())) || evidence[0];
+          const counter = evidence.find((entry) => String(entry?.status || '').toUpperCase() === 'OK');
+          const subScores = confidenceSubScores(item);
+          return (
+            <div key={item.sensor_id} className="border border-[var(--border-strong)] bg-[var(--surface-panel)] p-3 min-w-0">
+              <div className="flex items-center justify-between gap-2">
+                <p className="caption-mono font-semibold">{item.sensor_id}</p>
+                <span className={statusClass(item.trust_state || item.tier)}>
+                  {formatText(item.trust_state || item.tier)}{Number.isFinite(Number(item.confidence_pct)) ? ` / ${Math.round(Number(item.confidence_pct))}%` : ' / evidence pending'}
+                </span>
+              </div>
+              {subScores.length > 0 && (
+                <div className="grid grid-cols-2 gap-2 mt-3">
+                  {subScores.map(([label, value]) => (
+                    <div key={label} className="border border-[var(--border)] bg-[var(--surface-highest)] px-2 py-1">
+                      <p className="label-caps text-[var(--text-dim)]">{label}</p>
+                      <p className={`caption-mono font-semibold ${Number(value) < 0.5 ? 'status-critical' : Number(value) < 0.8 ? 'status-warning' : 'status-safe'}`}>
+                        {Number(value).toFixed(2)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <p className="label-caps text-[var(--text-muted)] mt-3">Dominant Factor</p>
+              <p className="caption-mono">{formatText(item.dominant_factor || 'current evidence')}</p>
+              <p className="label-caps text-[var(--text-muted)] mt-3">Strongest Evidence</p>
+              <p className="caption-mono status-warning">{displayText(problem) || item.trust_reason || 'No adverse evidence listed.'}</p>
+              <p className="label-caps text-[var(--text-muted)] mt-3">Counter-Evidence</p>
+              <p className="caption-mono status-safe">{displayText(counter) || 'No independent positive evidence listed.'}</p>
+              <p className="label-caps text-[var(--text-muted)] mt-3">What Restores Trust</p>
+              <ValueList values={basis?.exit_condition || item.recommended_action} empty="Manual verification accepted or mass-balance contradiction clears." />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function GeneratedFaceplate({ faceplate, readings, confidence, compact = false, role = 'Operator' }) {
   const signals = (faceplate?.signals || []).map((signal) => liveSignal(signal, readings, confidence));
   // Template provenance and generation receipts are engineering detail — the
@@ -419,7 +577,7 @@ function GeneratedFaceplate({ faceplate, readings, confidence, compact = false, 
             return (
               <tr key={signal.tag}>
                 <td>{signal.tag}</td>
-                <td>{signal.value} {signal.unit}</td>
+                <td>{signalTrustState(signal).tier === 'METADATA_ONLY' ? 'metadata-only' : `${signal.value} ${signal.unit || ''}`}</td>
                 <td><span className={statusClass(trust.tier)}>{formatText(trust.tier)}{trust.pct != null ? ` / ${trust.pct}%` : ''}</span></td>
               </tr>
             );
@@ -690,7 +848,20 @@ function BottomStrip({ manifest, situations, handoverDebt, chartHistory }) {
   );
 }
 
-function PressureModeRuntime({ manifest, situations, confidence, connected, plantId, plantContext, chartHistory, massBalance }) {
+function PressureModeRuntime({
+  manifest,
+  situations,
+  confidence,
+  connected,
+  plantId,
+  plantContext,
+  chartHistory,
+  massBalance,
+  demoState,
+  demoBusy,
+  onDemoReset,
+  onDemoStart,
+}) {
   const lead = situations?.[0] || {};
   const basis = manifest?.operating_basis || {};
   const contract = lead.action_contract || {};
@@ -715,6 +886,7 @@ function PressureModeRuntime({ manifest, situations, confidence, connected, plan
             <span className="caption-mono status-warning">Grounded explanation disabled during active decision freeze.</span>
           </div>
           <div className="hmi-process-canvas p-5 flex flex-col gap-3 overflow-y-auto scrollbar-thin">
+            <DemoControlStrip demoState={demoState || manifest?.demo_state} busy={demoBusy} onReset={onDemoReset} onStart={onDemoStart} />
             {flagMessages.length > 0 && (
               <div className="hmi-alert-ribbon">
                 <p className="label-caps status-critical">Mass-balance evidence</p>
@@ -734,6 +906,7 @@ function PressureModeRuntime({ manifest, situations, confidence, connected, plan
                 {formatText(basis.operator_single_safe_move || contract.first_safe_action || 'Verify locally before changing operation.')}
               </p>
             </div>
+            <WhatChangedPanel demoState={demoState || manifest?.demo_state} basis={basis} situation={lead} />
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
               <div className="bg-[var(--surface-highest)] border border-[var(--border-strong)] p-4">
                 <p className="label-caps status-critical">Do Not Trust</p>
@@ -748,6 +921,7 @@ function PressureModeRuntime({ manifest, situations, confidence, connected, plan
                 <ValueList values={basis.exit_condition || contract.exit_conditions} />
               </div>
             </div>
+            <ConfidenceEvidenceLedger confidence={confidence} situation={lead} basis={basis} />
             <div className="bg-[var(--surface-highest)] border border-[var(--border-strong)] p-4">
               <p className="label-caps text-[var(--text-muted)]">Alarm Collapse Receipt</p>
               <p className="caption-mono mt-2">Raw signals: {collapse.raw_signal_count ?? asList(lead.affected_sensors).length}</p>
@@ -760,6 +934,15 @@ function PressureModeRuntime({ manifest, situations, confidence, connected, plan
           </div>
         </section>
         <aside className="hmi-dock">
+          <DockSection title="Demo Source" eyebrow="Simulator State">
+            <ValueList
+              values={[
+                `phase: ${(demoState || manifest?.demo_state)?.phase || 'normal baseline'}`,
+                `active failures: ${(demoState || manifest?.demo_state)?.active_failure_count ?? 0}`,
+                (demoState || manifest?.demo_state)?.next_operator_action,
+              ]}
+            />
+          </DockSection>
           <DockSection title="Operating Basis" eyebrow="Pressure Mode">
             <ValueList values={[basis.abnormal_situation || lead.title]} />
           </DockSection>
@@ -837,6 +1020,7 @@ export default function RuntimePlatform() {
     handoverDebt,
     confidenceDebt,
     verificationTasks,
+    demoState,
     chartHistory,
     massBalance,
   } = storeState;
@@ -845,6 +1029,8 @@ export default function RuntimePlatform() {
   const [manifestError, setManifestError] = useState('');
   const [retryToken, setRetryToken] = useState(0);
   const [selected, setSelected] = useState('');
+  const [demoBusy, setDemoBusy] = useState(false);
+  const [localDemoState, setLocalDemoState] = useState(null);
 
   useEffect(() => {
     connect();
@@ -900,6 +1086,22 @@ export default function RuntimePlatform() {
     || ['WARNING', 'CRITICAL'].includes(String(plantContext?.severity || '').toUpperCase())
     || ['WARNING', 'CRITICAL', 'MASS_BALANCE_DIVERGENCE', 'MANUAL_VERIFICATION_REQUIRED'].includes(String(manifest?.context || '').toUpperCase());
   const stressMode = role === 'Operator' && pressureContext;
+  const activeDemoState = localDemoState || demoState || manifest?.demo_state;
+
+  const runDemoAction = async (path) => {
+    setDemoBusy(true);
+    try {
+      const res = await fetch(`${path}?plant_id=${plantId}`, { method: 'POST' });
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(payload?.detail || `Demo action failed: ${res.status}`);
+      setLocalDemoState(payload?.demo_state || payload || null);
+      setRetryToken((value) => value + 1);
+    } catch (err) {
+      setManifestError(err.message || 'Demo action failed.');
+    } finally {
+      setDemoBusy(false);
+    }
+  };
 
   if (loading && !manifest) {
     return (
@@ -936,6 +1138,10 @@ export default function RuntimePlatform() {
         plantContext={plantContext}
         chartHistory={chartHistory}
         massBalance={massBalance}
+        demoState={activeDemoState}
+        demoBusy={demoBusy}
+        onDemoReset={() => runDemoAction('/api/demo/reset')}
+        onDemoStart={() => runDemoAction('/api/demo/start-abnormal-situation')}
       />
     );
   }
@@ -962,10 +1168,18 @@ export default function RuntimePlatform() {
             onSelect={setSelected}
           />
           <aside className="hmi-dock">
+            <DockSection title="Judge Demo" eyebrow="Deterministic Story">
+              <DemoControlStrip
+                demoState={activeDemoState}
+                busy={demoBusy}
+                onReset={() => runDemoAction('/api/demo/reset')}
+                onStart={() => runDemoAction('/api/demo/start-abnormal-situation')}
+              />
+            </DockSection>
             {manifest.runtime_notice && (
               <DockSection
                 title={manifest.runtime_preview ? 'Generated Preview' : 'Runtime Live Binding'}
-                eyebrow={manifest.runtime_preview ? 'Metadata Only — No Live Tags' : 'Compiler Boundary'}
+                eyebrow={manifest.runtime_preview ? 'Metadata Only - No Live Tags' : 'Compiler Boundary'}
               >
                 <p className="caption-mono status-warning">{manifest.runtime_notice}</p>
                 {manifest.demo_alias_bindings?.length > 0 && role !== 'Operator' && (

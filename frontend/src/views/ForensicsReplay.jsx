@@ -46,7 +46,7 @@ export default function ForensicsReplay() {
       .then((d) => setPresets((d.presets || []).filter((preset) => preset.id === DEFAULT_PRESET)))
       // Don't fail silently — keep a fallback entry so the control still renders;
       // the preset-data fetch below surfaces the actual error state.
-      .catch(() => setPresets([{ id: DEFAULT_PRESET, name: 'Texas City - 2005' }]));
+      .catch(() => setPresets([{ id: DEFAULT_PRESET, name: 'Texas City Incident Demo' }]));
   }, []);
 
   // Load selected preset
@@ -54,7 +54,7 @@ export default function ForensicsReplay() {
     fetch(`/api/forensics/presets/${activePreset}`)
       .then((r) => r.json())
       .then((d) => { setPresetError(''); setData(d); setIndex(0); setPlaying(false); })
-      .catch(() => setPresetError('Replay preset unavailable — check API connection.'));
+      .catch(() => setPresetError('Replay preset unavailable - check API connection.'));
   }, [activePreset]);
 
   // Playback timer
@@ -96,7 +96,7 @@ export default function ForensicsReplay() {
     <div className="industrial-page flex flex-col overflow-hidden">
 
       {/* -- Replay control bar -- */}
-      <div className="flex-shrink-0 bg-[var(--bg-surface)] border-b border-[var(--warning)] px-5 py-3 flex flex-wrap items-center gap-3">
+      <div className="flex-shrink-0 bg-[var(--bg-surface)] border-b border-[var(--warning)] px-5 py-3 grid grid-cols-[auto_minmax(260px,1fr)_auto_minmax(300px,2fr)_auto_auto] gap-3 items-center">
         {/* Mode badge */}
         <span className="industrial-badge text-[var(--warning)] border-[var(--warning)]">
           Replay
@@ -106,13 +106,13 @@ export default function ForensicsReplay() {
         <select
           value={activePreset}
           onChange={(e) => setActivePreset(e.target.value)}
-          className="industrial-select min-w-[240px] flex-1 max-w-[560px]"
+          className="industrial-select min-w-[240px] w-full"
         >
           {presets.map((p) => (
             <option key={p.id} value={p.id}>{p.name}</option>
           ))}
           {presets.length === 0 && (
-            <option value={DEFAULT_PRESET}>Texas City - 2005</option>
+            <option value={DEFAULT_PRESET}>Texas City Incident Demo</option>
           )}
         </select>
 
@@ -122,7 +122,7 @@ export default function ForensicsReplay() {
         </button>
 
         {/* Timeline scrubber */}
-        <div className="flex-[2_1_420px] min-w-[300px]">
+        <div className="min-w-[300px]">
           <div className="flex justify-between caption-mono text-[10px] text-[var(--text-muted)] mb-1">
             <span>MAR 23, 2005 - 00:00</span>
             <span className="text-[var(--primary)]">T+{frame?.minute ?? 0}m</span>
@@ -142,10 +142,10 @@ export default function ForensicsReplay() {
         </div>
 
         {/* Speed selector */}
-        <div className="flex border border-[var(--border)] rounded overflow-hidden shrink-0">
+        <div className="grid grid-cols-4 border border-[var(--border)] rounded overflow-hidden shrink-0">
           {[1, 5, 10, 30].map((s) => (
             <button key={s} onClick={() => setSpeed(s)}
-              className={`px-3 py-1 caption-mono border-r border-[var(--border)] last:border-r-0 transition-colors
+              className={`min-w-[44px] px-3 py-1 caption-mono border-r border-[var(--border)] last:border-r-0 transition-colors whitespace-nowrap
                 ${speed === s ? 'bg-[var(--bg-elevated)] text-[var(--primary)]' : 'text-[var(--text-muted)]'}`}>
               {s}x
             </button>
@@ -190,6 +190,15 @@ export default function ForensicsReplay() {
           </div>
 
           <div className="grid grid-cols-2 gap-1 bg-[var(--border)] border border-[var(--border)]">
+            {data && !presetError && readings.length === 0 && (
+              <div className="col-span-2">
+                <EmptyState
+                  icon="sensors_off"
+                  title="Replay frame waiting"
+                  body="Select a replay preset and press Play. Sensor cards appear once the selected frame contains readings."
+                />
+              </div>
+            )}
             {readings.map((reading) => {
               const conf = confidence.find((c) => c.sensor_id === reading.sensor_id);
               if (viewMode === 'traditional') {
@@ -225,7 +234,7 @@ export default function ForensicsReplay() {
               <p className="label-caps text-[var(--text)] mb-2">Deterministic Replay Evidence</p>
               <p className="caption-mono text-[var(--text-muted)] leading-relaxed">
                 {viewMode === 'confidenceos'
-                  ? 'Mass-balance divergence detected at T+45m. Level transmitter LT-5100 shows growing calibration drift. ConfidenceOS flags: physical plausibility score < 0.4.'
+                  ? `Replay frame T+${frame?.minute ?? 0}m. ConfidenceOS compares indicated level with flow-implied inventory and shows the operating-basis evidence available at that minute.`
                   : 'Traditional HMI shows no alarm. Raw values appear within normal range. Silent failure scenario in progress.'}
               </p>
             </div>

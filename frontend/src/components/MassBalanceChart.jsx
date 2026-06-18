@@ -61,7 +61,7 @@ export default function MassBalanceChart({ chartHistory, massBalance, flags }) {
     return 'INFO';
   }, [flagList]);
 
-  // How long the physics has disagreed: earliest active flag → now.
+  // How long the physics has disagreed: earliest active flag to now.
   const divergenceMinutes = useMemo(() => {
     if (!flagList.length) return null;
     const stamps = flagList.map((f) => f.timestamp).filter((t) => typeof t === 'number');
@@ -99,7 +99,7 @@ export default function MassBalanceChart({ chartHistory, massBalance, flags }) {
       <div className="industrial-body flex flex-col min-h-0 flex-1">
         {highestSeverity && divergenceMinutes != null && (
           <p className={`caption-mono mb-3 ${severityClass}`}>
-            Physics has disagreed with the indicated level for ~{divergenceMinutes} min — the reading is not tracking the flow-implied inventory.
+            Physics has disagreed with the indicated level for ~{divergenceMinutes} min - the reading is not tracking the flow-implied inventory.
           </p>
         )}
         <div className={`grid ${hasActual ? 'grid-cols-2 md:grid-cols-4' : 'grid-cols-3'} gap-[1px] bg-[var(--border-strong)] border border-[var(--border-strong)] mb-4`}>
@@ -145,8 +145,13 @@ export default function MassBalanceChart({ chartHistory, massBalance, flags }) {
               </LineChart>
             </ResponsiveContainer>
           ) : (
-            <div className="h-full grid place-items-center caption-mono text-[var(--data-mono)]">
-              Waiting for data stream...
+            <div className="h-full grid place-items-center caption-mono text-[var(--data-mono)] text-center p-4">
+              <div>
+                <p className="font-semibold">Waiting for mass-balance history</p>
+                <p className="text-[var(--text-muted)] mt-1">
+                  {chartHistory?.length || 0} sample(s) available. Start the judge demo or wait for the live simulator stream to produce at least two samples.
+                </p>
+              </div>
             </div>
           )}
         </div>

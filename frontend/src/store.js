@@ -55,6 +55,7 @@ const useStore = create((set, get) => ({
   verificationTasks: [],   // full field verification task lifecycle records
   handoverDebt: null,      // unresolved operational debt ledger
   confidenceDebt: [],      // confidence-hours maintenance priority data
+  demoState: null,         // judge-demo phase and simulator source state
   timestamp: null,        // last update timestamp
 
   // -- Derived / computed ------------------------------------------------
@@ -91,6 +92,7 @@ const useStore = create((set, get) => ({
       verificationTasks: [],
       handoverDebt: null,
       confidenceDebt: [],
+      demoState: null,
     });
 
     // Reconnect after state update
@@ -171,6 +173,7 @@ const useStore = create((set, get) => ({
             verificationTasks: data.verification_tasks || data.verification_tokens || [],
             handoverDebt: data.handover_debt || null,
             confidenceDebt: data.confidence_debt || [],
+            demoState: data.demo_state || null,
             timestamp: data.timestamp,
             averageConfidence: avgConf,
             chartHistory: newHistory,

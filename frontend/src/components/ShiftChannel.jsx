@@ -36,12 +36,33 @@ function sentenceCase(text) {
   return withDot.charAt(0).toUpperCase() + withDot.slice(1);
 }
 
+function itemKey(item) {
+  const title = String(item?.title || '').trim().toLowerCase();
+  if (title) return title;
+  return [
+    String(item?.type || '').trim().toLowerCase(),
+    String(item?.sensor_id || item?.id || '').trim().toLowerCase(),
+  ].join('|');
+}
+
+function dedupeItems(items) {
+  const byKey = new Map();
+  for (const item of items || []) {
+    const key = itemKey(item);
+    const existing = byKey.get(key);
+    if (!existing || (!existing.required_action && item.required_action)) {
+      byKey.set(key, item);
+    }
+  }
+  return Array.from(byKey.values());
+}
+
 // Compose a plain-English "incoming shift basis" the next operator cannot miss,
 // deterministically from the live channel data (no AI / no key required).
 function buildShiftBasis(channel) {
   const pinned = channel?.pinned || [];
   const debt = channel?.handover_debt?.entries || [];
-  const items = (pinned.length ? pinned : debt)
+  const items = dedupeItems(pinned.length ? pinned : debt)
     .slice()
     .sort((a, b) => (SEVERITY_RANK[String(b.severity || '').toUpperCase()] || 1)
       - (SEVERITY_RANK[String(a.severity || '').toUpperCase()] || 1));
@@ -53,7 +74,7 @@ function buildShiftBasis(channel) {
   }
 
   const headline = blocked
-    ? `Handover BLOCKED — ${count} unresolved trust exception${count > 1 ? 's' : ''} must be carried and cleared.`
+    ? `Handover BLOCKED - ${count} unresolved trust exception${count > 1 ? 's' : ''} must be carried and cleared.`
     : `${count} unresolved trust exception${count > 1 ? 's' : ''} to carry into the next shift.`;
 
   const lines = items.slice(0, 3).map((item) => {
@@ -85,7 +106,7 @@ function ShiftBasisBanner({ channel }) {
       {basis.lines.length > 0 && (
         <ul className="mt-2 space-y-1">
           {basis.lines.map((line, index) => (
-            <li key={index} className="caption-mono text-[var(--text)] [overflow-wrap:anywhere]">• {line}</li>
+            <li key={index} className="caption-mono text-[var(--text)] [overflow-wrap:anywhere]">- {line}</li>
           ))}
         </ul>
       )}
@@ -102,6 +123,7 @@ export default function ShiftChannel() {
   const verificationTasks = channel?.verification_tasks || [];
   const activeTasks = verificationTasks.filter((item) => item.active || item.handover_required);
   const closedTasks = verificationTasks.filter((item) => !item.active && !item.handover_required);
+  const pinnedItems = dedupeItems(channel?.pinned || []);
 
   const refresh = useCallback(() => {
     fetch(`/api/shift-channel?plant_id=${plantId}`)
@@ -139,7 +161,7 @@ export default function ShiftChannel() {
           <div className="min-w-0">
             <p className="label-caps text-[var(--text-muted)]">Pinned Handover Debt</p>
             <p className="caption-mono font-semibold truncate">
-              {(channel?.pinned?.length || 0) > 0 ? `${channel.pinned.length} unresolved item(s)` : 'No unresolved handover debt pinned'}
+              {pinnedItems.length > 0 ? `${pinnedItems.length} unresolved item(s)` : 'No unresolved handover debt pinned'}
             </p>
           </div>
         </div>
@@ -156,29 +178,29 @@ export default function ShiftChannel() {
       </div>
       <div className="grid grid-cols-[360px_1fr] gap-[1px] bg-[var(--border-strong)] overflow-hidden min-h-0">
       <aside className="bg-[var(--surface-panel)] overflow-y-auto overflow-x-hidden scrollbar-thin">
-        {/* 1. Unresolved trust debt — first priority in the console */}
+        {/* 1. Unresolved trust debt - first priority in the console */}
         <section className="industrial-panel border-t-0">
           <div className="industrial-panel-header">
             <h2 className="industrial-panel-title text-base">Unresolved Trust Debt</h2>
-            <span className={`industrial-badge ${(channel?.pinned?.length || 0) > 0 ? 'status-warning' : 'text-[var(--text-dim)]'}`}>
-              {channel?.pinned?.length || 0} items
+            <span className={`industrial-badge ${pinnedItems.length > 0 ? 'status-warning' : 'text-[var(--text-dim)]'}`}>
+              {pinnedItems.length} items
             </span>
           </div>
           <div className="industrial-body space-y-[1px] bg-[var(--border-strong)]">
-            {(channel?.pinned || []).map((item, index) => (
+            {pinnedItems.map((item, index) => (
               <div key={`${item.id}-${index}`} className="bg-[var(--surface-panel)] p-3">
                 <p className={`label-caps ${severityClass(item.severity)}`}>{item.type}</p>
                 <p className="caption-mono text-[var(--text)] mt-1">{item.title}</p>
                 {!!item.required_action && <p className="caption-mono text-[var(--data-mono)] mt-1">{item.required_action}</p>}
               </div>
             ))}
-            {(!channel?.pinned || channel.pinned.length === 0) && (
+            {pinnedItems.length === 0 && (
               <p className="bg-[var(--surface-panel)] p-3 caption-mono text-[var(--data-mono)]">No unresolved handover debt pinned.</p>
             )}
           </div>
         </section>
 
-        {/* 2. Active verification tasks — handover blockers */}
+        {/* 2. Active verification tasks - handover blockers */}
         <section className="industrial-panel border-t-0">
           <div className="industrial-panel-header">
             <h2 className="industrial-panel-title text-base">Active Verification Tasks</h2>
@@ -208,7 +230,7 @@ export default function ShiftChannel() {
           </div>
         </section>
 
-        {/* 3. Closed history — de-emphasized (static layer) */}
+        {/* 3. Closed history - de-emphasized (static layer) */}
         <section className="industrial-panel border-t-0">
           <div className="industrial-panel-header">
             <h2 className="industrial-panel-title text-base text-[var(--text-muted)]">Closed Verification History</h2>

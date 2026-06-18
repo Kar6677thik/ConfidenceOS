@@ -8,6 +8,7 @@
  */
 
 import { useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import useStore from '../store';
 import ConfidenceDebtPanel from '../components/ConfidenceDebtPanel';
 import PageIdentity from '../components/hmi/PageIdentity';
@@ -62,7 +63,7 @@ export default function PredictiveTimeline() {
     <div className="industrial-page flex flex-col overflow-hidden">
 
       {/* -- Context header -- */}
-      <PageIdentity displayName="Confidence Degradation Timeline" level={3} area="12-Hour Trust Forecast Window · Sorted by Criticality" plant={plantId} />
+      <PageIdentity displayName="Confidence Degradation Timeline" level={3} area="12-Hour Trust Forecast Window / Sorted by Criticality" plant={plantId} />
       <div className="px-6 py-2 border-b border-[var(--border)] flex items-center justify-end gap-3 flex-shrink-0 bg-[var(--bg-low)]">
         {avgPLT && (
           <div className="industrial-card px-4 py-2 flex items-center gap-3">
@@ -222,17 +223,15 @@ export default function PredictiveTimeline() {
                         {isCrit ? 'Calibrate' : 'Inspect'} {pred.sensor_id}
                       </h3>
                       <p className="caption-mono text-[var(--text-muted)] text-[12px] mt-1 leading-snug">
-                        {pred.recommended_action || pred.action || 'Confidence degradation forecast.'}
+                        {pred.recommended_action || pred.action || 'Confidence degradation context.'}
                       </p>
                       <div className="flex gap-2 mt-3">
-                        <button className="flex-1 industrial-control text-[var(--text)] text-[11px] py-1.5">
-                          Acknowledge
-                        </button>
-                        {isCrit && (
-                          <button className="flex-1 industrial-control text-[var(--primary)] border-[var(--primary)] text-[11px] py-1.5">
-                            Dispatch
-                          </button>
-                        )}
+                        <Link to="/runtime" className="flex-1 industrial-control inline-flex items-center justify-center text-[var(--text)] text-[11px] py-1.5">
+                          Open Runtime
+                        </Link>
+                        <Link to="/handover" className="flex-1 industrial-control inline-flex items-center justify-center text-[var(--primary)] border-[var(--primary)] text-[11px] py-1.5">
+                          Shift Debt
+                        </Link>
                       </div>
                     </div>
                   </div>

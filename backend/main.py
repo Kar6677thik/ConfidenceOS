@@ -108,6 +108,12 @@ from studio_service import (
 from template_library import get_template_catalog
 from shift_channel import add_note as add_shift_note, build_shift_channel, reset_notes as reset_shift_notes
 from tag_provider import provider_catalog
+from demo_service import (
+    advance_demo,
+    get_demo_state,
+    reset_demo,
+    start_abnormal_situation,
+)
 import nlquery
 
 
@@ -813,6 +819,7 @@ def _runtime_live_state(plant_id: str, plant) -> dict:
         "verification_tasks": verification_tasks,
         "handover_debt": plant.latest_handover_debt,
         "confidence_debt": plant.latest_confidence_debt,
+        "demo_state": get_demo_state(plant_id, plant, _plant_loop_status.get(plant_id, {})),
     }
     return _apply_demo_asset_model_bindings(live_state)
 
@@ -872,6 +879,7 @@ async def sensor_stream(
                 "verification_tasks": verification_tasks,
                 "handover_debt": plant.latest_handover_debt,
                 "confidence_debt": plant.latest_confidence_debt,
+                "demo_state": get_demo_state(plant_id, plant, _plant_loop_status.get(plant_id, {})),
             })
 
             await asyncio.sleep(1.0)
@@ -1126,6 +1134,7 @@ def _annotate_generated_preview(manifest: dict, live_state: dict) -> dict:
     manifest["live_binding_status"] = live_state.get("live_binding_status", "unknown")
     manifest["demo_alias_bindings"] = live_state.get("demo_alias_bindings", [])
     manifest["unbound_tags"] = live_state.get("unbound_tags", [])
+    manifest["demo_state"] = live_state.get("demo_state", {})
     if live_state.get("live_binding_status") == "demo_alias_live_tags":
         manifest["runtime_preview"] = False
         manifest["runtime_notice"] = (
@@ -1862,6 +1871,58 @@ def reset_scenario(plant_id: str = Query(default="plant-a")):
 # control command (the read-only-to-plant contract is unchanged; tag_provider
 # .write_tag still raises). They are scoped to the simulator-backed provider.
 
+@app.get("/api/demo/state")
+def get_judge_demo_state(plant_id: str = Query(default="plant-a")):
+    """Return the current judge-demo phase and live simulator source facts."""
+    plant = plant_manager.get(plant_id)
+    return get_demo_state(plant_id, plant, _plant_loop_status.get(plant_id, {}))
+
+
+@app.post("/api/demo/reset")
+def reset_judge_demo(plant_id: str = Query(default="plant-a")):
+    """Reset the app to the normal baseline used at the start of the demo.
+
+    This resets only ConfidenceOS demo state: the read-only simulator, shift
+    notes, Studio compiler state, and active asset model. It does not write any
+    controller command, setpoint, mode, or alarm acknowledgement.
+    """
+    plant = _require_simulator_plant(plant_id)
+    studio_state = studio_reset()
+    reset_shift_notes()
+    state = reset_demo(plant_id, plant)
+    return {
+        "status": "reset",
+        "demo_state": state,
+        "studio_state": {
+            "selected_asset_model": studio_state.get("selected_asset_model"),
+            "published_build_id": studio_state.get("published_build_id"),
+            "build_counter": studio_state.get("build_counter"),
+            "read_only_boundary": "Studio reset changes only ConfidenceOS compiler files and simulator-backed demo state.",
+        },
+    }
+
+
+@app.post("/api/demo/start-abnormal-situation")
+def start_judge_abnormal_situation(plant_id: str = Query(default="plant-a")):
+    """Trigger the deterministic trust-quarantine story in the software simulator."""
+    plant = _require_simulator_plant(plant_id)
+    # The primary judge story is the Texas City vessel. Keep the active compiler
+    # model aligned so Runtime language, action contracts, and trust graph do not
+    # inherit a previous Pump Station exploration.
+    if active_asset_model_key() != "texas_city_vessel":
+        studio_select_asset_model("texas_city_vessel")
+    state = start_abnormal_situation(plant_id, plant)
+    return {"status": "started", "demo_state": state}
+
+
+@app.post("/api/demo/advance")
+def advance_judge_demo(plant_id: str = Query(default="plant-a")):
+    """Advance the labelled judge-demo phase without writing plant controls."""
+    plant = _require_simulator_plant(plant_id)
+    state = advance_demo(plant_id, plant)
+    return {"status": "advanced", "demo_state": state}
+
+
 _VALID_FAILURE_TYPES = {
     "calibration_drift", "stuck_reading", "sg_mismatch", "command_state_decoupling",
 }
@@ -2387,6 +2448,19 @@ async def generate_compliance_report(request: ComplianceRequest, db: Session = D
         "period_hours": request.hours,
         "generated_at": datetime.utcnow().isoformat(),
         "sections": {
+            "data_coverage": {
+                "source": "ConfidenceOS simulator/runtime logs",
+                "window_hours": request.hours,
+                "anomaly_rows": alarm_count,
+                "confidence_rows_by_sensor": {
+                    sid: payload.get("data_points", 0)
+                    for sid, payload in sensor_reliability.items()
+                },
+                "handover_rows": len(handovers),
+                "mass_balance_rows": len(mb_anomalies),
+                "production_certification": False,
+                "operator_note": "Empty counts mean the source log had no rows for that category in the selected window.",
+            },
             "alarm_summary": {
                 "total_alarms": alarm_count,
                 "by_severity": alarm_by_severity,
@@ -2462,7 +2536,10 @@ def _generate_compliance_recommendations(alarm_by_severity, sensor_reliability, 
         })
 
     if not recs:
-        recs.append({"priority": "info", "action": "No critical issues identified. Continue routine maintenance schedule."})
+        recs.append({
+            "priority": "info",
+            "action": "No critical issues identified from available ConfidenceOS logs in this reporting window. This is not a production compliance certification.",
+        })
 
     return recs
 
@@ -2475,6 +2552,7 @@ def _format_compliance_report_text(report: dict) -> str:
     mb = sections.get("mass_balance_summary", {})
     handover = sections.get("shift_handover_log", {})
     reliability = sections.get("sensor_reliability", {})
+    coverage = sections.get("data_coverage", {})
     recommendations = sections.get("recommendations", [])
     severity_items = alarm.get("by_severity", {}) or {}
     top_sensors = alarm.get("top_10_sensors", []) or []
@@ -2491,6 +2569,16 @@ def _format_compliance_report_text(report: dict) -> str:
         "Scope And Limitations",
     ]
     lines.extend([f"- {item}" for item in report.get("limitations", [])])
+    lines.extend([
+        "",
+        "Data Coverage",
+        f"Source: {coverage.get('source', 'ConfidenceOS runtime logs')}",
+        f"Anomaly rows: {coverage.get('anomaly_rows', 0)}",
+        f"Mass-balance rows: {coverage.get('mass_balance_rows', 0)}",
+        f"Handover rows: {coverage.get('handover_rows', 0)}",
+        f"Production certification: {coverage.get('production_certification', False)}",
+        f"Note: {coverage.get('operator_note', 'Empty counts mean no source rows were logged in the selected window.')}",
+    ])
     lines.extend([
         "",
         "Alarm Summary",

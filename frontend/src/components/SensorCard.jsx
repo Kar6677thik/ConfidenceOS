@@ -119,7 +119,7 @@ export default function SensorCard({ reading, confidence, isSelected, onSelect }
       <div className="mt-auto space-y-2">
         {/* Always render the four evidence sub-scores — a degraded or derived
             signal must never show blank slots. Missing values read as '--'. */}
-        <div className="grid grid-cols-4 gap-1 caption-mono">
+        <div className="grid grid-cols-2 gap-1 caption-mono">
           {[
             ['CAL', confidence.sub_scores?.calibration],
             ['STB', confidence.sub_scores?.stability],
@@ -129,7 +129,7 @@ export default function SensorCard({ reading, confidence, isSelected, onSelect }
             const cls = val == null ? 'text-[var(--text-dim)]'
               : val >= 0.8 ? 'status-safe' : val >= 0.5 ? 'status-caution' : 'status-critical';
             return (
-              <span key={label} className={`${cls} opacity-80`}>
+              <span key={label} className={`${cls} opacity-80 whitespace-nowrap`}>
                 {label}:{val != null ? Math.round(val * 100) : '--'}
               </span>
             );

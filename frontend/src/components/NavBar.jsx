@@ -113,7 +113,7 @@ export default function NavBar() {
         <button
           onClick={() => setAlarmMuted(!muted)}
           className="industrial-control shrink-0 px-2"
-          title={muted ? 'Alarm muted — click or press M to unmute' : 'Alarm sound on — click or press M to mute'}
+          title={muted ? 'Alarm muted - click or press M to unmute' : 'Alarm sound on - click or press M to mute'}
           aria-label={muted ? 'Unmute alarm' : 'Mute alarm'}
         >
           <span className="material-symbols-outlined" style={{ fontSize: '16px', lineHeight: 1 }}>

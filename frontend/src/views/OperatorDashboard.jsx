@@ -554,7 +554,7 @@ function EngineerMini({ sensorId, confidence }) {
 
   return (
     <div className="p-4 space-y-3">
-      <div className="grid grid-cols-4 gap-1">
+      <div className="grid grid-cols-2 gap-1">
         {[
           { key: 'CAL', val: subs.calibration },
           { key: 'STB', val: subs.stability },
@@ -567,8 +567,8 @@ function EngineerMini({ sensorId, confidence }) {
             : pct >= 50 ? 'text-[var(--caution)]'
             : 'text-[var(--critical)]';
           return (
-            <div key={key} className="industrial-card p-2 text-center">
-              <p className="label-caps text-[var(--text-muted)]">{key}</p>
+            <div key={key} className="industrial-card p-2 text-center min-w-0">
+              <p className="caption-mono text-[var(--text-muted)] whitespace-nowrap">{key}</p>
               <p className={`text-[16px] font-bold font-data mt-1 ${col}`}>
                 {pct != null ? `${pct}%` : '-'}
               </p>

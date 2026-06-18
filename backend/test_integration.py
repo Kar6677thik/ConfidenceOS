@@ -520,15 +520,20 @@ _, d = GET("/api/mode")
 check("Cycle: back to NORMAL", d["mode"] == "NORMAL")
 
 # Data persistence: history grows
-_, d1 = GET("/api/sensors/history/FI-2010?hours=1")
+_, d1 = GET("/api/sensors/history/FI-2010?hours=1&limit=1000")
 c1 = d1["count"]
 try:
-    ws_receive(n=2, timeout=8)
+    ws_receive(n=6, timeout=12)
 except Exception:
     pass
-time.sleep(0.5)
-_, d2 = GET("/api/sensors/history/FI-2010?hours=1")
-c2 = d2["count"]
+deadline = time.time() + 6.0
+c2 = c1
+while time.time() < deadline:
+    time.sleep(0.5)
+    _, d2 = GET("/api/sensors/history/FI-2010?hours=1&limit=1000")
+    c2 = d2["count"]
+    if c2 > c1:
+        break
 check(f"History grows after streaming ({c1} -> {c2})", c2 > c1)
 
 

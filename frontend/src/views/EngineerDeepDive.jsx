@@ -71,8 +71,8 @@ export default function EngineerDeepDive() {
   const subs         = selected?.sub_scores || {};
   const sensorIds    = readings.map((r) => r.sensor_id);
 
-  // Build mock history for the envelope chart (using selected sensor's history from store readings)
-  // In production this would be fetched from an endpoint. Using a simple demo fill.
+  // Build lightweight envelope context from current readings. A production
+  // deployment would fetch persisted history from the historian adapter.
   const envChartData = envelope ? Array.from({ length: 20 }, (_, i) => {
     const t = i - 19;
     const noisy = envelope.mean + (Math.sin(i * 0.9) * (envelope.normal_max - envelope.normal_min) * 0.25);
@@ -206,9 +206,9 @@ export default function EngineerDeepDive() {
                       <YAxis tick={{ ...axisTick, fontSize: 10 }}
                         axisLine={false} tickLine={false} />
                       <Tooltip content={<IndustrialTooltip />} />
-                      <ReferenceLine y={envelope.normal_max} stroke="var(--warning)" strokeDasharray="4 2" label={{ value: '+3σ', fill: 'var(--warning)', fontSize: 10 }} />
-                      <ReferenceLine y={envelope.normal_min} stroke="var(--warning)" strokeDasharray="4 2" label={{ value: '-3σ', fill: 'var(--warning)', fontSize: 10 }} />
-                      <ReferenceLine y={envelope.mean}       stroke="var(--text-dim)" strokeDasharray="4 2" label={{ value: 'μ', fill: 'var(--text-dim)', fontSize: 10 }} />
+                      <ReferenceLine y={envelope.normal_max} stroke="var(--warning)" strokeDasharray="4 2" label={{ value: '+3sigma', fill: 'var(--warning)', fontSize: 10 }} />
+                      <ReferenceLine y={envelope.normal_min} stroke="var(--warning)" strokeDasharray="4 2" label={{ value: '-3sigma', fill: 'var(--warning)', fontSize: 10 }} />
+                      <ReferenceLine y={envelope.mean}       stroke="var(--text-dim)" strokeDasharray="4 2" label={{ value: 'mean', fill: 'var(--text-dim)', fontSize: 10 }} />
                       <Line dataKey="value" name="Sensor reading" stroke="var(--primary)" strokeWidth={2} dot={false} isAnimationActive={false} />
                       <Line dataKey="mean"  name="Running mean"   stroke="var(--text-dim)" strokeWidth={1} dot={false} strokeDasharray="4 2" isAnimationActive={false} />
                     </LineChart>

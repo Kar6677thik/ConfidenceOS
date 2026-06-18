@@ -190,7 +190,7 @@ export default function CompliancePortal() {
             <span className="material-symbols-outlined text-[64px] text-[var(--border)]">description</span>
             <p className="text-[18px] font-semibold text-[var(--text-muted)]">No report generated yet</p>
             <p className="caption-mono text-[var(--text-dim)] max-w-sm">
-              Configure the parameters on the left and click Generate Report to compile the audit artifact.
+              Configure the parameters on the left and click Generate Report to compile an honest operational appendix from logged ConfidenceOS data.
             </p>
           </div>
         ) : (

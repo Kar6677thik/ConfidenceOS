@@ -33,7 +33,7 @@ function selectBestMappingItem(items, currentRawTag) {
 }
 
 export default function StudioWorkspace() {
-  const { role } = useStore();
+  const { role, plantId, setRole } = useStore();
   const [overview, setOverview] = useState(null);
   const [imported, setImported] = useState(null);
   const [build, setBuild] = useState(null);
@@ -100,6 +100,13 @@ export default function StudioWorkspace() {
         setCourt(null);
       });
   }, []);
+
+  useEffect(() => {
+    if (!['Engineer', 'Manager'].includes(role)) {
+      // Route guard: Studio is an engineering workspace even if opened by URL.
+      setRole('Engineer');
+    }
+  }, [role, setRole]);
 
   const mappingItems = useMemo(
     () => court?.items || build?.imported_tags?.items || imported?.raw_tags || [],
@@ -181,6 +188,7 @@ export default function StudioWorkspace() {
 
   const reset = () => runAction(async () => {
     await fetchJson('/api/studio/reset', { method: 'POST' });
+    await fetchJson(`/api/demo/reset?plant_id=${plantId}`, { method: 'POST' }).catch(() => null);
     setPreview(null);
     setPublishResult(null);
     setIgnoreReason('');
@@ -250,7 +258,7 @@ export default function StudioWorkspace() {
     setManualAsset('');
     setManualRole('');
     setManualReason('');
-    setActionMessage('Asset model switched. Run build to compile the selected model.');
+    setActionMessage('Asset model switched. Run deterministic mapping, then build to compile the selected model.');
   });
 
   const toggleVerificationMutation = (enabled) => runAction(async () => {

@@ -16,13 +16,42 @@ import sys
 import json
 import time
 import asyncio
+import os
+import urllib.error
+import urllib.parse
+import urllib.request
 
-import requests
 
-BASE = "http://127.0.0.1:8001"
+BASE = os.getenv("CONFIDENCEOS_E2E_BASE", "http://127.0.0.1:8001")
 PLANTS = ["plant-a", "plant-b", "plant-c"]
-S = requests.Session()
-S.headers.update({"Content-Type": "application/json"})
+
+
+class Response:
+    def __init__(self, status_code: int, body: bytes):
+        self.status_code = status_code
+        self._body = body
+        self.text = body.decode("utf-8", errors="replace")
+
+    def json(self):
+        if not self._body:
+            return None
+        return json.loads(self.text)
+
+
+def _request(method: str, path: str, params: dict | None = None, body: dict | None = None, timeout: int = 15) -> Response:
+    query = f"?{urllib.parse.urlencode(params)}" if params else ""
+    data = json.dumps(body).encode("utf-8") if body is not None else None
+    req = urllib.request.Request(
+        BASE + path + query,
+        data=data,
+        method=method,
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as res:
+            return Response(res.status, res.read())
+    except urllib.error.HTTPError as exc:
+        return Response(exc.code, exc.read())
 
 ROWS = []  # (area, item, scenario, expected, result, severity, notes)
 _FAILS = 0
@@ -39,12 +68,11 @@ def record(area, item, scenario, expected, ok, notes="", severity="High"):
 
 
 def get(path, **params):
-    return S.get(BASE + path, params=params or None, timeout=15)
+    return _request("GET", path, params=params or None, timeout=15)
 
 
 def post(path, body=None, **params):
-    return S.post(BASE + path, params=params or None,
-                  data=json.dumps(body) if body is not None else None, timeout=30)
+    return _request("POST", path, params=params or None, body=body, timeout=30)
 
 
 def check(area, item, scenario, fn, expected="200 + shape"):

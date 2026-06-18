@@ -517,6 +517,77 @@ button:disabled { cursor: not-allowed; }
   z-index: 1;
 }
 
+.hmi-demo-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  background: var(--surface-elevated);
+  border: 1px solid var(--border-strong);
+  border-left: 8px solid var(--primary-dark);
+  padding: 8px 10px;
+}
+
+.hmi-dock .hmi-demo-strip {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.hmi-demo-strip .industrial-control {
+  white-space: normal;
+  min-height: 34px;
+}
+
+.hmi-demo-timeline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-width: 100%;
+}
+
+.hmi-demo-timeline span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-panel);
+  color: var(--text-dim);
+  font-family: Geist, ui-monospace, 'JetBrains Mono', Consolas, monospace;
+  font-size: 11px;
+  line-height: 14px;
+  white-space: nowrap;
+}
+
+.hmi-demo-timeline span.active {
+  border-color: var(--warning);
+  color: var(--text);
+  background: rgba(255, 204, 0, 0.12);
+}
+
+.hmi-demo-failures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-width: 100%;
+}
+
+.hmi-demo-failures span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-highest);
+  color: var(--text-muted);
+  font-family: Geist, ui-monospace, 'JetBrains Mono', Consolas, monospace;
+  font-size: 11px;
+  line-height: 14px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 .hmi-pressure {
   grid-template-rows: 52px minmax(0, 1fr);
 }

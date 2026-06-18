@@ -138,7 +138,9 @@ def sync_auto_tasks(
     expire_due_tasks(db, plant_id=plant_id, current=current, commit=commit)
     requested = _requested_sensors(incidents, confidence, plant_context)
     for sensor_id in sorted(requested):
-        if not sensor_by_tag(sensor_id):
+        try:
+            _validate_sensor(sensor_id)
+        except HTTPException:
             continue
         existing = _active_task_for_sensor(db, plant_id, sensor_id)
         if existing:
@@ -419,8 +421,43 @@ def _evidence_row(task: VerificationTask, state: str, actor: str | None, note: s
 def _validate_sensor(sensor_id: str) -> dict:
     sensor = sensor_by_tag(sensor_id)
     if not sensor:
-        raise HTTPException(status_code=422, detail=f"Unknown sensor_id '{sensor_id}' for active asset model.")
+        sensor = _metadata_only_sensor(sensor_id)
+    if not sensor:
+        raise HTTPException(status_code=422, detail=f"Unknown sensor_id '{sensor_id}' for active asset model or live tag family.")
     return sensor
+
+
+def _metadata_only_sensor(sensor_id: str) -> dict:
+    """Return a controlled verification profile for live tags outside the active model.
+
+    Studio can switch the global asset model while the simulator is still
+    streaming another plant. Verification must remain available for valid live
+    tags, but we still reject arbitrary strings. This classifier only accepts
+    common industrial tag families already used by the demo/simulator.
+    """
+    tag = str(sensor_id or "").strip().upper()
+    normalized = tag.replace("_", "-").replace(".", "-")
+    prefix = normalized.split("-", 1)[0]
+    compact = "".join(ch for ch in tag if ch.isalnum())
+    candidates = [
+        (("LT", "LIT"), "level"),
+        (("FI", "FIT"), "flow_in"),
+        (("FO",), "flow_out"),
+        (("PT",), "pressure"),
+        (("TT", "TEMP"), "temperature"),
+        (("ZT",), "valve"),
+        (("VIB",), "vibration"),
+    ]
+    for prefixes, sensor_type in candidates:
+        if prefix in prefixes or any(compact.startswith(item) for item in prefixes):
+            if any(ch.isdigit() for ch in compact):
+                return {
+                    "tag": sensor_id,
+                    "sensor_type": sensor_type,
+                    "role": sensor_type,
+                    "source": "metadata_only_live_tag_family",
+                }
+    return {}
 
 
 def _validate_method(sensor: dict, verification_type: str) -> str:

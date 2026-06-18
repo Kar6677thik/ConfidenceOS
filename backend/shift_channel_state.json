@@ -1,14 +1,3 @@
 {
-  "notes": [
-    {
-      "id": "note:1781687470973",
-      "type": "operator_note",
-      "plant_id": "plant-a",
-      "author": "ShiftEngineer-A",
-      "message": "LT-5100 field check complete \u2014 reading stable, trust restored after calibration",
-      "timestamp": 1781687470.9731092,
-      "severity": "INFO",
-      "handover_required": true
-    }
-  ]
+  "notes": []
 }
