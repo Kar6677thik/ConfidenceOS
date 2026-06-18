@@ -595,13 +595,35 @@ function BottomStrip({ manifest, situations, handoverDebt, chartHistory }) {
   const lead = situations?.[0] || {};
   const score = decisionScore(lead);
   const basisLines = buildBasisLines(manifest);
+
+  // Embedded trend: plot the *indicated* level (what the LT reports) over the
+  // latest samples, with an explicit unit, a current-value marker, and a label
+  // saying whether the line is measured or implied — so it reads, not decorates.
+  const trendSamples = (chartHistory || []).slice(-24);
+  const trendUsesMeasured = trendSamples.some((p) => p.measured != null);
+  const trendValue = (p) => Number((p.measured ?? p.implied ?? 0));
+  const trendLast = trendSamples.length ? trendValue(trendSamples[trendSamples.length - 1]) : null;
+  const trendY = (v) => 70 - Math.max(0, Math.min(70, v));
+  const trendXY = trendSamples.map((point, index, arr) => ({
+    x: arr.length <= 1 ? 300 : (index / (arr.length - 1)) * 300,
+    y: trendY(trendValue(point)),
+  }));
+  const trendEnd = trendXY[trendXY.length - 1];
+
   return (
     <footer className="hmi-bottom-strip">
       <section className="hmi-strip-cell">
-        <p className="label-caps text-[var(--text-muted)]">Embedded Trend</p>
+        <div className="flex items-baseline justify-between gap-2">
+          <p className="label-caps text-[var(--text-muted)]">Embedded Trend</p>
+          <p className="caption-mono text-[var(--text)]">
+            {trendLast != null ? `${trendLast.toFixed(1)} ft` : '-- ft'}
+          </p>
+        </div>
         <div className="h-[72px] mt-2 border border-[var(--border-strong)] bg-[var(--surface-highest)] relative overflow-hidden">
-          <span className="absolute left-1 top-1 caption-mono text-[9px] text-[var(--text-muted)]">level</span>
-          <span className="absolute right-1 bottom-1 caption-mono text-[9px] text-[var(--text-muted)]">latest samples</span>
+          <span className="absolute left-1 top-1 caption-mono text-[9px] text-[var(--text-muted)]">
+            {trendUsesMeasured ? 'measured level (ft)' : 'implied level (ft)'}
+          </span>
+          <span className="absolute right-1 bottom-1 caption-mono text-[9px] text-[var(--text-muted)]">latest 24 samples</span>
           <svg viewBox="0 0 300 72" className="w-full h-full">
             <line x1="0" y1="12" x2="300" y2="12" stroke="#9a9a9a" strokeWidth="0.5" strokeDasharray="3 3" />
             <line x1="0" y1="60" x2="300" y2="60" stroke="#9a9a9a" strokeWidth="0.5" strokeDasharray="3 3" />
@@ -609,12 +631,11 @@ function BottomStrip({ manifest, situations, handoverDebt, chartHistory }) {
               fill="none"
               stroke="#005aa0"
               strokeWidth="2"
-              points={(chartHistory || []).slice(-24).map((point, index, arr) => {
-                const x = arr.length <= 1 ? 0 : (index / (arr.length - 1)) * 300;
-                const y = 70 - Math.max(0, Math.min(70, Number(point.measured || point.implied || 0)));
-                return `${x},${y}`;
-              }).join(' ')}
+              points={trendXY.map((p) => `${p.x},${p.y}`).join(' ')}
             />
+            {trendEnd && (
+              <circle cx={trendEnd.x} cy={trendEnd.y} r="3" fill="#005aa0" />
+            )}
           </svg>
         </div>
       </section>

@@ -17,6 +17,7 @@ Supports configurable failure injection via scenario.json:
   - command_state_decoupling: valve commanded closed but stuck open (TMI failure)
 """
 
+import os
 import json
 import time
 import math
@@ -24,6 +25,15 @@ import random
 from pathlib import Path
 from dataclasses import dataclass, field, asdict
 from typing import Optional
+
+# Optional deterministic seed for reproducible demo runs. Unset = normal random
+# behaviour; set CONFIDENCEOS_SIM_SEED to make the noise stream repeatable.
+_SIM_SEED = os.getenv("CONFIDENCEOS_SIM_SEED")
+if _SIM_SEED is not None:
+    try:
+        random.seed(int(_SIM_SEED))
+    except ValueError:
+        random.seed(_SIM_SEED)
 
 
 # Net-flow → level conversion used to integrate the hidden *actual* vessel level
@@ -150,8 +160,12 @@ DEFAULT_SENSORS = [
     SensorConfig(
         sensor_id="ZT-6100",
         sensor_type="valve",
+        # Feed control valve. Its base value is the nominal commanded position
+        # during steady feed (a throttling valve sits part-open, not at 0%). The
+        # true inflow is derived from the valve's *actual* position, so a valve
+        # that is commanded closed but physically open keeps filling the vessel.
         unit="%",
-        base_value=0.0,  # 0% = fully closed, 100% = fully open
+        base_value=60.0,
         noise_std=0.1,
         min_value=0.0,
         max_value=100.0,
@@ -188,6 +202,12 @@ class SensorSimulator:
         self._actual_level: Optional[float] = None
         self._prev_actual_time: Optional[float] = None
 
+        # True feed-valve position (%). Drives the true inflow each tick. Normally
+        # equals the commanded/nominal position; a command_state_decoupling failure
+        # forces it away from the command so an "operator-closed" valve can still
+        # be physically open and keep filling the vessel.
+        self._valve_actual_pct: Optional[float] = None
+
     def load_scenario(self, path: str | Path) -> None:
         """Load failure injection scenario from a JSON file."""
         path = Path(path)
@@ -214,6 +234,7 @@ class SensorSimulator:
         self._last_values.clear()
         self._actual_level = None
         self._prev_actual_time = None
+        self._valve_actual_pct = None
 
     def tick(self) -> list[dict]:
         """
@@ -225,13 +246,23 @@ class SensorSimulator:
         self.tick_count += 1
         readings = []
 
+        # 0. Resolve the true feed-valve position for this tick (honours a
+        #    command_state_decoupling failure). The true inflow is a function of
+        #    this, so the process — not just a tag — responds when the valve lies.
+        valve_actual, valve_nominal = self._compute_valve_actual(elapsed)
+
         # 1. Compute the uncorrupted, physically-true base value for every
-        #    non-level sensor first (the level is derived from integrated flow).
+        #    non-level sensor. Inflow is derived from the actual valve position
+        #    (feed valve), so opening the valve genuinely increases inflow.
         base_values: dict[str, float] = {}
         for sensor_id, config in self.sensors.items():
             if config.sensor_type == "level":
                 continue
-            base_values[sensor_id] = self._base_value(config, elapsed)
+            if config.sensor_type == "flow_in" and valve_actual is not None and valve_nominal:
+                noise = random.gauss(0, config.noise_std)
+                base_values[sensor_id] = config.base_value * (valve_actual / valve_nominal) + noise
+            else:
+                base_values[sensor_id] = self._base_value(config, elapsed)
 
         # 2. Integrate the hidden actual vessel level from the TRUE net flow
         #    (uncorrupted inflow − outflow), independent of what any sensor reports.
@@ -317,16 +348,45 @@ class SensorSimulator:
             level_config.min_value, min(level_config.max_value, self._actual_level)
         )
 
-    def _get_active_failure(self, sensor_id: str, elapsed: float) -> Optional[FailureConfig]:
-        """Find the active failure for a sensor at the current time, if any."""
+    def _compute_valve_actual(self, elapsed: float) -> tuple[Optional[float], Optional[float]]:
+        """Return ``(actual_pct, nominal_pct)`` for the feed valve this tick.
+
+        Nominal is the commanded/steady position (the valve config base). A
+        command_state_decoupling failure forces the *actual* position away from
+        the command, so the true inflow diverges from what the operator sees.
+        Returns ``(None, None)`` when the model has no valve.
+        """
+        valve_cfg = next((c for c in self.sensors.values() if c.sensor_type == "valve"), None)
+        if valve_cfg is None:
+            self._valve_actual_pct = None
+            return None, None
+        nominal = valve_cfg.base_value
+        actual = nominal
+        for f in self._get_active_failures(valve_cfg.sensor_id, elapsed):
+            if f.failure_type == "command_state_decoupling":
+                actual = f.actual_value
+        self._valve_actual_pct = actual
+        return actual, nominal
+
+    def _get_active_failures(self, sensor_id: str, elapsed: float) -> list[FailureConfig]:
+        """Return all active failures for a sensor, ordered by start_time.
+
+        Multiple failures on one sensor compose deterministically (see
+        ``_resolve_indicated``) instead of only the first one applying.
+        """
+        active = []
         for f in self.failures:
             if f.sensor_id == sensor_id and elapsed >= f.start_time:
-                # Check if stuck_reading has expired
+                # A stuck_reading with a finite duration expires.
                 if f.failure_type == "stuck_reading" and f.stuck_duration > 0:
                     if elapsed > f.start_time + f.stuck_duration:
                         continue
-                return f
-        return None
+                active.append(f)
+        active.sort(key=lambda f: f.start_time)
+        return active
+
+    # Reported-mode precedence when several failures are active on one sensor.
+    _MODE_PRECEDENCE = ("stuck_reading", "command_state_decoupling", "sg_mismatch", "calibration_drift")
 
     def _resolve_indicated(
         self,
@@ -334,45 +394,52 @@ class SensorSimulator:
         base_reading: float,
         elapsed: float,
     ) -> tuple[float, Optional[str], Optional[float]]:
-        """Resolve the *indicated* reading for this tick, applying any active failure.
+        """Resolve the *indicated* reading for this tick, composing all active failures.
 
-        Returns ``(indicated_value, failure_mode, actual_override)``. The
-        ``actual_override`` is only set when the failure defines a physical truth
-        that differs from this sensor's base reading (e.g. a decoupled valve whose
-        real position is known); otherwise the caller's actual truth is used.
+        Returns ``(indicated_value, failure_mode, actual_override)``. Corruptions
+        compose in start-time order (drift then SG scaling), then terminal
+        overrides apply (decoupling replaces the value; stuck freezes it). The
+        reported ``failure_mode`` follows ``_MODE_PRECEDENCE`` so downstream logic
+        that keys on e.g. ``stuck_reading`` still sees it. ``actual_override`` is
+        set only when a failure defines a physical truth (decoupled valve).
         """
-        failure = self._get_active_failure(config.sensor_id, elapsed)
+        failures = self._get_active_failures(config.sensor_id, elapsed)
 
-        if failure is None:
+        if not failures:
             # Clear stuck state if no longer active
             self._stuck_values.pop(config.sensor_id, None)
             self._stuck_start.pop(config.sensor_id, None)
             return base_reading, None, None
 
-        time_in_failure = elapsed - failure.start_time
+        value = base_reading
+        actual_override = None
+        modes = []
 
-        if failure.failure_type == "calibration_drift":
-            # Indicated drifts linearly away from the true value.
-            drift = failure.drift_rate * time_in_failure
-            return base_reading + drift, "calibration_drift", None
+        # 1. Non-terminal corruptions, in start-time order.
+        for f in failures:
+            if f.failure_type == "calibration_drift":
+                value += f.drift_rate * (elapsed - f.start_time)
+                modes.append("calibration_drift")
+            elif f.failure_type == "sg_mismatch":
+                value *= (f.sg_calibrated / f.sg_actual)
+                modes.append("sg_mismatch")
 
-        elif failure.failure_type == "stuck_reading":
-            # Indicated freezes at the last value before the failure started,
-            # while the actual (base / integrated level) keeps moving.
+        # 2. Command-state decoupling: HMI shows command, valve is elsewhere.
+        decoup = next((f for f in failures if f.failure_type == "command_state_decoupling"), None)
+        if decoup is not None:
+            value = decoup.commanded_value
+            actual_override = decoup.actual_value
+            modes.append("command_state_decoupling")
+
+        # 3. Stuck freezes the (possibly already-corrupted) last emitted value.
+        stuck = next((f for f in failures if f.failure_type == "stuck_reading"), None)
+        if stuck is not None:
             sid = config.sensor_id
             if sid not in self._stuck_values:
-                self._stuck_values[sid] = self._last_values.get(sid, base_reading)
+                self._stuck_values[sid] = self._last_values.get(sid, value)
                 self._stuck_start[sid] = elapsed
-            return self._stuck_values[sid], "stuck_reading", None
+            value = self._stuck_values[sid]
+            modes.append("stuck_reading")
 
-        elif failure.failure_type == "sg_mismatch":
-            # Indicated reads value scaled by the wrong specific-gravity ratio.
-            scale = failure.sg_calibrated / failure.sg_actual
-            return base_reading * scale, "sg_mismatch", None
-
-        elif failure.failure_type == "command_state_decoupling":
-            # HMI shows the commanded position; the valve is physically elsewhere.
-            return failure.commanded_value, "command_state_decoupling", failure.actual_value
-
-        else:
-            return base_reading, None, None
+        primary = next((m for m in self._MODE_PRECEDENCE if m in modes), None)
+        return value, primary, actual_override

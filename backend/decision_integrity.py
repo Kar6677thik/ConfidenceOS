@@ -138,6 +138,13 @@ def ensure_verification_tasks(
         task_id = f"verification-task:{sensor_id}"
         existing = tasks_by_id.get(task_id)
         if existing and existing.get("state") not in ("ACCEPTED", "EXPIRED"):
+            # Keep the in-progress task but refresh its expiry while the
+            # quarantine persists, so a long demo always shows one ACTIVE task
+            # instead of letting it silently expire into a graveyard.
+            refreshed = dict(existing)
+            refreshed["valid_until"] = current + 30 * 60
+            refreshed.pop("valid_until_iso", None)
+            tasks_by_id[task_id] = normalize_verification_task(refreshed, current)
             continue
         valid_until = current + 30 * 60
         tasks_by_id[task_id] = normalize_verification_task({

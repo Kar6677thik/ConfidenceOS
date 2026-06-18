@@ -123,9 +123,14 @@ BASE_MB_TOLERANCE = DEFAULT_TOLERANCE
 
 # Confidence logging throttle — log every N ticks to avoid DB bloat
 _confidence_log_counter: dict[str, int] = {}
-CONFIDENCE_LOG_INTERVAL = 5  # Log every 5 seconds
-PERSIST_READINGS_INTERVAL = max(1, int(os.getenv("CONFIDENCEOS_PERSIST_READINGS_INTERVAL", "5")))
+CONFIDENCE_LOG_INTERVAL = max(1, int(os.getenv("CONFIDENCEOS_CONFIDENCE_LOG_INTERVAL", "10")))  # log every N ticks
+PERSIST_READINGS_INTERVAL = max(1, int(os.getenv("CONFIDENCEOS_PERSIST_READINGS_INTERVAL", "10")))
 _plant_loop_status: dict[str, dict] = {}
+
+# Serialize all plant-loop DB writes through one in-process lock so the
+# concurrent plant tick loops never commit simultaneously — this removes the
+# SQLite writer contention that produced "database is locked" under multi-plant.
+_db_write_lock = asyncio.Lock()
 INCIDENT_TIMELINE_MAX = 80
 SCENARIO_DIR = Path(__file__).parent
 ALLOWED_SCENARIOS = {"scenario.json", "scenario_b.json", "scenario_c.json"}
@@ -214,10 +219,11 @@ class ShiftNoteRequest(BaseModel):
 async def lifespan(app: FastAPI):
     """Initialize DB and start background plant ticking on startup."""
     init_db()
-    # Start background tasks for all plants
+    # Start background tasks for all plants. Stagger their start so the per-tick
+    # commits don't align across plants, easing DB write pressure.
     tasks = []
-    for pid, plant in plant_manager.get_all().items():
-        task = asyncio.create_task(_plant_tick_loop(pid, plant))
+    for offset, (pid, plant) in enumerate(plant_manager.get_all().items()):
+        task = asyncio.create_task(_plant_tick_loop(pid, plant, start_delay=offset * 0.3))
         tasks.append(task)
     # Start time-series retention loop (prevents unbounded ConfidenceLog growth)
     tasks.append(asyncio.create_task(_retention_loop()))
@@ -291,9 +297,11 @@ async def unknown_plant_handler(request: Request, exc: UnknownPlantError):
     )
 
 
-async def _plant_tick_loop(plant_id: str, plant):
+async def _plant_tick_loop(plant_id: str, plant, start_delay: float = 0.0):
     """Background loop that ticks each plant at 1 Hz and caches state."""
     tick_count = 0
+    if start_delay:
+        await asyncio.sleep(start_delay)
 
     try:
         while True:
@@ -428,6 +436,8 @@ async def _plant_tick_loop(plant_id: str, plant):
 
                 persistence_status = "not_run"
                 persistence_error = None
+                # Only one plant loop commits at a time (in-process serialization).
+                await _db_write_lock.acquire()
                 try:
                     db = SessionLocal()
                     plant.verification_tokens = sync_auto_tasks(
@@ -499,6 +509,7 @@ async def _plant_tick_loop(plant_id: str, plant):
                     if db:
                         db.close()
                         db = None
+                    _db_write_lock.release()
 
                 plant.latest_confidence_debt = update_confidence_debt(
                     plant.confidence_debt_state,
@@ -2458,6 +2469,31 @@ def _apply_sandbox_confidence_degradation(confidence: dict, failure_mode: str, s
 def health_check():
     """Basic health check."""
     plant_a = plant_manager.get("plant-a")
+
+    # Stream health: are the plant tick loops alive and ticking recently?
+    statuses = list(_plant_loop_status.values())
+    now_ts = time.time()
+    loops_ok = [s for s in statuses if s.get("status") == "ok"]
+    recently_ticked = any((now_ts - s.get("last_tick", 0)) < 5.0 for s in loops_ok)
+    if not statuses:
+        stream_health = "warming_up"
+    elif recently_ticked:
+        stream_health = "ok"
+    else:
+        stream_health = "degraded"
+
+    # Persistence health is independent of stream health: the live stream can be
+    # perfectly healthy while DB writes are being skipped under lock contention.
+    persistence_states = [s.get("persistence_status") for s in statuses]
+    if any(ps == "error" for ps in persistence_states):
+        persistence_health = "error"
+    elif any(ps == "skipped_locked" for ps in persistence_states):
+        persistence_health = "degraded"  # history delayed, live unaffected
+    elif any(ps == "ok" for ps in persistence_states):
+        persistence_health = "ok"
+    else:
+        persistence_health = "warming_up"
+
     return {
         "status": "ok",
         "version": "2.0.0",
@@ -2472,6 +2508,10 @@ def health_check():
         "active_connections": len(active_connections),
         "plants": len(plant_manager.plants),
         "plant_loops": _plant_loop_status,
+        # Explicit, separable health: live stream vs durable persistence. "Live
+        # stream offline" and "history delayed" are different operational states.
+        "stream_health": stream_health,
+        "persistence_health": persistence_health,
         "db_status": "writing" if any(s.get("status") == "ok" for s in _plant_loop_status.values()) else "warming_up",
         "mode": plant_a.startup_manager.mode_name,
         "scope": "judge-ready prototype; deterministic trust scoring; not a certified control or safety system",

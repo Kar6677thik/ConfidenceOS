@@ -168,6 +168,63 @@ def test_command_state_decoupling():
     print(f"  ✓ Command-state decoupling: ZT-6100 shows {reading['value']}% (actual is 85%)")
 
 
+def test_failures_compose():
+    """Multiple active failures on one sensor compose (drift + SG), not first-only."""
+    sim = SensorSimulator()
+    sim.failures = []
+
+    from simulator import FailureConfig
+    sim.failures.append(FailureConfig(
+        sensor_id="PT-3100", failure_type="calibration_drift",
+        start_time=0.0, drift_rate=1.0,
+    ))
+    sim.failures.append(FailureConfig(
+        sensor_id="PT-3100", failure_type="sg_mismatch",
+        start_time=0.0, sg_actual=0.5, sg_calibrated=1.0,
+    ))
+    sim.reset()
+
+    import simulator as _sim
+    import time as _t
+    base = _sim.time.time()
+    sim.start_time = base
+    _sim.time.time = lambda: base + 5.0
+    try:
+        reading = [r for r in sim.tick() if r["sensor_id"] == "PT-3100"][0]
+    finally:
+        _sim.time.time = _t.time
+    # base ~21 + ~5 drift = ~26, then * (1.0/0.5) = ~52. SG-only would be ~42, drift-only ~26.
+    assert reading["value"] > 45, f"Expected composed (~52), got {reading['value']} (failure_mode={reading['failure_mode']})"
+    print(f"  ✓ Failures compose: PT-3100 = {reading['value']} (drift + SG both applied)")
+
+
+def test_valve_drives_inflow():
+    """A decoupled feed valve (commanded closed, actually open) increases true inflow."""
+    sim = SensorSimulator()
+    sim.failures = []
+    from simulator import FailureConfig
+    sim.failures.append(FailureConfig(
+        sensor_id="ZT-6100", failure_type="command_state_decoupling",
+        start_time=0.0, commanded_value=0.0, actual_value=85.0,
+    ))
+    sim.reset()
+    import simulator as _sim
+    import time as _t
+    base = _sim.time.time()
+    sim.start_time = base
+    _sim.time.time = lambda: base + 5.0
+    try:
+        readings = sim.tick()
+    finally:
+        _sim.time.time = _t.time
+    zt = [r for r in readings if r["sensor_id"] == "ZT-6100"][0]
+    fi = [r for r in readings if r["sensor_id"] == "FI-2010"][0]
+    assert zt["value"] == 0.0, f"Valve should indicate commanded (0), got {zt['value']}"
+    # Nominal valve 60% -> inflow ~132; at actual 85% inflow should be ~132*85/60 = ~187.
+    assert fi["value"] > 160, f"Open valve should surge inflow above nominal, got {fi['value']}"
+    print(f"  ✓ Decoupled valve drives inflow: ZT indicated {zt['value']}% but FI surged to {fi['value']} gpm")
+
+
 def test_scenario_json_loads():
     """scenario.json should load without errors."""
     sim = SensorSimulator()
@@ -208,6 +265,8 @@ if __name__ == "__main__":
         test_stuck_reading_failure,
         test_sg_mismatch_failure,
         test_command_state_decoupling,
+        test_failures_compose,
+        test_valve_drives_inflow,
         test_scenario_json_loads,
         test_failure_starts_at_correct_time,
     ]
