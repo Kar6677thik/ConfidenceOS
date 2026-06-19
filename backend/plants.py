@@ -155,14 +155,16 @@ class PlantManager:
         """Get all plant instances."""
         return self.plants
 
-    def compute_fleet_risk_score(self, plant: PlantInstance) -> float:
+    def compute_instrument_integrity_attention_score(self, plant: PlantInstance) -> float:
         """
-        Compute plant integrity score for the Instrument Integrity Overview:
+        Compute plant attention score for the Instrument Integrity Overview.
+        This is not a failure forecast score. It is a deterministic sorting
+        rubric for which instrument set deserves operator/maintenance attention:
         
-        risk = (1 - avg_confidence) * 0.40
-             + active_critical_flags * 0.25
-             + mass_balance_discrepancy_norm * 0.20
-             + max_calibration_age_norm * 0.15
+        attention = (1 - avg_confidence) * 0.40
+                  + active_critical_flags * 0.25
+                  + mass_balance_discrepancy_norm * 0.20
+                  + max_calibration_age_norm * 0.15
         """
         # Average confidence
         conf_values = [c.get("confidence_pct", 100) for c in plant.latest_confidence.values()]
@@ -182,13 +184,17 @@ class PlantManager:
         max_cal_age = max(plant.config["calibration_ages"].values())
         cal_score = min(1.0, max_cal_age / 90.0)
 
-        risk = (
+        attention = (
             (1.0 - avg_conf) * 0.40
             + flag_score * 0.25
             + mb_score * 0.20
             + cal_score * 0.15
         )
-        return round(risk * 100, 1)
+        return round(attention * 100, 1)
+
+    def compute_fleet_risk_score(self, plant: PlantInstance) -> float:
+        """Backward-compatible alias for older support views/API clients."""
+        return self.compute_instrument_integrity_attention_score(plant)
 
     def get_fleet_summary(self) -> list[dict]:
         """Get fleet-level summary for all plants."""
@@ -197,7 +203,7 @@ class PlantManager:
             conf_values = [c.get("confidence_pct", 100) for c in plant.latest_confidence.values()]
             avg_conf = round(sum(conf_values) / len(conf_values), 1) if conf_values else 100.0
 
-            risk_score = self.compute_fleet_risk_score(plant)
+            attention_score = self.compute_instrument_integrity_attention_score(plant)
             
             # Count flags by type
             flags = plant.latest_mb_state.get("flags", [])
@@ -207,9 +213,9 @@ class PlantManager:
             ]
 
             # Determine status
-            if risk_score >= 60:
+            if attention_score >= 60:
                 status = "CRITICAL"
-            elif risk_score >= 35:
+            elif attention_score >= 35:
                 status = "WARNING"
             elif plant.startup_manager.is_active:
                 status = "STARTUP"
@@ -222,7 +228,9 @@ class PlantManager:
                 "type": plant.plant_type,
                 "location": plant.location,
                 "health_pct": avg_conf,
-                "risk_score": risk_score,
+                "instrument_integrity_attention_score": attention_score,
+                "attention_score": attention_score,
+                "risk_score": attention_score,  # compatibility: do not use as a failure forecast.
                 "status": status,
                 "active_flags": len(flags) + len(low_conf_sensors),
                 "startup_active": plant.startup_manager.is_active,
@@ -230,12 +238,13 @@ class PlantManager:
                 "sensors": plant.latest_confidence,
             })
 
-        # Sort by risk score descending (highest risk first)
-        summaries.sort(key=lambda s: s["risk_score"], reverse=True)
+        # Sort by instrument-integrity attention descending.
+        summaries.sort(key=lambda s: s["instrument_integrity_attention_score"], reverse=True)
 
         # Assign risk ranking
         for i, s in enumerate(summaries):
-            s["risk_rank"] = i + 1
+            s["attention_rank"] = i + 1
+            s["risk_rank"] = i + 1  # compatibility alias
 
         return summaries
 

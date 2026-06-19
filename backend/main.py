@@ -2184,7 +2184,7 @@ def get_predictions(plant_id: str, db: Session = Depends(get_db)):
                 "source": "confidence_log + latest Runtime trust state" if history_count else "latest Runtime trust state only",
                 "minimum_samples_for_forecast": 10,
             },
-            "forecast_boundary": "Deterministic confidence trend estimate only; not predictive failure and not a control action.",
+            "forecast_boundary": "Deterministic confidence trend estimate only; not a failure forecast and not a control action.",
         })
     total_history_rows = sum(len(history) for history in histories.values())
     return {
@@ -2197,7 +2197,7 @@ def get_predictions(plant_id: str, db: Session = Depends(get_db)):
             "live_snapshot_count": len(live_confidence),
             "minimum_samples_per_sensor": 10,
             "source": "confidence_log plus latest Runtime trust state",
-            "boundary": "Confidence Degradation Forecast is deterministic trend evidence, not predictive failure.",
+            "boundary": "Confidence Degradation Forecast is deterministic trend evidence, not a failure forecast.",
         },
         "timestamp": time.time(),
     }
@@ -2226,7 +2226,7 @@ def get_sensor_prediction(plant_id: str, sensor_id: str, db: Session = Depends(g
         "source": "confidence_log + latest Runtime trust state" if history and live else "confidence_log" if history else "latest Runtime trust state only" if live else "no evidence yet",
         "minimum_samples_for_forecast": 10,
     }
-    prediction["forecast_boundary"] = "Deterministic confidence trend estimate only; not predictive failure and not a control action."
+    prediction["forecast_boundary"] = "Deterministic confidence trend estimate only; not a failure forecast and not a control action."
     return prediction
 
 

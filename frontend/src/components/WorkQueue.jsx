@@ -440,7 +440,7 @@ export default function WorkQueue() {
                 <div key={item.sensor_id} className="bg-[var(--surface-panel)] p-3 grid grid-cols-[150px_1fr_auto] gap-3 items-center">
                   <p className="caption-mono font-semibold">{item.sensor_id}</p>
                   <p className="caption-mono text-[var(--text-muted)] [overflow-wrap:anywhere]">
-                    {item.priority_language || item.maintenance_priority || 'Track as confidence debt. Not predictive failure.'}
+                    {item.priority_language || item.maintenance_priority || 'Track as confidence debt. Not a failure forecast.'}
                   </p>
                   <span className={`caption-mono ${statusClass(item.priority || item.tier)}`}>
                     {item.confidence_debt ?? item.debt_score ?? '--'}

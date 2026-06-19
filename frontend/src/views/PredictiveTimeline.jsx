@@ -4,7 +4,7 @@
  * Endpoints:
  *   GET /api/predictions/:plant_id - degradation forecasts for all sensors
  *
- * Stitch mockup: 3predictive_maintanance.html
+ * Secondary support view for deterministic confidence-degradation evidence.
  */
 
 import { useEffect } from 'react';
@@ -18,15 +18,13 @@ const WINDOW_HOURS = 12;
 function ConfidenceBadge({ conf }) {
   if (conf == null) return null;
   const color = conf >= 80 ? 'var(--safe-text)' : conf >= 50 ? 'var(--caution)' : conf >= 20 ? 'var(--warning)' : 'var(--critical)';
-  return (
-    <span className="label-caps font-bold" style={{ color }}>{conf}% conf</span>
-  );
+  return <span className="label-caps font-bold" style={{ color }}>{conf}% trust</span>;
 }
 
 function forecastLabel(pred) {
   const status = pred.forecast_status || pred.model_fit;
   if (status === 'insufficient_history') return `Collecting history (${pred.sample_count || 0} samples)`;
-  if (status === 'flat_or_no_degradation') return 'No active degradation trend';
+  if (status === 'flat_or_no_degradation') return 'No active confidence degradation';
   if (status === 'model_error') return 'Forecast model unavailable';
   return pred.model_type || 'deterministic trend';
 }
@@ -36,7 +34,7 @@ function forecastLabel(pred) {
 function forecastDetail(pred) {
   const status = pred.forecast_status || pred.model_fit;
   if (status === 'insufficient_history') return 'Not enough confidence history yet to project a trend.';
-  if (status === 'flat_or_no_degradation') return 'Confidence is stable over the window - nothing to project.';
+  if (status === 'flat_or_no_degradation') return 'Confidence is stable over the evidence window - no threshold estimate is generated.';
   if (status === 'model_error') return 'Forecast model could not run; deterministic status only.';
   return null;
 }
@@ -76,11 +74,12 @@ export default function PredictiveTimeline() {
           {predictionsMeta
             ? `${predictionsMeta.status || 'unknown'} / ${predictionsMeta.history_sample_count ?? 0} persisted samples / ${predictionsMeta.live_snapshot_count ?? 0} live trust states`
             : 'Forecast evidence not loaded'}
+          <span className="ml-3 text-[var(--text-dim)]">deterministic trend evidence, not a failure forecast</span>
         </div>
         {avgPLT && (
           <div className="industrial-card px-4 py-2 flex items-center gap-3">
             <div>
-              <p className="label-caps text-[var(--text-muted)] mb-1">Avg Degradation Lead Time</p>
+              <p className="label-caps text-[var(--text-muted)] mb-1">Avg Forecast Lead</p>
               <p className="text-[20px] font-bold font-data text-[var(--primary)]">{avgPLT}<span className="text-[12px] text-[var(--text-muted)] ml-1">hrs</span></p>
             </div>
             <span className="material-symbols-outlined text-[var(--primary)]">update</span>
@@ -199,7 +198,7 @@ export default function PredictiveTimeline() {
             <div className="industrial-card-header px-4 py-3 border-b border-[var(--border)]">
               <h2 className="text-[14px] font-semibold text-[var(--text)] flex items-center gap-2">
                 <span className="material-symbols-outlined text-[18px] text-[var(--primary)]">dynamic_form</span>
-                Action Queue
+                Maintenance Attention Queue
               </h2>
             </div>
             <div className="p-4 space-y-3">
@@ -236,7 +235,7 @@ export default function PredictiveTimeline() {
                         <ConfidenceBadge conf={pred.current_confidence} />
                       </div>
                       <h3 className="font-data text-[14px] text-[var(--text)] mt-2">
-                        {isCrit ? 'Calibrate' : 'Inspect'} {pred.sensor_id}
+                    {isCrit ? 'Verify / calibrate' : 'Inspect'} {pred.sensor_id}
                       </h3>
                       <p className="caption-mono text-[var(--text-muted)] text-[12px] mt-1 leading-snug">
                         {pred.recommended_action || pred.action || 'Confidence degradation context.'}
@@ -256,7 +255,7 @@ export default function PredictiveTimeline() {
               {actionQueue.length === 0 && (
                 <div className="industrial-card p-3">
                   <p className="caption-mono text-[var(--text-muted)] text-[12px]">
-                    No sensors forecast to cross a lower trust tier. This is deterministic confidence trend evidence, not predictive failure.
+                    No sensors currently estimate a lower trust-tier crossing. This is deterministic confidence trend evidence, not a failure forecast.
                   </p>
                   <p className="caption-mono text-[var(--text-dim)] text-[12px] mt-2">
                     {predictionsMeta?.boundary || 'A flat forecast means either stable confidence or insufficient persisted history.'}

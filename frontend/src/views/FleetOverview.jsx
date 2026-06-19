@@ -5,7 +5,7 @@
  *   GET /api/fleet          - fleet summary (auto-polls every 5s)
  *   GET /api/fleet/history  - 24h health trend data
  *
- * Stitch mockup: 1fleet_overview.html
+ * Secondary support view for instrument-integrity attention across plants.
  */
 
 import { useEffect, useState } from 'react';
@@ -132,6 +132,9 @@ export default function FleetOverview() {
   const worst  = sorted[0];
   const best   = sorted[sorted.length - 1];
   const totalFlags = fleetData.reduce((s, p) => s + (p.top_issues?.length || 0), 0);
+  const averageAttention = fleetData.length
+    ? Math.round(fleetData.reduce((s, p) => s + Number(p.instrument_integrity_attention_score ?? p.attention_score ?? p.risk_score ?? 0), 0) / fleetData.length)
+    : null;
 
   return (
     <div className="industrial-page flex flex-col overflow-hidden">
@@ -155,6 +158,14 @@ export default function FleetOverview() {
               </div>
             </div>
             {/* Active flags */}
+            <div className="industrial-card p-4 w-40">
+              <p className="label-caps text-[var(--text-muted)] mb-2">Attention</p>
+              <div className="flex items-end gap-1">
+                <span className="text-5xl font-bold leading-none text-[var(--primary)]">{averageAttention ?? '--'}</span>
+                <span className="text-[20px] text-[var(--text-muted)] mb-1">/100</span>
+              </div>
+              <p className="caption-mono text-[var(--text-dim)] mt-2">sorting rubric, not a failure forecast</p>
+            </div>
             <div className="industrial-card p-4 w-40">
               <p className="label-caps text-[var(--text-muted)] mb-2">Active Flags</p>
               <div className="flex items-end gap-1">
@@ -221,6 +232,9 @@ export default function FleetOverview() {
                       {label}
                     </span>
                     <span className="text-[20px] font-bold font-data mt-1" style={{ color }}>{plant.health_pct}%</span>
+                    <span className="caption-mono text-[var(--text-muted)]">
+                      attention {plant.instrument_integrity_attention_score ?? plant.attention_score ?? plant.risk_score ?? '--'}/100
+                    </span>
                   </div>
                 </div>
 

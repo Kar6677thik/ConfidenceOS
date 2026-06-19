@@ -227,19 +227,19 @@ def predict_sensor(confidence_history: list[dict]) -> dict:
 def _generate_action(confidence, time_to_low, time_to_critical, driver):
     """Generate a plain-English recommended action."""
     if confidence <= THRESHOLD_CRITICAL:
-        return "URGENT: Sensor is at CRITICAL confidence. Manual verification required immediately."
+        return "CRITICAL trust state: manual verification required before using this signal as operating basis."
     
     if time_to_critical is not None and time_to_critical < 4:
         driver_text = f" ({driver} declining)" if driver else ""
-        return f"Schedule calibration within {time_to_critical:.0f} hours{driver_text}. Do not use for safety decisions without manual verification."
+        return f"Confidence trend may reach CRITICAL in ~{time_to_critical:.0f} hours{driver_text}. Schedule verification/calibration; do not use as operating basis without field confirmation."
     
     if time_to_low is not None and time_to_low < 8:
-        return f"Monitor closely. Confidence predicted to reach LOW tier in ~{time_to_low:.0f} hours. Consider scheduling maintenance."
+        return f"Confidence trend may reach LOW tier in ~{time_to_low:.0f} hours. Add to maintenance review and verify before critical decisions."
     
     if time_to_low is not None:
-        return f"Stable degradation trend. LOW tier expected in ~{time_to_low:.0f} hours. Normal maintenance scheduling."
+        return f"Gradual confidence degradation observed. LOW tier estimate is ~{time_to_low:.0f} hours; normal maintenance scheduling is sufficient."
     
-    return "No significant degradation trend detected. Sensor operating normally."
+    return "No active confidence degradation trend detected. Continue routine trust monitoring."
 
 
 def predict_all_sensors(confidence_histories: dict[str, list[dict]]) -> dict[str, dict]:
