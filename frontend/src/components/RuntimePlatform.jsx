@@ -1054,7 +1054,9 @@ export default function RuntimePlatform() {
   useEffect(() => {
     let active = true;
     const load = () => {
-      fetch(`/api/screens/generated?role=${role}&context=auto&plant_id=${plantId}`)
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 8000);
+      fetch(`/api/screens/generated?role=${role}&context=auto&plant_id=${plantId}`, { signal: controller.signal })
         .then(async (res) => {
           const payload = await res.json().catch(() => null);
           if (!res.ok) {
@@ -1066,6 +1068,7 @@ export default function RuntimePlatform() {
           return payload;
         })
         .then((payload) => {
+          clearTimeout(timeout);
           if (active) {
             setManifest(payload);
             setManifestError('');
@@ -1073,9 +1076,13 @@ export default function RuntimePlatform() {
           }
         })
         .catch((err) => {
+          clearTimeout(timeout);
           if (active) {
-            setManifest(null);
-            setManifestError(err.message || 'Runtime manifest request failed.');
+            setManifestError(
+              err.name === 'AbortError'
+                ? 'Runtime manifest request timed out after 8 seconds.'
+                : err.message || 'Runtime manifest request failed.',
+            );
             setLoading(false);
           }
         });

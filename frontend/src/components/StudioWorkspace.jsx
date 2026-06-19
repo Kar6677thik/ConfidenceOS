@@ -188,7 +188,7 @@ export default function StudioWorkspace() {
 
   const reset = () => runAction(async () => {
     await fetchJson('/api/studio/reset', { method: 'POST' });
-    await fetchJson(`/api/demo/reset?plant_id=${plantId}`, { method: 'POST' }).catch(() => null);
+    await fetchJson(`/api/simulation/reset-source?plant_id=${plantId}`, { method: 'POST' }).catch(() => null);
     setPreview(null);
     setPublishResult(null);
     setIgnoreReason('');
@@ -281,6 +281,86 @@ export default function StudioWorkspace() {
 
   const pageTitle = modelLabel(overview?.selected_asset_model);
 
+  const studioContent = loading && !overview ? (
+    <PanelSkeleton rows={6} />
+  ) : loadError ? (
+    <LoadFailed message={loadError} onRetry={doLoad} />
+  ) : (
+    <div className="studio-professional-layout">
+      <WorkflowRail
+        overview={overview}
+        imported={imported}
+        court={court}
+        build={build}
+        preview={runtimeManifest}
+        busy={busy}
+        actionMessage={actionMessage}
+        onRunAutoMap={runAutoMap}
+        onRunBuild={runBuild}
+        onGeneratePreview={generatePreview}
+        onPublish={publish}
+        onReset={reset}
+        onSwitchAssetModel={switchAssetModel}
+        onToggleVerificationMutation={toggleVerificationMutation}
+      />
+
+      <main className="studio-professional-main">
+        <section className="studio-board-section">
+          <CompilerPipeline build={build} />
+          <div className="grid grid-cols-1 2xl:grid-cols-[minmax(360px,0.8fr)_minmax(0,1.2fr)] gap-[1px] bg-[var(--border-strong)]">
+            <DirtyTagGauntlet
+              court={court}
+              selectedRawTag={selectedItem?.raw_tag}
+              onSelect={(tag) => {
+                setSelectedRawTag(tag);
+                setIgnoreReason('');
+                setActionMessage('');
+              }}
+            />
+            <MappingCourt
+              item={selectedItem}
+              aiLabel={courtAiLabel}
+              assets={graphAssets}
+              signals={graphSignals}
+              signalRoles={signalRoles}
+              ignoreReason={ignoreReason}
+              onIgnoreReason={setIgnoreReason}
+              manualCanonical={manualCanonical}
+              onManualCanonical={setManualCanonical}
+              manualAsset={manualAsset}
+              onManualAsset={setManualAsset}
+              manualRole={manualRole}
+              onManualRole={setManualRole}
+              manualReason={manualReason}
+              onManualReason={setManualReason}
+              onManualMap={manualMapSelected}
+              onApprove={approveSelected}
+              onIgnore={ignoreSelected}
+              onKeepBlocking={keepBlocking}
+              busy={busy}
+              actionMessage={actionMessage}
+            />
+          </div>
+        </section>
+
+        <section className="studio-board-section">
+          <TemplateBindingTable validation={validation} busy={busy} />
+          <TemplateTestSuite tests={tests} />
+        </section>
+
+        <section className="studio-board-section">
+          <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.7fr)] gap-[1px] bg-[var(--border-strong)]">
+            <PasteImportPanel busy={busy} onImportResult={importResult} />
+            <PublishGuardrails build={build} onPublish={publish} busy={busy} result={publishResult} />
+          </div>
+          <PublishDiff diff={build?.publish_diff || overview?.diff?.compiler_publish_diff} />
+          <RuntimePreview manifest={runtimeManifest} />
+          <ScreenReceipts manifest={runtimeManifest} />
+        </section>
+      </main>
+    </div>
+  );
+
   return (
     <div className="industrial-page grid grid-rows-[48px_minmax(0,1fr)] bg-[var(--border-strong)] gap-[1px] overflow-hidden">
       <div className="hmi-alarm-band">
@@ -302,92 +382,12 @@ export default function StudioWorkspace() {
         </div>
       </div>
 
-      <div className="grid grid-cols-[minmax(320px,360px)_minmax(0,1fr)] gap-[1px] bg-[var(--border-strong)] overflow-hidden min-h-0">
-        <WorkflowRail
-          overview={overview}
-          imported={imported}
-          court={court}
-          build={build}
-          preview={runtimeManifest}
-          busy={busy}
-          actionMessage={actionMessage}
-          onRunAutoMap={runAutoMap}
-          onRunBuild={runBuild}
-          onGeneratePreview={generatePreview}
-          onPublish={publish}
-          onReset={reset}
-          onSwitchAssetModel={switchAssetModel}
-          onToggleVerificationMutation={toggleVerificationMutation}
-        />
-
-        <main className="bg-[var(--surface-base)] flex flex-col overflow-hidden">
-          <PageIdentity displayName={pageTitle} level={2} area="Engineering Configuration Workspace" />
-          <div className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin p-[1px]">
-            {loading && !overview ? (
-              <PanelSkeleton rows={6} />
-            ) : loadError ? (
-              <LoadFailed message={loadError} onRetry={doLoad} />
-            ) : (
-              <>
-                <div className="studio-board">
-                  <section className="studio-board-section">
-                    <CompilerPipeline build={build} />
-                    <div className="grid grid-cols-1 2xl:grid-cols-[minmax(360px,0.8fr)_minmax(0,1.2fr)] gap-[1px] bg-[var(--border-strong)]">
-                      <DirtyTagGauntlet
-                        court={court}
-                        selectedRawTag={selectedItem?.raw_tag}
-                        onSelect={(tag) => {
-                          setSelectedRawTag(tag);
-                          setIgnoreReason('');
-                          setActionMessage('');
-                        }}
-                      />
-                      <MappingCourt
-                        item={selectedItem}
-                        aiLabel={courtAiLabel}
-                        assets={graphAssets}
-                        signals={graphSignals}
-                        signalRoles={signalRoles}
-                        ignoreReason={ignoreReason}
-                        onIgnoreReason={setIgnoreReason}
-                        manualCanonical={manualCanonical}
-                        onManualCanonical={setManualCanonical}
-                        manualAsset={manualAsset}
-                        onManualAsset={setManualAsset}
-                        manualRole={manualRole}
-                        onManualRole={setManualRole}
-                        manualReason={manualReason}
-                        onManualReason={setManualReason}
-                        onManualMap={manualMapSelected}
-                        onApprove={approveSelected}
-                        onIgnore={ignoreSelected}
-                        onKeepBlocking={keepBlocking}
-                        busy={busy}
-                        actionMessage={actionMessage}
-                      />
-                    </div>
-                  </section>
-
-                  <section className="studio-board-section">
-                    <TemplateBindingTable validation={validation} busy={busy} />
-                    <TemplateTestSuite tests={tests} />
-                  </section>
-
-                  <section className="studio-board-section">
-                    <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.7fr)] gap-[1px] bg-[var(--border-strong)]">
-                      <PasteImportPanel busy={busy} onImportResult={importResult} />
-                      <PublishGuardrails build={build} onPublish={publish} busy={busy} result={publishResult} />
-                    </div>
-                    <PublishDiff diff={build?.publish_diff || overview?.diff?.compiler_publish_diff} />
-                    <RuntimePreview manifest={runtimeManifest} />
-                    <ScreenReceipts manifest={runtimeManifest} />
-                  </section>
-                </div>
-              </>
-            )}
-          </div>
-        </main>
-      </div>
+      <main className="bg-[var(--surface-base)] overflow-y-auto overflow-x-hidden scrollbar-thin min-h-0">
+        <PageIdentity displayName={pageTitle} level={2} area="Engineering Configuration Workspace" />
+        <div className="p-[1px]">
+          {studioContent}
+        </div>
+      </main>
     </div>
   );
 }
