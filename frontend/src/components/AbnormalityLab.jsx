@@ -1,11 +1,11 @@
 /**
- * AbnormalityLab.jsx — Demo cheat panel for ConfidenceOS.
+ * AbnormalityLab.jsx - simulator training controls for ConfidenceOS.
  *
- * A floating, draggable "demo operator console" that fires prebuilt scenarios
- * and individual sensor failures against the LIVE simulator (the demo data
- * source) so the whole product reacts live during a presentation.
+ * A floating, draggable training console that fires prebuilt scenarios
+ * and individual sensor failures against the LIVE simulator source so the
+ * whole product reacts during engineering evaluation or operator training.
  *
- * These actions configure the simulated source — they are NOT plant-control
+ * These actions configure the simulated source. They are NOT plant-control
  * writes. The read-only-to-plant contract is unchanged.
  *
  * Endpoints:
@@ -25,7 +25,7 @@ const SCENARIOS = [
   { file: 'scenario_c.json', label: 'Water Treatment Valve',  hint: 'valve command-state decoupling' },
 ];
 
-// Failure types, colour-coded by how severe they read in the demo.
+// Failure types, colour-coded by how severe they read in the training scenario.
 const FAILURES = [
   { type: 'calibration_drift',       label: 'Calibration Drift', color: '#ffcc00' },
   { type: 'stuck_reading',           label: 'Stuck / Frozen',    color: '#ff8c33' },
@@ -68,7 +68,7 @@ export default function AbnormalityLab({ onClose }) {
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       await res.json().catch(() => null);
-      setStatus({ ok: true, text: `${label} — watch Runtime update live` });
+      setStatus({ ok: true, text: `${label} - Runtime will update from the simulator stream` });
     } catch (err) {
       setStatus({ ok: false, text: `${label} failed: ${err.message}` });
     } finally {
@@ -122,7 +122,7 @@ export default function AbnormalityLab({ onClose }) {
   };
 
   return (
-    <div ref={panelRef} style={panelStyle} role="dialog" aria-label="Abnormality Lab">
+    <div ref={panelRef} style={panelStyle} role="dialog" aria-label="Simulation Lab">
       {/* Header / drag handle */}
       <div
         onPointerDown={onPointerDown}
@@ -137,15 +137,15 @@ export default function AbnormalityLab({ onClose }) {
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5fd0c5" strokeWidth="2">
           <path d="M9 3h6M9 3v6l-5 9a1 1 0 00.9 1.5h14.2A1 1 0 0020 18l-5-9V3" />
         </svg>
-        <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.04em' }}>Abnormality Lab</span>
+        <span style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.04em' }}>Simulation Lab</span>
         <span style={{
           fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', color: '#0f1216',
           background: '#5fd0c5', borderRadius: 3, padding: '1px 5px', marginLeft: 2,
-        }}>DEMO</span>
+        }}>TRAINING</span>
         <span style={{ marginLeft: 'auto', fontSize: 10, color: '#7f8794' }}>{String(plantId).toUpperCase()}</span>
         <button
           onClick={onClose}
-          aria-label="Close Abnormality Lab"
+          aria-label="Close Simulation Lab"
           style={{ background: 'none', border: 'none', color: '#7f8794', cursor: 'pointer', fontSize: 14, lineHeight: 1, padding: 0 }}
         >✕</button>
       </div>
@@ -205,7 +205,7 @@ export default function AbnormalityLab({ onClose }) {
           }}>{status.text}</p>
         )}
         <p style={{ marginTop: 10, fontSize: 9, color: '#5a626e', lineHeight: 1.4 }}>
-          Demo only — drives the simulated source. ConfidenceOS never writes plant controls.
+          Training source only - drives the simulated provider. ConfidenceOS never writes plant controls.
         </p>
       </div>
     </div>

@@ -4,6 +4,7 @@ import { statusClass } from './studioUtils';
 function modelLabel(value) {
   return String(value || 'Studio')
     .replace(/_/g, ' ')
+    .replace(/\bDemo\b/g, 'Training Model')
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
@@ -42,7 +43,7 @@ export default function WorkflowRail({
     : blockerCount
       ? 'Resolve blocking Mapping Court items, then run the build again.'
       : build?.status === 'PASS_WITH_WARNINGS'
-        ? 'Review warnings and publish when acceptable for the demo.'
+        ? 'Review warnings and publish when acceptable for operation.'
         : 'Run deterministic mapping, then run the compiler build.';
 
   const actions = [
@@ -95,10 +96,10 @@ export default function WorkflowRail({
               disabled={busy}
             >
               {(overview?.asset_models || [
-                { key: 'texas_city_vessel', label: 'Texas City Demo Vessel' },
-                { key: 'pump_station', label: 'Pump Station Demo' },
+                { key: 'texas_city_vessel', label: 'Texas City Vessel Training Model' },
+                { key: 'pump_station', label: 'Pump Station Training Model' },
               ]).map((model) => (
-                <option key={model.key} value={model.key}>{model.label}</option>
+                <option key={model.key} value={model.key}>{modelLabel(model.label || model.key)}</option>
               ))}
             </select>
           </div>
@@ -136,7 +137,7 @@ export default function WorkflowRail({
             disabled={busy}
             className="industrial-control w-full text-[var(--data-mono)] disabled:opacity-40"
           >
-            Reset Demo Default
+            Reset Engineering Baseline
           </button>
 
           {actionMessage && (

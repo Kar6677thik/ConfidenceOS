@@ -55,7 +55,7 @@ const useStore = create((set, get) => ({
   verificationTasks: [],   // full field verification task lifecycle records
   handoverDebt: null,      // unresolved operational debt ledger
   confidenceDebt: [],      // confidence-hours maintenance priority data
-  demoState: null,         // judge-demo phase and simulator source state
+  demoState: null,         // simulator scenario phase and source state
   timestamp: null,        // last update timestamp
 
   // -- Derived / computed ------------------------------------------------

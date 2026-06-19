@@ -32,9 +32,13 @@ export default function useKeyboardShortcuts({ onHelpToggle } = {}) {
           navigate('/runtime');
           break;
         case '2':
-          if (STUDIO_ROLES.has(role)) { e.preventDefault(); navigate('/studio'); }
+          e.preventDefault();
+          navigate('/work-queue');
           break;
         case '3':
+          if (STUDIO_ROLES.has(role)) { e.preventDefault(); navigate('/studio'); }
+          break;
+        case '4':
           e.preventDefault();
           navigate('/handover');
           break;

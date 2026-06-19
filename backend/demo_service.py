@@ -1,7 +1,7 @@
 """
-demo_service.py - Judge demo orchestration for ConfidenceOS.
+demo_service.py - simulator scenario orchestration for ConfidenceOS.
 
-This module only manipulates the software simulator and in-memory demo labels.
+This module only manipulates the software simulator and in-memory scenario labels.
 It never writes to a plant, controller, setpoint, alarm acknowledgement, or DCS.
 """
 
@@ -31,17 +31,17 @@ def _base_state(plant_id: str) -> dict:
     now = time.time()
     return {
         "plant_id": plant_id,
-        "mode": "judge_demo",
+        "mode": "simulator_training",
         "phase": "NORMAL_BASELINE",
         "phase_index": 0,
         "phase_count": len(PHASES),
         "started_at": now,
         "updated_at": now,
-        "scenario_name": "Judge demo baseline",
+        "scenario_name": "Simulator baseline",
         "active": False,
         "simulator_source": "read_only_software_simulator",
         "read_only_boundary": (
-            "Demo controls affect only the ConfidenceOS software simulator. "
+            "Scenario controls affect only the ConfidenceOS software simulator. "
             "No plant control command, setpoint, mode, or alarm acknowledgement is written."
         ),
         "operator_story": [
@@ -123,7 +123,7 @@ def start_abnormal_situation(plant_id: str, plant) -> dict:
         plant.startup_manager.activate()
     simulator = getattr(plant, "simulator", None)
     if simulator is None:
-        raise ValueError("Judge demo requires the software simulator provider.")
+        raise ValueError("Simulator scenario controls require the software simulator provider.")
 
     simulator.failures.extend([
         FailureConfig(
@@ -151,7 +151,7 @@ def start_abnormal_situation(plant_id: str, plant) -> dict:
         "active": True,
         "phase": "LEVEL_DECEPTION",
         "phase_index": PHASES.index("LEVEL_DECEPTION"),
-        "scenario_name": "Judge demo - hidden level deception and flow contradiction",
+        "scenario_name": "Hidden level deception and flow contradiction",
         "started_at": time.time(),
         "updated_at": time.time(),
     })
@@ -160,7 +160,7 @@ def start_abnormal_situation(plant_id: str, plant) -> dict:
 
 
 def advance_demo(plant_id: str, plant) -> dict:
-    """Advance the demo. Currently starts the abnormal story if not active."""
+    """Advance the simulator scenario. Currently starts the abnormal story if not active."""
     current = _DEMO_STATE.get(plant_id) or _base_state(plant_id)
     if not current.get("active"):
         return start_abnormal_situation(plant_id, plant)

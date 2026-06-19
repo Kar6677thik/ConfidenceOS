@@ -16,6 +16,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import AbnormalityLab from './components/AbnormalityLab';
 import RuntimePlatform from './components/RuntimePlatform';
 import StudioWorkspace from './components/StudioWorkspace';
+import WorkQueue from './components/WorkQueue';
 import ShiftChannel from './components/ShiftChannel';
 
 // Secondary support views
@@ -55,8 +56,8 @@ function BottomStatus() {
         )}
         <button
           onClick={() => setLabOpen((v) => !v)}
-          title="Abnormality Lab (demo)"
-          aria-label="Toggle Abnormality Lab"
+          title="Simulation Lab (training source controls)"
+          aria-label="Toggle Simulation Lab"
           className="flex items-center"
           style={{ background: 'none', border: 'none', cursor: 'pointer', color: labOpen ? 'var(--primary, #0a84ff)' : 'inherit', padding: 0 }}
         >
@@ -72,8 +73,9 @@ function BottomStatus() {
 
 const SHORTCUTS = [
   ['1', 'Navigate to Runtime'],
-  ['2', 'Navigate to Studio (Engineer / Manager only)'],
-  ['3', 'Navigate to Shift Channel'],
+  ['2', 'Navigate to Work Queue'],
+  ['3', 'Navigate to Studio (Engineer / Manager only)'],
+  ['4', 'Navigate to Shift Channel'],
   ['M', 'Toggle alarm mute'],
   ['?', 'Toggle this help overlay'],
 ];
@@ -109,6 +111,7 @@ export default function App() {
           {/* Main workspace platform routes */}
           <Route path="/"            element={<RuntimePlatform />} />
           <Route path="/runtime"     element={<RuntimePlatform />} />
+          <Route path="/work-queue"  element={<WorkQueue />} />
           <Route path="/studio"      element={<StudioWorkspace />} />
           <Route path="/handover"    element={<ShiftChannel />} />
 

@@ -149,7 +149,7 @@ export default function MassBalanceChart({ chartHistory, massBalance, flags }) {
               <div>
                 <p className="font-semibold">Waiting for mass-balance history</p>
                 <p className="text-[var(--text-muted)] mt-1">
-                  {chartHistory?.length || 0} sample(s) available. Start the judge demo or wait for the live simulator stream to produce at least two samples.
+                  {chartHistory?.length || 0} sample(s) available. Start a simulator scenario or wait for the live stream to produce at least two samples.
                 </p>
               </div>
             </div>

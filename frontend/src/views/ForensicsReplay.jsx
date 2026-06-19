@@ -46,7 +46,7 @@ export default function ForensicsReplay() {
       .then((d) => setPresets((d.presets || []).filter((preset) => preset.id === DEFAULT_PRESET)))
       // Don't fail silently — keep a fallback entry so the control still renders;
       // the preset-data fetch below surfaces the actual error state.
-      .catch(() => setPresets([{ id: DEFAULT_PRESET, name: 'Texas City Incident Demo' }]));
+      .catch(() => setPresets([{ id: DEFAULT_PRESET, name: 'Texas City Incident Replay' }]));
   }, []);
 
   // Load selected preset
@@ -112,7 +112,7 @@ export default function ForensicsReplay() {
             <option key={p.id} value={p.id}>{p.name}</option>
           ))}
           {presets.length === 0 && (
-            <option value={DEFAULT_PRESET}>Texas City Incident Demo</option>
+            <option value={DEFAULT_PRESET}>Texas City Incident Replay</option>
           )}
         </select>
 

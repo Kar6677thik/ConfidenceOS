@@ -422,7 +422,7 @@ function ValueList({ values, empty = 'No active item.', status = 'text-[var(--da
   );
 }
 
-function DemoControlStrip({ demoState, busy, onReset, onStart }) {
+function SimulationControlStrip({ demoState, busy, onReset, onStart }) {
   const phase = demoState?.phase || 'NORMAL_BASELINE';
   const failures = asList(demoState?.active_failures).map((item) => item.operator_label || displayText(item));
   const story = asList(demoState?.operator_story);
@@ -430,7 +430,7 @@ function DemoControlStrip({ demoState, busy, onReset, onStart }) {
   return (
     <section className="hmi-demo-strip">
       <div className="min-w-0">
-        <p className="label-caps text-[var(--text-muted)]">Judge Demo State</p>
+        <p className="label-caps text-[var(--text-muted)]">Simulator Scenario State</p>
         <p className="caption-mono font-semibold truncate">
           {formatText(phase)} / {demoState?.stream_status || 'stream pending'} / tick {demoState?.tick_count ?? '--'}
         </p>
@@ -442,7 +442,7 @@ function DemoControlStrip({ demoState, busy, onReset, onStart }) {
           )}
         </div>
         {story.length > 0 && (
-          <div className="hmi-demo-timeline mt-2" aria-label="Judge demo timeline">
+          <div className="hmi-demo-timeline mt-2" aria-label="Simulator scenario timeline">
             {story.map((item, index) => (
               <span key={item} className={index <= activeIndex ? 'active' : ''}>
                 {index + 1}. {item}
@@ -452,8 +452,8 @@ function DemoControlStrip({ demoState, busy, onReset, onStart }) {
         )}
       </div>
       <div className="flex items-center gap-2 shrink-0">
-        <button type="button" disabled={busy} onClick={onReset} className="industrial-control">Reset Judge Demo</button>
-        <button type="button" disabled={busy} onClick={onStart} className="industrial-control status-warning">Start Abnormal Situation</button>
+        <button type="button" disabled={busy} onClick={onReset} className="industrial-control">Reset Simulator</button>
+        <button type="button" disabled={busy} onClick={onStart} className="industrial-control status-warning">Inject Abnormal Situation</button>
       </div>
     </section>
   );
@@ -886,7 +886,7 @@ function PressureModeRuntime({
             <span className="caption-mono status-warning">Grounded explanation disabled during active decision freeze.</span>
           </div>
           <div className="hmi-process-canvas p-5 flex flex-col gap-3 overflow-y-auto scrollbar-thin">
-            <DemoControlStrip demoState={demoState || manifest?.demo_state} busy={demoBusy} onReset={onDemoReset} onStart={onDemoStart} />
+            <SimulationControlStrip demoState={demoState || manifest?.demo_state} busy={demoBusy} onReset={onDemoReset} onStart={onDemoStart} />
             {flagMessages.length > 0 && (
               <div className="hmi-alert-ribbon">
                 <p className="label-caps status-critical">Mass-balance evidence</p>
@@ -934,7 +934,7 @@ function PressureModeRuntime({
           </div>
         </section>
         <aside className="hmi-dock">
-          <DockSection title="Demo Source" eyebrow="Simulator State">
+          <DockSection title="Simulator Source" eyebrow="Training State">
             <ValueList
               values={[
                 `phase: ${(demoState || manifest?.demo_state)?.phase || 'normal baseline'}`,
@@ -1093,11 +1093,11 @@ export default function RuntimePlatform() {
     try {
       const res = await fetch(`${path}?plant_id=${plantId}`, { method: 'POST' });
       const payload = await res.json().catch(() => null);
-      if (!res.ok) throw new Error(payload?.detail || `Demo action failed: ${res.status}`);
+      if (!res.ok) throw new Error(payload?.detail || `Simulator action failed: ${res.status}`);
       setLocalDemoState(payload?.demo_state || payload || null);
       setRetryToken((value) => value + 1);
     } catch (err) {
-      setManifestError(err.message || 'Demo action failed.');
+      setManifestError(err.message || 'Simulator action failed.');
     } finally {
       setDemoBusy(false);
     }
@@ -1168,8 +1168,8 @@ export default function RuntimePlatform() {
             onSelect={setSelected}
           />
           <aside className="hmi-dock">
-            <DockSection title="Judge Demo" eyebrow="Deterministic Story">
-              <DemoControlStrip
+            <DockSection title="Simulation Controls" eyebrow="Training Source">
+              <SimulationControlStrip
                 demoState={activeDemoState}
                 busy={demoBusy}
                 onReset={() => runDemoAction('/api/demo/reset')}

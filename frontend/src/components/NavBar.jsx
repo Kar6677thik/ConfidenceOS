@@ -8,6 +8,7 @@ const ROLES = ['Operator', 'Maintenance', 'Engineer', 'Manager', 'Auditor'];
 
 const NAV_ITEMS = [
   { path: '/runtime',    label: 'Runtime',       roles: ['Operator', 'Maintenance', 'Engineer', 'Manager', 'Auditor'] },
+  { path: '/work-queue', label: 'Work Queue',    roles: ['Operator', 'Maintenance', 'Engineer', 'Manager', 'Auditor'] },
   { path: '/studio',     label: 'Studio',        roles: ['Engineer', 'Manager'] },
   { path: '/handover',   label: 'Shift Channel', roles: ['Operator', 'Maintenance', 'Engineer', 'Manager', 'Auditor'] },
 ];
@@ -77,7 +78,7 @@ export default function NavBar() {
               }}
               className="industrial-control bg-transparent max-w-[200px] shrink-0 opacity-70 hover:opacity-100 transition-opacity text-[var(--text-muted)]"
               aria-label="Support views"
-              title="Secondary support views - not part of the primary demo path"
+              title="Secondary support views"
             >
               <option value="">Support Views</option>
               {supportItems.map((item) => (
