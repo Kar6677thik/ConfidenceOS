@@ -194,6 +194,68 @@ function VerificationTaskCard({ task, role, plantId, onChanged }) {
   );
 }
 
+function ExpiredTaskRecoveryCard({ task, plantId, role, onChanged }) {
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState('');
+  const canRequest = role !== 'Auditor';
+
+  const requestFreshTask = async () => {
+    setBusy(true);
+    setMessage('');
+    try {
+      const res = await fetch(`/api/verification-tokens?plant_id=${plantId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sensor_id: task.sensor_id,
+          verification_type: task.verification_method || task.verification_type || 'field_check',
+          valid_minutes: 30,
+          note: `Fresh verification requested because prior task ${task.task_id || task.token_id} expired before acceptance.`,
+        }),
+      });
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(payload?.detail || `Fresh task request failed: ${res.status}`);
+      setMessage(`Fresh verification requested for ${task.sensor_id}.`);
+      onChanged?.();
+    } catch (err) {
+      setMessage(err.message || 'Fresh task request failed.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="bg-[var(--surface-panel)] border border-[var(--border-strong)] p-3 opacity-90">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="label-caps text-[var(--text-muted)]">Expired Verification History</p>
+          <p className="caption-mono font-semibold">{task.sensor_id}</p>
+        </div>
+        <span className="caption-mono status-warning">EXPIRED</span>
+      </div>
+      <p className="caption-mono text-[var(--text-muted)] mt-2">
+        {relativeExpiry(task)}. Expired tasks are audit history only; they do not restore trust or clear handover debt.
+      </p>
+      {!!task.last_evidence_summary && (
+        <p className="caption-mono text-[var(--data-mono)] mt-2">Latest evidence: {task.last_evidence_summary}</p>
+      )}
+      {canRequest ? (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={requestFreshTask}
+          className="industrial-control mt-3 disabled:opacity-40"
+        >
+          {busy ? 'Requesting...' : 'Request Fresh Verification'}
+        </button>
+      ) : (
+        <p className="caption-mono text-[var(--text-muted)] mt-3">Auditor view is read-only. Maintenance or Engineer can request a fresh task.</p>
+      )}
+      {message && <p className="caption-mono text-[var(--text-muted)] mt-2">{message}</p>}
+    </div>
+  );
+}
+
 export default function WorkQueue() {
   const {
     plantId,
@@ -238,6 +300,12 @@ export default function WorkQueue() {
     return (fromChannel.length ? fromChannel : liveVerificationTasks || [])
       .filter((task) => task.active || task.handover_required || ['REQUESTED', 'ASSIGNED', 'FIELD_CHECK_DONE', 'REJECTED'].includes(task.state));
   }, [channel, liveVerificationTasks]);
+  const expiredTasks = useMemo(() => {
+    const fromChannel = channel?.verification_tasks || [];
+    return (fromChannel.length ? fromChannel : liveVerificationTasks || [])
+      .filter((task) => task.state === 'EXPIRED' || task.expired)
+      .slice(0, 4);
+  }, [channel, liveVerificationTasks]);
   const degradedCritical = useMemo(
     () => (confidence || []).filter((item) => ['LOW', 'CRITICAL'].includes(item.tier) || ['QUARANTINED', 'DEGRADED'].includes(item.trust_state)),
     [confidence],
@@ -274,7 +342,7 @@ export default function WorkQueue() {
               <QueueMetric label="Open Tasks" value={tasks.length} tone={tasks.length ? 'status-warning' : 'status-safe'} />
               <QueueMetric label="Handover" value={handoverBlocked ? 'Blocked' : 'Clear'} tone={handoverBlocked ? 'status-critical' : 'status-safe'} />
               <QueueMetric label="Trust Exceptions" value={pinned.length + degradedCritical.length} tone={(pinned.length + degradedCritical.length) ? 'status-warning' : 'status-safe'} />
-              <QueueMetric label="Debt Items" value={debtRows.length} tone={debtRows.length ? 'status-caution' : 'status-safe'} />
+              <QueueMetric label="Expired Tasks" value={expiredTasks.length} tone={expiredTasks.length ? 'status-caution' : 'status-safe'} />
             </div>
             <div className="industrial-body border-t border-[var(--border)]">
               <p className="caption-mono text-[var(--text-muted)]">
@@ -323,6 +391,29 @@ export default function WorkQueue() {
               )}
             </div>
           </section>
+
+          {expiredTasks.length > 0 && (
+            <section className="industrial-panel">
+              <div className="industrial-panel-header">
+                <div>
+                  <p className="label-caps text-[var(--text-muted)]">Recovery</p>
+                  <h2 className="industrial-panel-title text-base">Expired Verification Tasks</h2>
+                </div>
+                <span className="industrial-badge text-[var(--data-mono)]">{expiredTasks.length}</span>
+              </div>
+              <div className="industrial-body space-y-3">
+                {expiredTasks.map((task) => (
+                  <ExpiredTaskRecoveryCard
+                    key={task.task_id || task.token_id}
+                    task={task}
+                    plantId={plantId}
+                    role={role}
+                    onChanged={refresh}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
 
           <section className="industrial-panel">
             <div className="industrial-panel-header">
