@@ -426,6 +426,8 @@ function SimulationControlStrip({ demoState, busy, onReset, onStart }) {
   const phase = demoState?.phase || 'NORMAL_BASELINE';
   const failures = asList(demoState?.active_failures).map((item) => item.operator_label || displayText(item));
   const story = asList(demoState?.operator_story);
+  const lifecycle = demoState?.lifecycle || {};
+  const workflowEffects = asList(demoState?.workflow_effects);
   const activeIndex = Math.max(0, Number(demoState?.phase_index ?? 0));
   return (
     <section className="hmi-demo-strip">
@@ -448,6 +450,19 @@ function SimulationControlStrip({ demoState, busy, onReset, onStart }) {
                 {index + 1}. {item}
               </span>
             ))}
+          </div>
+        )}
+        {(lifecycle.expected_system_response || demoState?.trust_recovery_status) && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mt-2">
+            <p className="caption-mono text-[var(--text-muted)]">
+              response: {lifecycle.expected_system_response || 'Runtime monitors trust state.'}
+            </p>
+            <p className="caption-mono text-[var(--text-muted)]">
+              recovery: {lifecycle.recovery_condition || demoState?.trust_recovery_status || 'No recovery action required.'}
+            </p>
+            <p className="caption-mono text-[var(--text-muted)]">
+              workflow: {workflowEffects[0] || 'Runtime remains in normal monitoring mode.'}
+            </p>
           </div>
         )}
       </div>
@@ -1094,7 +1109,7 @@ export default function RuntimePlatform() {
       const res = await fetch(`${path}?plant_id=${plantId}`, { method: 'POST' });
       const payload = await res.json().catch(() => null);
       if (!res.ok) throw new Error(payload?.detail || `Simulator action failed: ${res.status}`);
-      setLocalDemoState(payload?.demo_state || payload || null);
+      setLocalDemoState(payload?.simulation_state || payload?.demo_state || payload || null);
       setRetryToken((value) => value + 1);
     } catch (err) {
       setManifestError(err.message || 'Simulator action failed.');
@@ -1140,8 +1155,8 @@ export default function RuntimePlatform() {
         massBalance={massBalance}
         demoState={activeDemoState}
         demoBusy={demoBusy}
-        onDemoReset={() => runDemoAction('/api/demo/reset')}
-        onDemoStart={() => runDemoAction('/api/demo/start-abnormal-situation')}
+        onDemoReset={() => runDemoAction('/api/simulation/reset-source')}
+        onDemoStart={() => runDemoAction('/api/simulation/start-abnormal-situation')}
       />
     );
   }
@@ -1172,8 +1187,8 @@ export default function RuntimePlatform() {
               <SimulationControlStrip
                 demoState={activeDemoState}
                 busy={demoBusy}
-                onReset={() => runDemoAction('/api/demo/reset')}
-                onStart={() => runDemoAction('/api/demo/start-abnormal-situation')}
+                onReset={() => runDemoAction('/api/simulation/reset-source')}
+                onStart={() => runDemoAction('/api/simulation/start-abnormal-situation')}
               />
             </DockSection>
             {manifest.runtime_notice && (

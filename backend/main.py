@@ -165,8 +165,8 @@ class SandboxRequest(BaseModel):
 
 
 class SimInjectRequest(BaseModel):
-    """Demo-only: inject one failure into the LIVE simulator (Abnormality Lab).
-    Optional params fall back to sensible per-type demo defaults when omitted."""
+    """Inject one failure into the LIVE simulator source.
+    Optional params fall back to sensible per-type training defaults when omitted."""
     plant_id: str = "plant-a"
     sensor_id: str
     failure_type: str
@@ -1865,24 +1865,58 @@ def reset_scenario(plant_id: str = Query(default="plant-a")):
     return {"status": "reset"}
 
 
-# ─── Abnormality Lab (demo cheat panel) ──────────────────────────────────────
-# These two endpoints manipulate the SIMULATOR — the demo data source — so a
-# presenter can trigger sensor failures live. They do NOT write any plant
+# ─── Simulator training controls ─────────────────────────────────────────────
+# These endpoints manipulate the SIMULATOR source so engineering/training users
+# can trigger sensor failures live. They do NOT write any plant
 # control command (the read-only-to-plant contract is unchanged; tag_provider
 # .write_tag still raises). They are scoped to the simulator-backed provider.
 
+@app.get("/api/simulation/state")
+def get_simulation_state(plant_id: str = Query(default="plant-a")):
+    """Return simulator scenario phase and source facts."""
+    plant = plant_manager.get(plant_id)
+    return get_demo_state(plant_id, plant, _plant_loop_status.get(plant_id, {}))
+
+
+@app.post("/api/simulation/reset-source")
+def reset_simulation_source(plant_id: str = Query(default="plant-a")):
+    """Reset only the simulator source and scenario state.
+
+    This does not reset Studio compiler state or shift-channel notes.
+    """
+    plant = _require_simulator_plant(plant_id)
+    state = reset_demo(plant_id, plant)
+    return {"status": "reset", "simulation_state": state, "demo_state": state}
+
+
+@app.post("/api/simulation/start-abnormal-situation")
+def start_simulation_abnormal_situation(plant_id: str = Query(default="plant-a")):
+    """Start the abnormal simulator scenario without changing Studio state."""
+    plant = _require_simulator_plant(plant_id)
+    state = start_abnormal_situation(plant_id, plant)
+    return {"status": "started", "simulation_state": state, "demo_state": state}
+
+
+@app.post("/api/simulation/advance")
+def advance_simulation_scenario(plant_id: str = Query(default="plant-a")):
+    """Advance the simulator scenario phase without writing plant controls."""
+    plant = _require_simulator_plant(plant_id)
+    state = advance_demo(plant_id, plant)
+    return {"status": "advanced", "simulation_state": state, "demo_state": state}
+
+
 @app.get("/api/demo/state")
 def get_judge_demo_state(plant_id: str = Query(default="plant-a")):
-    """Return the current judge-demo phase and live simulator source facts."""
+    """Compatibility alias for simulator scenario state."""
     plant = plant_manager.get(plant_id)
     return get_demo_state(plant_id, plant, _plant_loop_status.get(plant_id, {}))
 
 
 @app.post("/api/demo/reset")
 def reset_judge_demo(plant_id: str = Query(default="plant-a")):
-    """Reset the app to the normal baseline used at the start of the demo.
+    """Compatibility endpoint: reset the app-wide training baseline.
 
-    This resets only ConfidenceOS demo state: the read-only simulator, shift
+    This resets ConfidenceOS training state: the read-only simulator, shift
     notes, Studio compiler state, and active asset model. It does not write any
     controller command, setpoint, mode, or alarm acknowledgement.
     """
@@ -1904,7 +1938,7 @@ def reset_judge_demo(plant_id: str = Query(default="plant-a")):
 
 @app.post("/api/demo/start-abnormal-situation")
 def start_judge_abnormal_situation(plant_id: str = Query(default="plant-a")):
-    """Trigger the deterministic trust-quarantine story in the software simulator."""
+    """Compatibility endpoint: trigger the trust-quarantine simulator scenario."""
     plant = _require_simulator_plant(plant_id)
     # The primary judge story is the Texas City vessel. Keep the active compiler
     # model aligned so Runtime language, action contracts, and trust graph do not
@@ -1917,7 +1951,7 @@ def start_judge_abnormal_situation(plant_id: str = Query(default="plant-a")):
 
 @app.post("/api/demo/advance")
 def advance_judge_demo(plant_id: str = Query(default="plant-a")):
-    """Advance the labelled judge-demo phase without writing plant controls."""
+    """Compatibility endpoint: advance the simulator scenario phase without writing plant controls."""
     plant = _require_simulator_plant(plant_id)
     state = advance_demo(plant_id, plant)
     return {"status": "advanced", "demo_state": state}
@@ -1929,21 +1963,21 @@ _VALID_FAILURE_TYPES = {
 
 
 def _require_simulator_plant(plant_id: str):
-    """Return the plant if it is simulator-backed; else 400 (demo-only feature)."""
+    """Return the plant if it is simulator-backed; else 400."""
     from tag_provider import SimulatorProvider
     plant = plant_manager.get(plant_id)
     if not isinstance(plant.tag_provider, SimulatorProvider) or getattr(plant, "simulator", None) is None:
         raise HTTPException(
             status_code=400,
-            detail="Live failure injection is only supported on the simulator provider (demo-only).",
+            detail="Live failure injection is only supported on the simulator provider.",
         )
     return plant
 
 
 @app.post("/api/sim/inject")
 def sim_inject(request: SimInjectRequest):
-    """Demo-only: inject a single failure into the LIVE simulator so the trust
-    pipeline reacts immediately. Configures the simulated source — not a plant
+    """Inject a single failure into the LIVE simulator so the trust
+    pipeline reacts immediately. Configures the simulated source, not a plant
     control write."""
     from simulator import FailureConfig
     plant = _require_simulator_plant(request.plant_id)
@@ -1973,7 +2007,7 @@ def sim_inject(request: SimInjectRequest):
     plant.simulator.failures.append(failure)
     return {
         "status": "injected",
-        "demo_only": True,
+        "simulation_source_only": True,
         "failure": {
             "sensor_id": failure.sensor_id,
             "failure_type": failure.failure_type,
@@ -1985,13 +2019,14 @@ def sim_inject(request: SimInjectRequest):
 
 @app.post("/api/sim/clear")
 def sim_clear(plant_id: str = Query(default="plant-a")):
-    """Demo-only: clear all injected failures from the LIVE simulator and reset
+    """Clear all injected failures from the LIVE simulator and reset
     it to normal operation. Does not write any plant control."""
     plant = _require_simulator_plant(plant_id)
     plant.simulator.failures.clear()
     plant.tag_provider.reset()
     plant.mass_balance_engine.reset()
-    return {"status": "cleared", "demo_only": True, "active_failures": 0}
+    state = reset_demo(plant_id, plant)
+    return {"status": "cleared", "simulation_source_only": True, "active_failures": 0, "simulation_state": state}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -2296,7 +2331,7 @@ def _confidence_trajectory_from_timeline(timeline: list[dict]) -> dict:
 
 
 def _build_texas_city_replay() -> dict:
-    """Build a compact deterministic Texas City replay for the demo."""
+    """Build a compact deterministic Texas City training replay."""
     start = datetime(2005, 3, 23, 12, 0, 0)
     annotations = [
         {"minute": 0, "title": "Startup begins", "body": "Raffinate splitter startup is underway."},
