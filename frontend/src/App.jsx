@@ -96,9 +96,9 @@ function BottomStatus() {
 
 const SHORTCUTS = [
   ['1', 'Navigate to Runtime'],
-  ['2', 'Navigate to Work Queue'],
+  ['2', 'Navigate to Shift Channel'],
   ['3', 'Navigate to Studio (Engineer / Manager only)'],
-  ['4', 'Navigate to Shift Channel'],
+  ['4', 'Open Verification Work Queue support view'],
   ['M', 'Toggle alarm mute'],
   ['?', 'Toggle this help overlay'],
 ];

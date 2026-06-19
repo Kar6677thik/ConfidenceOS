@@ -42,18 +42,19 @@ export default function CompilerPipeline({ build }) {
       right={<span className={`industrial-badge ${statusClass(build?.status || 'NOT_RUN')}`}>{build?.status || 'NOT_RUN'}</span>}
       className="mb-[1px]"
     >
-      <div className="overflow-x-auto overflow-y-hidden scrollbar-thin">
-      <div className="grid min-w-[980px] grid-cols-6 gap-[1px] bg-[var(--border-strong)]">
+      <div className="studio-pipeline-grid">
         {stages.filter((stage) => stage.id !== 'runtime').map((stage) => (
-          <div key={stage.id} className="bg-[var(--surface-panel)] p-3 min-h-[92px]">
-            <span className={`industrial-badge ${statusClass(stage.status || 'NOT_RUN')}`} title={formatText(stage.status || 'NOT_RUN')}>
-              {compactStatus(stage.status)}
-            </span>
-            <p className="label-caps text-[var(--text-muted)] mt-3">Stage</p>
-            <p className="caption-mono text-[var(--text)] mt-1">{stage.label || STAGE_LABELS[stage.id] || formatText(stage.id)}</p>
+          <div key={stage.id} className="studio-pipeline-stage">
+            <div className="flex items-center justify-between gap-2">
+              <p className="label-caps text-[var(--text-muted)]">Stage</p>
+              <span className={`industrial-badge ${statusClass(stage.status || 'NOT_RUN')}`} title={formatText(stage.status || 'NOT_RUN')}>
+                {compactStatus(stage.status)}
+              </span>
+            </div>
+            <p className="caption-mono text-[var(--text)] mt-3">{stage.label || STAGE_LABELS[stage.id] || formatText(stage.id)}</p>
+            <p className="caption-mono text-[var(--text-muted)] mt-2">{formatText(stage.status || 'NOT_RUN')}</p>
           </div>
         ))}
-      </div>
       </div>
       <div className="mt-4 grid grid-cols-1 xl:grid-cols-3 gap-[1px] bg-[var(--border-strong)]">
         <div className="bg-[var(--surface-panel)] p-3">

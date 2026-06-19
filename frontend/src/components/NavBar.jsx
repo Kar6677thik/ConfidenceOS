@@ -8,12 +8,12 @@ const ROLES = ['Operator', 'Maintenance', 'Engineer', 'Manager', 'Auditor'];
 
 const NAV_ITEMS = [
   { path: '/runtime',    label: 'Runtime',       roles: ['Operator', 'Maintenance', 'Engineer', 'Manager', 'Auditor'] },
-  { path: '/work-queue', label: 'Work Queue',    roles: ['Operator', 'Maintenance', 'Engineer', 'Manager', 'Auditor'] },
   { path: '/studio',     label: 'Studio',        roles: ['Engineer', 'Manager'] },
   { path: '/handover',   label: 'Shift Channel', roles: ['Operator', 'Maintenance', 'Engineer', 'Manager', 'Auditor'] },
 ];
 
 const SUPPORT_ITEMS = [
+  { path: '/work-queue', label: 'Verification Work Queue', roles: ['Operator', 'Maintenance', 'Engineer', 'Manager', 'Auditor'] },
   { path: '/integrity',  label: 'Instrument Integrity',   roles: ['Operator', 'Maintenance', 'Engineer', 'Manager', 'Auditor'] },
   { path: '/operator',   label: 'Operator Detail',        roles: ['Operator', 'Maintenance', 'Engineer', 'Manager'] },
   { path: '/predictions',label: 'Degradation Forecast',   roles: ['Operator', 'Maintenance', 'Engineer', 'Manager'] },

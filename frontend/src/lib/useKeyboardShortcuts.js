@@ -33,14 +33,14 @@ export default function useKeyboardShortcuts({ onHelpToggle } = {}) {
           break;
         case '2':
           e.preventDefault();
-          navigate('/work-queue');
+          navigate('/handover');
           break;
         case '3':
           if (STUDIO_ROLES.has(role)) { e.preventDefault(); navigate('/studio'); }
           break;
         case '4':
           e.preventDefault();
-          navigate('/handover');
+          navigate('/work-queue');
           break;
         case 'm':
         case 'M':
