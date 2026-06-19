@@ -96,7 +96,7 @@ export default function ForensicsReplay() {
     <div className="industrial-page flex flex-col overflow-hidden">
 
       {/* -- Replay control bar -- */}
-      <div className="flex-shrink-0 bg-[var(--bg-surface)] border-b border-[var(--warning)] px-5 py-3 grid grid-cols-[auto_minmax(260px,1fr)_auto_minmax(300px,2fr)_auto_auto] gap-3 items-center">
+      <div className="forensics-toolbar">
         {/* Mode badge */}
         <span className="industrial-badge text-[var(--warning)] border-[var(--warning)]">
           Replay
@@ -106,7 +106,7 @@ export default function ForensicsReplay() {
         <select
           value={activePreset}
           onChange={(e) => setActivePreset(e.target.value)}
-          className="industrial-select min-w-[240px] w-full"
+          className="industrial-select forensics-preset-select"
         >
           {presets.map((p) => (
             <option key={p.id} value={p.id}>{p.name}</option>
@@ -122,7 +122,7 @@ export default function ForensicsReplay() {
         </button>
 
         {/* Timeline scrubber */}
-        <div className="min-w-[300px]">
+        <div className="forensics-scrubber">
           <div className="flex justify-between caption-mono text-[10px] text-[var(--text-muted)] mb-1">
             <span>MAR 23, 2005 - 00:00</span>
             <span className="text-[var(--primary)]">T+{frame?.minute ?? 0}m</span>
@@ -142,10 +142,10 @@ export default function ForensicsReplay() {
         </div>
 
         {/* Speed selector */}
-        <div className="grid grid-cols-4 border border-[var(--border)] rounded overflow-hidden shrink-0">
+        <div className="forensics-speed-group">
           {[1, 5, 10, 30].map((s) => (
             <button key={s} onClick={() => setSpeed(s)}
-              className={`min-w-[44px] px-3 py-1 caption-mono border-r border-[var(--border)] last:border-r-0 transition-colors whitespace-nowrap
+              className={`forensics-speed-button caption-mono transition-colors whitespace-nowrap
                 ${speed === s ? 'bg-[var(--bg-elevated)] text-[var(--primary)]' : 'text-[var(--text-muted)]'}`}>
               {s}x
             </button>

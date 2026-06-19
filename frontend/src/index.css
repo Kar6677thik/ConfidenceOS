@@ -338,6 +338,92 @@ button:disabled { cursor: not-allowed; }
   border-right: 0;
 }
 
+.forensics-toolbar {
+  flex-shrink: 0;
+  display: grid;
+  grid-template-columns: auto minmax(260px, 420px) auto minmax(360px, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 20px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--warning);
+  min-width: 0;
+}
+
+.forensics-preset-select {
+  min-width: 0;
+  width: 100%;
+}
+
+.forensics-scrubber {
+  min-width: 360px;
+}
+
+.forensics-speed-group {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(48px, 1fr));
+  border: 1px solid var(--border);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.forensics-speed-button {
+  min-width: 48px;
+  min-height: 34px;
+  padding: 4px 10px;
+  border-right: 1px solid var(--border);
+  background: transparent;
+}
+
+.forensics-speed-button:last-child {
+  border-right: 0;
+}
+
+.engineer-sensor-rail {
+  width: 320px;
+  min-width: 300px;
+  max-width: 360px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-low);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.engineer-sensor-button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 54px;
+  padding: 10px 16px;
+  border: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  text-align: left;
+  background: transparent;
+}
+
+.engineer-detail-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 1250px) {
+  .forensics-toolbar {
+    grid-template-columns: auto minmax(220px, 1fr) auto auto;
+  }
+
+  .forensics-scrubber {
+    grid-column: 1 / -1;
+    min-width: 0;
+  }
+}
+
 /* -- ABB-style HMI workplace primitives ---------------------------------- */
 .hmi-workplace {
   height: 100%;

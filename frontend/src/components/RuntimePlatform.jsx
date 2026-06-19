@@ -911,7 +911,7 @@ function PressureModeRuntime({
             {/* The star of the abnormal situation: physics disagreeing with the
                 indicated reading. This dominates the operator's view. */}
             {hasMassBalanceStory && (
-              <div className="h-[340px] w-full shrink-0" style={{ minWidth: 0 }}>
+              <div className="min-h-[560px] w-full shrink-0" style={{ minWidth: 0 }}>
                 <MassBalanceChart chartHistory={chartHistory} massBalance={massBalance} flags={massBalance?.flags} />
               </div>
             )}

@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer } from 'recharts';
 import useStore from '../store';
 import { chartGrid, axisTick, axisLine } from '../lib/chartTheme';
+import PageIdentity from '../components/hmi/PageIdentity';
 
 function SubScoreBar({ label, value }) {
   const pct   = value != null ? Math.round(value * 100) : null;
@@ -84,14 +85,16 @@ export default function EngineerDeepDive() {
   }) : [];
 
   return (
-    <div className="industrial-page flex overflow-hidden">
+    <div className="industrial-page grid grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
+      <PageIdentity displayName="Engineer Analysis" level={3} area="Confidence Evidence Workspace" plant={plantId} />
 
+      <div className="min-h-0 flex overflow-hidden">
       {/* -- Left sidebar - sensor selector -- */}
-      <aside className="w-80 min-w-72 flex flex-col bg-[var(--bg-low)] border-r border-[var(--border)] overflow-y-auto scrollbar-thin">
+      <aside className="engineer-sensor-rail">
         <div className="border-b border-[var(--border)] bg-[var(--surface-elevated)] p-4">
-          <p className="label-caps text-[var(--text-muted)]">Engineer Analysis</p>
+          <p className="label-caps text-[var(--text-muted)]">Signal Selector</p>
           <h1 className="m-0 mt-1 text-[20px] leading-[24px] font-bold text-[var(--text)]">Confidence Evidence</h1>
-          <p className="caption-mono text-[var(--text-muted)] mt-1">{plantId?.toUpperCase()} / Sub-score analysis</p>
+          <p className="caption-mono text-[var(--text-muted)] mt-1">Sub-score analysis</p>
         </div>
         {sensorIds.map((sid) => {
           const conf = confidence.find((c) => c.sensor_id === sid);
@@ -103,9 +106,9 @@ export default function EngineerDeepDive() {
             : 'var(--critical)';
           return (
             <button key={sid} onClick={() => selectSensor(sid)}
-              className={`flex items-center justify-between px-4 py-3 border-b border-[var(--border-subtle)] text-left transition-colors
+              className={`engineer-sensor-button transition-colors
                 ${selectedSensorId === sid ? 'bg-[var(--bg-elevated)] border-l-2 border-l-[var(--primary)]' : 'hover:bg-[var(--bg-elevated)]'}`}>
-              <span className="font-data text-[13px] text-[var(--text)]">{sid}</span>
+              <span className="font-data text-[13px] text-[var(--text)] machine-token">{sid}</span>
               <span className="label-caps font-bold" style={{ color }}>
                 {pct != null ? `${pct}%` : '-'}
               </span>
@@ -132,9 +135,9 @@ export default function EngineerDeepDive() {
         ) : (
           <>
             {/* -- Header -- */}
-            <div className="flex items-end justify-between">
-              <div>
-                <p className="label-caps text-[var(--primary)]">Engineer Deep-Dive</p>
+            <div className="engineer-detail-header">
+              <div className="min-w-0">
+                <p className="label-caps text-[var(--primary)]">Engineering Evidence</p>
                 <h1 className="text-[28px] font-bold text-[var(--text)]">{selectedSensorId}</h1>
                 <p className="caption-mono text-[var(--text-muted)] mt-1">{plantId?.toUpperCase()}</p>
               </div>
@@ -241,6 +244,7 @@ export default function EngineerDeepDive() {
           </>
         )}
       </main>
+      </div>
     </div>
   );
 }
