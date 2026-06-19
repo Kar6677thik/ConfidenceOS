@@ -2052,6 +2052,7 @@ def get_fleet_overview():
 @app.get("/api/fleet/history")
 def get_fleet_history(hours: float = Query(default=24.0), db: Session = Depends(get_db)):
     """Return simple instrument integrity trend points from confidence logs."""
+    fleet_snapshot = plant_manager.get_fleet_summary()
     cutoff = datetime.utcnow() - timedelta(hours=hours)
     rows = (
         db.query(ConfidenceLogModel)
@@ -2083,7 +2084,21 @@ def get_fleet_history(hours: float = Query(default=24.0), db: Session = Depends(
         "bucket_minutes": bucket_minutes,
         "sample_count": len(rows),
         "source": "confidence_logs",
-        "status": "active" if trend else "insufficient_history",
+        "status": "active" if len(trend) >= 2 else ("current_snapshot_only" if fleet_snapshot else "insufficient_history"),
+        "minimum_samples_for_trend": 2,
+        "current_snapshot": [
+            {
+                "plant_id": plant.get("plant_id"),
+                "name": plant.get("name"),
+                "health_pct": plant.get("health_pct"),
+                "top_issues": plant.get("top_issues", []),
+            }
+            for plant in fleet_snapshot
+        ],
+        "note": (
+            "Trend points come from persisted ConfidenceLog rows. Current snapshot is live state only "
+            "and is not plotted as historical evidence."
+        ),
         "trend": trend,
     }
 

@@ -361,6 +361,16 @@ button:disabled { cursor: not-allowed; }
   min-width: 0;
 }
 
+.forensics-toolbar > * {
+  min-width: 0;
+}
+
+.forensics-toolbar button,
+.forensics-toolbar select,
+.forensics-scrubber span {
+  white-space: nowrap;
+}
+
 .forensics-preset-select {
   min-width: 0;
   width: 100%;
@@ -388,6 +398,18 @@ button:disabled { cursor: not-allowed; }
 
 .forensics-speed-button:last-child {
   border-right: 0;
+}
+
+@media (max-width: 1500px) {
+  .forensics-toolbar {
+    grid-template-columns: auto minmax(260px, 1fr) auto auto auto;
+  }
+
+  .forensics-scrubber {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    min-width: 0;
+  }
 }
 
 .engineer-sensor-rail {

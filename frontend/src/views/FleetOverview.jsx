@@ -53,6 +53,51 @@ function IndustrialTooltip({ active, payload, label }) {
   );
 }
 
+function TrendSnapshotFallback({ snapshot = [], status }) {
+  if (!snapshot.length) {
+    return (
+      <div>
+        <p className="caption-mono text-[var(--text-dim)]">Collecting confidence history. Trend appears after persisted samples accumulate.</p>
+        <p className="caption-mono text-[var(--text-muted)] mt-2">Status: {status || 'insufficient_history'}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="w-full max-w-3xl">
+      <p className="caption-mono text-[var(--text-dim)] mb-4">
+        Current live snapshot only. No historical line is plotted until at least two persisted confidence buckets exist.
+      </p>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        {snapshot.map((plant) => {
+          const pct = Number(plant.health_pct ?? 0);
+          const color = tierColor(pct);
+          return (
+            <div key={plant.plant_id} className="industrial-card px-4 py-3 text-left">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-semibold text-[var(--text)] truncate">{plant.name || plant.plant_id}</p>
+                  <p className="label-caps text-[var(--text-muted)] mt-1">{plant.plant_id}</p>
+                </div>
+                <span className="font-data text-[22px] font-bold" style={{ color }}>
+                  {Number.isFinite(pct) ? `${Math.round(pct)}%` : '--'}
+                </span>
+              </div>
+              <div className="h-2 bg-[var(--surface-base)] border border-[var(--border)] mt-3">
+                <div className="h-full" style={{ width: `${Math.max(0, Math.min(100, pct))}%`, background: color }} />
+              </div>
+              <p className="caption-mono text-[var(--text-muted)] mt-2">
+                {(plant.top_issues || [])[0] || 'No active operating question'}
+              </p>
+            </div>
+          );
+        })}
+      </div>
+      <p className="caption-mono text-[var(--text-muted)] mt-4">Status: {status || 'current_snapshot_only'}</p>
+    </div>
+  );
+}
+
 export default function FleetOverview() {
   const { fleetData, fleetLoading, fetchFleet, setPlantId } = useStore();
   const [trend, setTrend] = useState([]);
@@ -225,7 +270,7 @@ export default function FleetOverview() {
               <span className="caption-mono text-[var(--text-muted)]" title="Provenance of this trend">
                 {trendError
                   ? 'trend fetch failed'
-                  : `source: ${trendMeta?.source || 'confidence_logs'} · ${trendMeta?.sample_count ?? 0} samples · ${trendMeta?.bucket_minutes ?? 15}-min buckets`}
+                  : `source: ${trendMeta?.source || 'confidence_logs'} / ${trendMeta?.sample_count ?? 0} samples / ${trendMeta?.bucket_minutes ?? 15}-min buckets / ${trendMeta?.status || 'unknown'}`}
               </span>
               {Object.entries(PLANT_COLORS).map(([pid, color]) => (
                 <div key={pid} className="flex items-center gap-1.5">
@@ -245,7 +290,7 @@ export default function FleetOverview() {
               </div>
             ) : trend.length === 0 ? (
               <div className="h-full grid place-items-center text-center px-6">
-                <p className="caption-mono text-[var(--text-dim)]">Collecting confidence history — trend appears as samples accumulate.</p>
+                <TrendSnapshotFallback snapshot={trendMeta?.current_snapshot || fleetData} status={trendMeta?.status} />
               </div>
             ) : (
             <ResponsiveContainer width="100%" height="100%">
