@@ -348,20 +348,26 @@ async def _plant_tick_loop(plant_id: str, plant, start_delay: float = 0.0):
 
                 # Read tags through the read-only provider abstraction. ConfidenceOS
                 # observes plant state only; it does not write control commands.
-                readings = plant.tag_provider.read_tags()
-                plant.latest_readings = readings
+                raw_readings = plant.tag_provider.read_tags()
 
                 # Compute confidence scores
-                confidence_results = plant.confidence_engine.score_readings(readings)
+                confidence_results = plant.confidence_engine.score_readings(raw_readings)
                 confidence_data = [r.to_dict() for r in confidence_results]
                 for item in confidence_data:
                     item["handover_required"] = item.get("tier") in ("LOW", "CRITICAL")
 
                 # Update mass-balance
-                mb_state = plant.mass_balance_engine.update(readings)
-                plant.latest_mb_state = mb_state.to_dict()
+                mb_state = plant.mass_balance_engine.update(raw_readings)
+                plant.latest_mb_state = _translate_mass_balance_state_for_active_model(mb_state.to_dict())
                 # Surface the (engineer-owned) residual-check parameters + honest assumptions.
                 plant.latest_mb_state["config"] = plant.mass_balance_engine.config_dict()
+                bound_live_state = _apply_demo_asset_model_bindings({
+                    "readings": raw_readings,
+                    "confidence": confidence_data,
+                })
+                readings = bound_live_state.get("readings", raw_readings)
+                confidence_data = bound_live_state.get("confidence", confidence_data)
+                plant.latest_readings = readings
                 confidence_data = _derive_trust_states(confidence_data, readings, plant.latest_mb_state)
 
                 # Update cached confidence after trust quarantine/substitution is derived.
@@ -726,6 +732,42 @@ PUMP_STATION_DEMO_ALIASES = {
 }
 
 
+def _active_model_tags() -> set[str]:
+    return {signal.get("tag") for signal in get_signals() if signal.get("tag")}
+
+
+def _demo_alias_source_to_target() -> dict[str, str]:
+    if active_asset_model_key() != "pump_station":
+        return {}
+    return {spec["source"]: target for target, spec in PUMP_STATION_DEMO_ALIASES.items()}
+
+
+def _translate_mass_balance_state_for_active_model(mass_balance_state: dict | None) -> dict | None:
+    """Keep mass-balance evidence process-specific for alternate demo models.
+
+    The pump-station model is driven by transparent read-only aliases from the
+    Texas City simulator. Operator-facing evidence should name the active model
+    tags (LIT/FIT) while alias receipts continue to disclose the source stream.
+    """
+    alias_map = _demo_alias_source_to_target()
+    if not mass_balance_state or not alias_map:
+        return mass_balance_state
+
+    def translated(value):
+        if isinstance(value, str):
+            result = value
+            for source, target in alias_map.items():
+                result = result.replace(source, target)
+            return result
+        if isinstance(value, list):
+            return [translated(item) for item in value]
+        if isinstance(value, dict):
+            return {key: translated(item) for key, item in value.items()}
+        return value
+
+    return translated(mass_balance_state)
+
+
 def _apply_demo_asset_model_bindings(live_state: dict) -> dict:
     """Bind the pump-station metadata model to deterministic demo live values.
 
@@ -744,7 +786,7 @@ def _apply_demo_asset_model_bindings(live_state: dict) -> dict:
     confidence = list(live_state.get("confidence") or [])
     reading_by_id = {row.get("sensor_id"): row for row in readings if row.get("sensor_id")}
     confidence_by_id = {row.get("sensor_id"): row for row in confidence if row.get("sensor_id")}
-    model_tags = {signal.get("tag") for signal in get_signals() if signal.get("tag")}
+    model_tags = _active_model_tags()
     live_tags = set(reading_by_id)
     alias_receipts = []
 
@@ -793,6 +835,10 @@ def _apply_demo_asset_model_bindings(live_state: dict) -> dict:
             "read_only": True,
             "purpose": "demo live binding for alternate asset model",
         })
+
+    if alias_receipts:
+        readings = [row for row in readings if row.get("sensor_id") in model_tags]
+        confidence = [row for row in confidence if row.get("sensor_id") in model_tags]
 
     live_state["readings"] = readings
     live_state["confidence"] = confidence

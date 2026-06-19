@@ -110,12 +110,44 @@ function signalTrustState(signal) {
   return { tier: String(tier).toUpperCase(), pct };
 }
 
+function normalizeTagIdentifier(value) {
+  return String(value || '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '');
+}
+
+function sameTag(left, right) {
+  const a = normalizeTagIdentifier(left);
+  const b = normalizeTagIdentifier(right);
+  return Boolean(a && b && a === b);
+}
+
+function signalRole(signal) {
+  const raw = String(signal?.role || signal?.sensor_type || signal?.signal_role || '').toLowerCase();
+  if (['mass_balance_input', 'flow_in', 'inlet_flow', 'inflow'].includes(raw)) return 'inflow';
+  if (['mass_balance_output', 'flow_out', 'outlet_flow', 'outflow'].includes(raw)) return 'outflow';
+  if (['primary_level', 'level', 'validated_level'].includes(raw)) return 'level';
+  if (['final_element_position', 'valve_position', 'position', 'valve'].includes(raw)) return 'valve_position';
+  return raw;
+}
+
 function liveSignal(faceplateSignal, readings, confidence) {
   const tag = faceplateSignal?.tag || faceplateSignal?.sensor_id || faceplateSignal?.id;
+  if (!tag) {
+    return {
+      ...(faceplateSignal || {}),
+      tag: '',
+      value: null,
+      unit: faceplateSignal?.unit || '',
+      confidence: faceplateSignal?.confidence || {},
+      trust_state: faceplateSignal?.trust_state || 'METADATA_ONLY',
+    };
+  }
   const manifestReading = faceplateSignal?.reading || {};
-  const reading = (readings || []).find((item) => item.sensor_id === tag || item.tag === tag) || manifestReading || {};
-  const conf = (confidence || []).find((item) => item.sensor_id === tag || item.tag === tag) || faceplateSignal?.confidence || {};
-  const hasReading = reading?.sensor_id || reading?.tag || reading?.value != null;
+  const liveReading = (readings || []).find((item) => sameTag(item.sensor_id, tag) || sameTag(item.tag, tag));
+  const reading = liveReading || manifestReading || {};
+  const conf = (confidence || []).find((item) => sameTag(item.sensor_id, tag) || sameTag(item.tag, tag)) || faceplateSignal?.confidence || {};
+  const hasReading = Boolean(liveReading || reading?.sensor_id || reading?.tag || reading?.value != null);
   return {
     ...faceplateSignal,
     tag,
@@ -130,7 +162,7 @@ function findSignal(faceplates, roles = []) {
   const wanted = new Set(roles.map((role) => String(role).toLowerCase()));
   for (const faceplate of faceplates || []) {
     for (const signal of faceplate.signals || []) {
-      const role = String(signal.role || signal.sensor_type || signal.signal_role || '').toLowerCase();
+      const role = signalRole(signal);
       if (wanted.has(role)) return { faceplate, signal };
     }
   }
@@ -202,7 +234,9 @@ function TrustStatusSymbol({ state }) {
 function HmiLiveValue({ signal }) {
   const trust = signalTrustState(signal);
   const isMetadataOnly = trust.tier === 'METADATA_ONLY' || trust.tier === 'NO_LIVE_SAMPLE';
-  const value = isMetadataOnly || signal.value == null || typeof signal.value === 'object' ? 'metadata-only' : signal.value;
+  const value = isMetadataOnly || signal.value == null || typeof signal.value === 'object'
+    ? (trust.tier === 'NO_LIVE_SAMPLE' ? 'no live sample' : 'metadata-only')
+    : signal.value;
   return (
     <span className="hmi-live-value" title={`${signal.tag} ${formatText(trust.tier)}`}>
       <span>{value}</span>
@@ -283,9 +317,9 @@ function ProcessCanvas({ manifest, faceplates, readings, confidence, onSelect })
   const vessel = faceplates.find((item) => /vessel|tank/i.test(`${item.template_id} ${item.template_label} ${item.title}`)) || faceplates[0];
   const pump = faceplates.find((item) => /pump/i.test(`${item.template_id} ${item.template_label} ${item.title}`));
   const valve = faceplates.find((item) => /valve/i.test(`${item.template_id} ${item.template_label} ${item.title}`));
-  const level = liveSignal(findSignal(faceplates, ['level', 'primary_level'])?.signal || vessel?.signals?.[0], readings, confidence);
-  const inflow = liveSignal(findSignal(faceplates, ['inflow', 'flow_in'])?.signal, readings, confidence);
-  const outflow = liveSignal(findSignal(faceplates, ['outflow', 'flow_out'])?.signal, readings, confidence);
+  const level = liveSignal(findSignal(faceplates, ['level'])?.signal || vessel?.signals?.[0], readings, confidence);
+  const inflow = liveSignal(findSignal(faceplates, ['inflow'])?.signal, readings, confidence);
+  const outflow = liveSignal(findSignal(faceplates, ['outflow'])?.signal, readings, confidence);
   const vibration = liveSignal(findSignal(faceplates, ['vibration'])?.signal, readings, confidence);
   const basis = manifest?.operating_basis || {};
   const levelTrust = signalTrustState(level);
@@ -393,7 +427,7 @@ function ProcessCanvas({ manifest, faceplates, readings, confidence, onSelect })
             <div xmlns="http://www.w3.org/1999/xhtml" className="hmi-operation-note">
               <p className="label-caps text-[var(--text-muted)]">Operating Basis</p>
               <p className="caption-mono font-semibold mt-1">{basis.abnormal_situation || 'No abnormal situation active.'}</p>
-              <p className="caption-mono text-[var(--text-muted)] mt-1">{asList(basis.evidence).slice(0, 2).map(displayText).join(' / ') || 'live process values within operating basis'}</p>
+              <p className="caption-mono text-[var(--text-muted)] mt-1">{asList(basis.evidence).slice(0, 2).map(displayText).filter(Boolean).join(' / ') || 'live process values within operating basis'}</p>
             </div>
           </foreignObject>
         </svg>
@@ -600,10 +634,11 @@ function GeneratedFaceplate({ faceplate, readings, confidence, compact = false, 
         <tbody>
           {signals.slice(0, compact ? 4 : 8).map((signal) => {
             const trust = signalTrustState(signal);
+            const unavailable = ['METADATA_ONLY', 'NO_LIVE_SAMPLE'].includes(trust.tier);
             return (
               <tr key={signal.tag}>
                 <td>{signal.tag}</td>
-                <td>{signalTrustState(signal).tier === 'METADATA_ONLY' ? 'metadata-only' : `${signal.value} ${signal.unit || ''}`}</td>
+                <td>{unavailable ? formatText(trust.tier) : `${signal.value} ${signal.unit || ''}`}</td>
                 <td><span className={statusClass(trust.tier)}>{formatText(trust.tier)}{trust.pct != null ? ` / ${trust.pct}%` : ''}</span></td>
               </tr>
             );
