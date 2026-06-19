@@ -4,7 +4,7 @@
  * Endpoints:
  *   GET /api/graph/:plant_id - node/edge topology + narrative
  *
- * Interactive features: wheel-to-zoom (0.4–3×), drag-to-pan, click node to
+ * Interactive features: wheel-to-zoom (0.4-3x), drag-to-pan, click node to
  * highlight its propagation chain (click again or "Reset view" to clear).
  */
 
@@ -72,7 +72,7 @@ export default function CausalGraph() {
   const [graph, setGraph] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Pan/zoom transform state — also mirrored in a ref for use inside event handlers.
+  // Pan/zoom transform state, also mirrored in a ref for use inside event handlers.
   const [transform, _setTransformState] = useState({ tx: 0, ty: 0, k: 1 });
   const transformRef = useRef({ tx: 0, ty: 0, k: 1 });
   function setTransform(v) {
@@ -93,7 +93,7 @@ export default function CausalGraph() {
       .catch(() => { setGraph(null); setLoading(false); });
   }, [plantId]);
 
-  // Imperative wheel listener — React 19 synthetic events are passive, so we
+  // Imperative wheel listener: React 19 synthetic events are passive, so we
   // must attach non-passively to be able to call preventDefault.
   useEffect(() => {
     const svg = svgRef.current;
@@ -205,13 +205,13 @@ export default function CausalGraph() {
         {graph?.nodes && (
           <div className="px-5 py-1.5 border-b border-[var(--border)] flex-shrink-0 flex items-center gap-4 bg-[var(--bg-surface)]">
             <span className="caption-mono text-[var(--text-dim)]">
-              {graph.nodes.length} nodes · {graph.edges?.length || 0} edges
+              {graph.nodes.length} nodes / {graph.edges?.length || 0} edges
             </span>
             {focusedNodeId && (
               <span className="caption-mono text-[var(--primary)]">Focus: {focusedNodeId}</span>
             )}
             <span className="caption-mono text-[var(--text-muted)] hidden md:inline">
-              Scroll to zoom · drag to pan · click node to highlight chain
+              Scroll to zoom / drag to pan / click node to highlight chain
             </span>
             {isDirty && (
               <button onClick={resetView} className="industrial-control ml-auto shrink-0">

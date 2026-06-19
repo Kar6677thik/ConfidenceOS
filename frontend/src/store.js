@@ -39,6 +39,7 @@ const useStore = create((set, get) => ({
 
   // -- V2: Confidence degradation forecasts ------------------------------
   predictions: {},
+  predictionsMeta: null,
   predictionsLoading: false,
 
   // -- V2: Grounded operator explanation ---------------------------------
@@ -300,10 +301,10 @@ const useStore = create((set, get) => ({
       const res = await fetch(`/api/predictions/${pid}`);
       if (!res.ok) throw new Error(`${res.status}`);
       const data = await res.json();
-      set({ predictions: data.predictions || {}, predictionsLoading: false });
+      set({ predictions: data.predictions || {}, predictionsMeta: data.meta || null, predictionsLoading: false });
     } catch (err) {
       console.error('[Store] fetch confidence forecasts failed:', err);
-      set({ predictionsLoading: false });
+      set({ predictionsLoading: false, predictionsMeta: null });
     }
   },
 

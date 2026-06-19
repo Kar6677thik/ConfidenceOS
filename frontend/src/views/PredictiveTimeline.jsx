@@ -32,17 +32,24 @@ function forecastLabel(pred) {
 }
 
 // Honest one-line explanation so a flat/empty forecast reads as deliberate,
-// not broken — distinguishes "stable" from "not enough data to project".
+// not broken - distinguishes "stable" from "not enough data to project".
 function forecastDetail(pred) {
   const status = pred.forecast_status || pred.model_fit;
   if (status === 'insufficient_history') return 'Not enough confidence history yet to project a trend.';
-  if (status === 'flat_or_no_degradation') return 'Confidence is stable over the window — nothing to project.';
+  if (status === 'flat_or_no_degradation') return 'Confidence is stable over the window - nothing to project.';
   if (status === 'model_error') return 'Forecast model could not run; deterministic status only.';
   return null;
 }
 
+function evidenceLabel(pred) {
+  const evidence = pred.evidence_window || {};
+  const samples = evidence.history_sample_count ?? pred.sample_count ?? 0;
+  const source = evidence.source || 'confidence_log';
+  return `${samples} history samples / ${source}`;
+}
+
 export default function PredictiveTimeline() {
-  const { plantId, predictions, predictionsLoading, fetchPredictions } = useStore();
+  const { plantId, predictions, predictionsMeta, predictionsLoading, fetchPredictions } = useStore();
 
   useEffect(() => { fetchPredictions(plantId); }, [fetchPredictions, plantId]);
 
@@ -65,6 +72,11 @@ export default function PredictiveTimeline() {
       {/* -- Context header -- */}
       <PageIdentity displayName="Confidence Degradation Timeline" level={3} area="12-Hour Trust Forecast Window / Sorted by Criticality" plant={plantId} />
       <div className="px-6 py-2 border-b border-[var(--border)] flex items-center justify-end gap-3 flex-shrink-0 bg-[var(--bg-low)]">
+        <div className="mr-auto caption-mono text-[var(--text-muted)]">
+          {predictionsMeta
+            ? `${predictionsMeta.status || 'unknown'} / ${predictionsMeta.history_sample_count ?? 0} persisted samples / ${predictionsMeta.live_snapshot_count ?? 0} live trust states`
+            : 'Forecast evidence not loaded'}
+        </div>
         {avgPLT && (
           <div className="industrial-card px-4 py-2 flex items-center gap-3">
             <div>
@@ -128,6 +140,9 @@ export default function PredictiveTimeline() {
                         </p>
                         <p className="caption-mono text-[10px] text-[var(--text-muted)]">
                           {forecastLabel(pred)}
+                        </p>
+                        <p className="caption-mono text-[10px] text-[var(--text-dim)]">
+                          {evidenceLabel(pred)}
                         </p>
                       </div>
                     </div>
@@ -195,6 +210,7 @@ export default function PredictiveTimeline() {
                     <ConfidenceBadge conf={pred.current_confidence} />
                   </div>
                   <p className="caption-mono text-[var(--data-mono)] mt-1">{forecastLabel(pred)}</p>
+                  <p className="caption-mono text-[var(--text-muted)] mt-1">{evidenceLabel(pred)}</p>
                   {forecastDetail(pred) && (
                     <p className="caption-mono text-[var(--text-dim)] mt-1">{forecastDetail(pred)}</p>
                   )}
@@ -238,9 +254,14 @@ export default function PredictiveTimeline() {
                 );
               })}
               {actionQueue.length === 0 && (
-                <p className="caption-mono text-[var(--text-muted)] text-[12px]">
-                  No sensors forecast to cross a lower trust tier. The panel shows deterministic confidence trend status, not predictive failure.
-                </p>
+                <div className="industrial-card p-3">
+                  <p className="caption-mono text-[var(--text-muted)] text-[12px]">
+                    No sensors forecast to cross a lower trust tier. This is deterministic confidence trend evidence, not predictive failure.
+                  </p>
+                  <p className="caption-mono text-[var(--text-dim)] text-[12px] mt-2">
+                    {predictionsMeta?.boundary || 'A flat forecast means either stable confidence or insufficient persisted history.'}
+                  </p>
+                </div>
               )}
             </div>
           </div>

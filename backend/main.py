@@ -2109,14 +2109,42 @@ def get_fleet_history(hours: float = Query(default=24.0), db: Session = Depends(
 def get_predictions(plant_id: str, db: Session = Depends(get_db)):
     """Return confidence degradation forecasts for all sensors in a plant."""
     plant = plant_manager.get(plant_id)
-    histories = {}
-    for sid in plant.latest_confidence:
+    live_confidence = dict(plant.latest_confidence or {})
+    histories: dict[str, list[dict]] = {}
+    for sid in live_confidence:
         histories[sid] = get_confidence_history(db, plant_id, sid, hours=24.0)
-
     predictions = predict_all_sensors(histories)
+    for sid, live in live_confidence.items():
+        pred = predictions.setdefault(sid, predict_all_sensors({sid: []}).get(sid, {}))
+        history_count = len(histories.get(sid, []))
+        pred.update({
+            "sensor_id": sid,
+            "current_confidence": live.get("confidence_pct"),
+            "current_tier": live.get("tier"),
+            "trust_state": live.get("trust_state") or live.get("tier"),
+            "dominant_factor": live.get("dominant_factor"),
+            "recommended_action": pred.get("recommended_action") or live.get("recommended_action"),
+            "evidence_window": {
+                "history_sample_count": history_count,
+                "live_snapshot_available": True,
+                "source": "confidence_log + latest Runtime trust state" if history_count else "latest Runtime trust state only",
+                "minimum_samples_for_forecast": 10,
+            },
+            "forecast_boundary": "Deterministic confidence trend estimate only; not predictive failure and not a control action.",
+        })
+    total_history_rows = sum(len(history) for history in histories.values())
     return {
         "plant_id": plant_id,
         "predictions": predictions,
+        "meta": {
+            "status": "active" if total_history_rows >= 10 else ("current_snapshot_only" if live_confidence else "insufficient_history"),
+            "history_window_hours": 24.0,
+            "history_sample_count": total_history_rows,
+            "live_snapshot_count": len(live_confidence),
+            "minimum_samples_per_sensor": 10,
+            "source": "confidence_log plus latest Runtime trust state",
+            "boundary": "Confidence Degradation Forecast is deterministic trend evidence, not predictive failure.",
+        },
         "timestamp": time.time(),
     }
 
@@ -2124,6 +2152,7 @@ def get_predictions(plant_id: str, db: Session = Depends(get_db)):
 @app.get("/api/predictions/{plant_id}/{sensor_id}")
 def get_sensor_prediction(plant_id: str, sensor_id: str, db: Session = Depends(get_db)):
     """Return confidence degradation forecast for a single sensor."""
+    plant = plant_manager.get(plant_id)
     history = get_confidence_history(db, plant_id, sensor_id, hours=24.0)
     from prediction import predict_sensor
     prediction = predict_sensor(history)
@@ -2131,6 +2160,19 @@ def get_sensor_prediction(plant_id: str, sensor_id: str, db: Session = Depends(g
     if history:
         prediction["current_confidence"] = history[-1].get("confidence_pct", 0)
         prediction["current_tier"] = history[-1].get("tier", "HIGH")
+    live = plant.latest_confidence.get(sensor_id)
+    if live:
+        prediction["current_confidence"] = live.get("confidence_pct")
+        prediction["current_tier"] = live.get("tier")
+        prediction["trust_state"] = live.get("trust_state") or live.get("tier")
+        prediction["dominant_factor"] = live.get("dominant_factor")
+    prediction["evidence_window"] = {
+        "history_sample_count": len(history),
+        "live_snapshot_available": bool(live),
+        "source": "confidence_log + latest Runtime trust state" if history and live else "confidence_log" if history else "latest Runtime trust state only" if live else "no evidence yet",
+        "minimum_samples_for_forecast": 10,
+    }
+    prediction["forecast_boundary"] = "Deterministic confidence trend estimate only; not predictive failure and not a control action."
     return prediction
 
 
