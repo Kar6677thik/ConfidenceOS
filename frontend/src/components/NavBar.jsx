@@ -33,6 +33,8 @@ export default function NavBar() {
     confidence,
     massBalance,
     staleFlags,
+    systemHealth,
+    healthError,
   } = useStore();
   const location = useLocation();
   const navigate = useNavigate();
@@ -44,6 +46,22 @@ export default function NavBar() {
   const activeSupport = supportItems.some((item) => item.path === location.pathname) ? location.pathname : '';
   const alerts = countActiveAlerts(confidence, massBalance, staleFlags);
   const trustException = worstTrustException(confidence, connected);
+  const readiness = systemHealth?.readiness_summary || (healthError ? 'api_unreachable' : 'unknown');
+  const runtimeReady = readiness === 'ready';
+  const readinessLabel = readiness === 'ready'
+    ? 'Runtime ready'
+    : readiness === 'degraded'
+    ? 'Runtime degraded'
+    : readiness === 'blocked'
+    ? 'Runtime blocked'
+    : healthError
+    ? 'API unreachable'
+    : 'Runtime warming';
+  const readinessClass = readiness === 'ready'
+    ? 'status-safe'
+    : readiness === 'degraded' || readiness === 'unknown'
+    ? 'status-warning'
+    : 'status-critical';
   const healthClass = averageConfidence >= 80
     ? 'status-safe'
     : averageConfidence >= 50
@@ -104,6 +122,15 @@ export default function NavBar() {
         <div className={`caption-mono ${alerts > 0 ? 'status-critical' : trustException.status}`}>
           {alerts > 0 ? `${alerts} Trust Alert${alerts > 1 ? 's' : ''}` : trustException.label}
         </div>
+
+        {!runtimeReady && (
+          <div
+            className={`caption-mono ${readinessClass}`}
+            title={healthError || systemHealth?.readiness?.issues?.map((issue) => issue.message).join(' | ') || 'Runtime readiness'}
+          >
+            {readinessLabel}
+          </div>
+        )}
 
         {location.pathname !== '/runtime' && location.pathname !== '/' && (
           <div className={`caption-mono ${healthClass}`}>

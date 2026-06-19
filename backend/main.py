@@ -262,13 +262,17 @@ async def _retention_loop():
     """Periodically prune old ConfidenceLog/SensorReading rows so SQLite stays bounded."""
     while True:
         try:
-            db = next(get_db())
+            await _db_write_lock.acquire()
+            db = None
             try:
+                db = SessionLocal()
                 deleted = prune_timeseries(db, keep_hours=TIMESERIES_RETENTION_HOURS)
                 if any(deleted.values()):
                     print(f"[retention] pruned {deleted} (keep {TIMESERIES_RETENTION_HOURS}h)")
             finally:
-                db.close()
+                if db:
+                    db.close()
+                _db_write_lock.release()
         except Exception as exc:  # never let retention kill the app
             print(f"[retention] sweep failed: {exc}")
         await asyncio.sleep(RETENTION_SWEEP_SECONDS)

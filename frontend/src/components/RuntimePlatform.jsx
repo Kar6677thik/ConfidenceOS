@@ -69,6 +69,17 @@ function statusClass(value) {
   return 'text-[var(--text-muted)]';
 }
 
+function runtimeStatusLabel(value) {
+  const status = String(value || '').toUpperCase();
+  if (status === 'NOT_PUBLISHED') return 'Publish preview';
+  if (status === 'PUBLISHED_WITH_WARNINGS') return 'Published with warnings';
+  if (status === 'PUBLISHED') return 'Published Runtime';
+  if (status === 'PASS_WITH_WARNINGS') return 'Build passed with warnings';
+  if (status === 'PASS') return 'Build passed';
+  if (status === 'FAILED') return 'Build blocked';
+  return formatText(value || 'Runtime live');
+}
+
 function priorityTier(value) {
   const status = String(value || '').toUpperCase();
   if (['CRITICAL', 'LOW', 'QUARANTINED', 'UNAVAILABLE', 'BLOCKING'].includes(status)) return 'p1';
@@ -229,7 +240,7 @@ function HmiAlarmBand({ manifest, role, connected, plantId, plantContext, situat
         </span>
         {showBuildInternals && (
           <>
-            <span className={`caption-mono ${statusClass(runtimeStatus)}`}>{formatText(runtimeStatus)}</span>
+            <span className={`caption-mono ${statusClass(runtimeStatus)}`}>{runtimeStatusLabel(runtimeStatus)}</span>
             <span className="caption-mono text-[var(--text-dim)]">build {String(buildLabel).slice(0, 18)}</span>
           </>
         )}

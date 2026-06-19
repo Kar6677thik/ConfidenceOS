@@ -31,9 +31,24 @@ import EngineerDeepDive   from './views/EngineerDeepDive';
 
 // Bottom status bar
 function BottomStatus() {
-  const { connected, timestamp } = useStore();
+  const { connected, timestamp, systemHealth, healthError, lastHealthAt } = useStore();
   const [clock, setClock] = useState(() => new Date());
   const [labOpen, setLabOpen] = useState(false);
+  const readiness = systemHealth?.readiness_summary || (healthError ? 'api_unreachable' : 'unknown');
+  const readinessLabel = readiness === 'ready'
+    ? 'Runtime ready'
+    : readiness === 'degraded'
+    ? 'Runtime degraded'
+    : readiness === 'blocked'
+    ? 'Runtime blocked'
+    : healthError
+    ? 'API unreachable'
+    : 'Runtime warming up';
+  const readinessClass = readiness === 'ready'
+    ? 'status-safe'
+    : readiness === 'degraded' || readiness === 'unknown'
+    ? 'status-warning'
+    : 'status-critical';
 
   useEffect(() => {
     const timer = setInterval(() => setClock(new Date()), 1000);
@@ -46,12 +61,20 @@ function BottomStatus() {
       <div className="flex items-center gap-6">
         <span className="hidden md:block">System Logs</span>
         <span>UTC: {clock.toLocaleTimeString()}</span>
+        <span className={readinessClass} title={healthError || systemHealth?.readiness?.issues?.map((issue) => issue.message).join(' | ') || 'Backend readiness'}>
+          {readinessLabel}
+        </span>
         <span className={connected ? 'status-safe' : 'status-critical'}>
           {connected ? 'Live stream connected' : 'Live stream offline'}
         </span>
         {timestamp && (
           <span className="hidden lg:block">
             Last Tick: {new Date(timestamp * 1000).toLocaleTimeString()}
+          </span>
+        )}
+        {lastHealthAt && (
+          <span className="hidden xl:block">
+            Health: {new Date(lastHealthAt).toLocaleTimeString()}
           </span>
         )}
         <button
@@ -84,6 +107,7 @@ const SHORTCUTS = [
 export default function App() {
   const [showHelp, setShowHelp] = useState(false);
   const connect = useStore((s) => s.connect);
+  const fetchSystemHealth = useStore((s) => s.fetchSystemHealth);
 
   // Establish WS at app mount so every view gets live data, not just Runtime.
   // connect() is idempotent (store guards on _ws), so RuntimePlatform calling
@@ -91,6 +115,12 @@ export default function App() {
   useEffect(() => {
     connect();
   }, [connect]);
+
+  useEffect(() => {
+    fetchSystemHealth();
+    const timer = setInterval(fetchSystemHealth, 10000);
+    return () => clearInterval(timer);
+  }, [fetchSystemHealth]);
 
   useKeyboardShortcuts({ onHelpToggle: () => setShowHelp((v) => !v) });
 

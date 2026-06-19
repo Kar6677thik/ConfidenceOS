@@ -24,6 +24,10 @@ const useStore = create((set, get) => ({
   _ws: null,
   _reconnectTimer: null,
   _intentionalDisconnect: false,
+  systemHealth: null,
+  healthLoading: false,
+  healthError: '',
+  lastHealthAt: null,
 
   // -- V2: Plant & Role --------------------------------------------------
   plantId: 'plant-a',
@@ -224,6 +228,27 @@ const useStore = create((set, get) => ({
   },
 
   // -- API actions -------------------------------------------------------
+
+  fetchSystemHealth: async () => {
+    set({ healthLoading: true });
+    try {
+      const res = await fetch('/api/health');
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(payload?.detail || `Health check failed: ${res.status}`);
+      set({
+        systemHealth: payload,
+        healthError: '',
+        healthLoading: false,
+        lastHealthAt: Date.now(),
+      });
+    } catch (err) {
+      set({
+        healthError: err.message || 'Health check failed.',
+        healthLoading: false,
+        lastHealthAt: Date.now(),
+      });
+    }
+  },
 
   toggleStartupMode: async (active) => {
     try {
