@@ -310,7 +310,7 @@ button:disabled { cursor: not-allowed; }
 
 .studio-professional-layout {
   display: grid;
-  grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
+  grid-template-columns: minmax(340px, 380px) minmax(0, 1fr);
   gap: 1px;
   min-height: 100%;
   background: var(--border-strong);
@@ -336,6 +336,17 @@ button:disabled { cursor: not-allowed; }
 .studio-professional-main .industrial-panel {
   border-left: 0;
   border-right: 0;
+}
+
+.studio-runbook {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-muted);
+  font: 12px/1.45 var(--font-mono, monospace);
+}
+
+.studio-runbook li + li {
+  margin-top: 6px;
 }
 
 .forensics-toolbar {

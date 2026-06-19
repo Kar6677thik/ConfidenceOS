@@ -49,31 +49,39 @@ export default function WorkflowRail({
   const actions = [
     {
       id: 'map',
-      label: 'Map Tags',
-      description: 'Generate deterministic tag-to-asset proposals for Mapping Court.',
+      label: '1. Run deterministic mapping',
+      description: 'Create explainable tag-to-asset proposals. Nothing is published.',
+      outcome: `${courtItems} imported tag${courtItems === 1 ? '' : 's'} in Mapping Court.`,
       onClick: onRunAutoMap,
       disabled: busy,
+      disabledReason: busy ? 'Another Studio action is running.' : '',
     },
     {
       id: 'build',
-      label: 'Run Build',
-      description: 'Validate asset graph, template bindings, guardrails, and publish readiness.',
+      label: '2. Validate HMI build',
+      description: 'Run compiler guardrails across mappings, templates, roles, and context policies.',
+      outcome: blockerCount ? `${blockerCount} blocking issue${blockerCount === 1 ? '' : 's'} must clear.` : 'Build can pass with warnings.',
       onClick: onRunBuild,
       disabled: busy,
+      disabledReason: busy ? 'Another Studio action is running.' : '',
     },
     {
       id: 'preview',
-      label: 'Preview Runtime',
-      description: 'Generate read-only Runtime screens without publishing them.',
+      label: '3. Generate publish preview',
+      description: 'Render the generated Runtime manifest for review before the operator view uses it.',
+      outcome: hasPreview ? 'Preview manifest is available below.' : 'Preview has not been generated.',
       onClick: onGeneratePreview,
       disabled: busy,
+      disabledReason: busy ? 'Another Studio action is running.' : '',
     },
     {
       id: 'publish',
-      label: 'Publish Runtime',
-      description: build?.can_publish ? 'Make the latest generated manifest available to Runtime.' : 'Disabled until blocking validation clears.',
+      label: '4. Publish generated Runtime',
+      description: build?.can_publish ? 'Promote the latest generated manifest to Runtime.' : 'Disabled by guardrails until blocking validation clears.',
+      outcome: build?.can_publish ? 'Publish is enabled.' : 'Publish refused by design.',
       onClick: onPublish,
       disabled: busy || !build?.can_publish,
+      disabledReason: !build?.can_publish ? 'Run a passing build or resolve guardrails first.' : busy ? 'Another Studio action is running.' : '',
     },
   ];
 
@@ -109,6 +117,16 @@ export default function WorkflowRail({
             <p className="caption-mono text-[var(--text)] mt-2">{nextStep}</p>
           </div>
 
+          <div className="industrial-panel-subtle p-3">
+            <p className="label-caps text-[var(--text-muted)]">Compiler Runbook</p>
+            <ol className="studio-runbook mt-2">
+              <li>Map raw provider tags into asset-model signals.</li>
+              <li>Resolve Mapping Court blockers with approval or ignore reason.</li>
+              <li>Run build to validate templates and publish guardrails.</li>
+              <li>Preview generated Runtime, then publish only if readiness is clear.</li>
+            </ol>
+          </div>
+
           <div className="space-y-2">
             {actions.map((action, index) => {
               const state = actionState({ ...action, courtItems, hasPreview }, build);
@@ -119,13 +137,15 @@ export default function WorkflowRail({
                   onClick={action.onClick}
                   disabled={action.disabled}
                   className="w-full border border-[var(--border)] bg-[var(--surface-base)] p-3 text-left hover:border-[var(--primary)] disabled:opacity-40"
+                  title={action.disabledReason || action.description}
                 >
                   <div className="flex items-center justify-between gap-3">
-                    <span className="label-caps text-[var(--text-muted)]">Step {index + 1}</span>
+                    <span className="label-caps text-[var(--text-muted)]">Compiler Step {index + 1}</span>
                     <span className={`industrial-badge ${statusClass(state)}`}>{state}</span>
                   </div>
                   <p className="text-[15px] font-semibold text-[var(--text)] mt-2">{action.label}</p>
                   <p className="caption-mono text-[var(--data-mono)] mt-1">{action.description}</p>
+                  <p className="caption-mono text-[var(--text-muted)] mt-2">{action.disabledReason || action.outcome}</p>
                 </button>
               );
             })}
