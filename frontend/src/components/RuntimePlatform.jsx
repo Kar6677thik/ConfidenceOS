@@ -1053,8 +1053,13 @@ export default function RuntimePlatform() {
 
   useEffect(() => {
     let active = true;
+    let inFlight = false;
+    let currentController = null;
     const load = () => {
+      if (inFlight) return;
+      inFlight = true;
       const controller = new AbortController();
+      currentController = controller;
       const timeout = setTimeout(() => controller.abort(), 8000);
       fetch(`/api/screens/generated?role=${role}&context=auto&plant_id=${plantId}`, { signal: controller.signal })
         .then(async (res) => {
@@ -1068,7 +1073,6 @@ export default function RuntimePlatform() {
           return payload;
         })
         .then((payload) => {
-          clearTimeout(timeout);
           if (active) {
             setManifest(payload);
             setManifestError('');
@@ -1076,7 +1080,6 @@ export default function RuntimePlatform() {
           }
         })
         .catch((err) => {
-          clearTimeout(timeout);
           if (active) {
             setManifestError(
               err.name === 'AbortError'
@@ -1085,6 +1088,13 @@ export default function RuntimePlatform() {
             );
             setLoading(false);
           }
+        })
+        .finally(() => {
+          clearTimeout(timeout);
+          inFlight = false;
+          if (currentController === controller) {
+            currentController = null;
+          }
         });
     };
     load();
@@ -1092,6 +1102,9 @@ export default function RuntimePlatform() {
     return () => {
       active = false;
       clearInterval(timer);
+      if (currentController) {
+        currentController.abort();
+      }
     };
   }, [plantId, role, retryToken]);
 

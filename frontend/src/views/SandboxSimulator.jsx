@@ -98,6 +98,12 @@ export default function SandboxSimulator() {
     confidence:  item.confidence_pct,
     discrepancy: item.mass_balance?.discrepancy,
   })) || [];
+  const massBalanceApplicable = result?.results?.some(
+    (item) => item.mass_balance?.applicable !== false && item.mass_balance?.discrepancy != null,
+  );
+  const massBalanceReason = result?.results?.find(
+    (item) => item.mass_balance?.applicable === false,
+  )?.mass_balance?.reason;
 
   const minConf = chartData.length
     ? Math.min(...chartData.map((d) => d.confidence ?? 100))
@@ -218,6 +224,12 @@ export default function SandboxSimulator() {
                     <p className="label-caps text-[var(--text-muted)] mb-1">Duration</p>
                     <p className="text-[24px] font-bold font-data text-[var(--text)]">{form.duration_hours}h</p>
                   </div>
+                  <div className="industrial-card px-4 py-3">
+                    <p className="label-caps text-[var(--text-muted)] mb-1">Physical Check</p>
+                    <p className="text-[16px] leading-[22px] font-bold font-data text-[var(--text)]">
+                      {massBalanceApplicable ? 'Mass balance' : 'Device trust only'}
+                    </p>
+                  </div>
                 </div>
               )}
 
@@ -236,11 +248,18 @@ export default function SandboxSimulator() {
                       <Legend wrapperStyle={{ paddingTop: '8px', fontSize: '11px', color: chartColors.muted }} />
                       <Line dataKey="confidence" name="Confidence %" stroke={chartColors.primary}
                         strokeWidth={2} dot={false} isAnimationActive={false} />
-                      <Line dataKey="discrepancy" name="Mass-Balance Δ" stroke={TRUST_COLOR.LOW}
-                        strokeWidth={2} dot={false} isAnimationActive={false} strokeDasharray="4 2" />
+                      {massBalanceApplicable && (
+                        <Line dataKey="discrepancy" name="Mass-Balance Delta" stroke={TRUST_COLOR.LOW}
+                          strokeWidth={2} dot={false} isAnimationActive={false} strokeDasharray="4 2" />
+                      )}
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
+                {!massBalanceApplicable && massBalanceReason && (
+                  <p className="caption-mono text-[var(--text-muted)] mt-3">
+                    {massBalanceReason}
+                  </p>
+                )}
               </div>
 
               {/* Advisory note */}
@@ -261,3 +280,4 @@ export default function SandboxSimulator() {
     </div>
   );
 }
+

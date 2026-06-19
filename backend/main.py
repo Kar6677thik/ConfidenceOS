@@ -1150,7 +1150,7 @@ def _annotate_generated_preview(manifest: dict, live_state: dict) -> dict:
     if model_tags and live_tags and not (model_tags & live_tags):
         manifest["runtime_preview"] = True
         manifest["runtime_notice"] = (
-            "Generated from metadata — preview only (no live tags bound). "
+            "Generated from metadata - preview only (no live tags bound). "
             "The active asset model's signals are not present in this plant's live stream."
         )
     else:
@@ -2216,7 +2216,7 @@ def get_forensics_presets():
         "presets": [
             {
                 "id": "texas-city",
-                "name": "Texas City Incident (Demo)",
+                "name": "Texas City Incident Replay",
                 "description": "BP Texas City refinery explosion — March 23, 2005. "
                                "LT-5100 reads 7.9ft while actual level rises to 158ft.",
                 "duration_minutes": 80,
@@ -2401,7 +2401,7 @@ def _build_texas_city_replay() -> dict:
 
     return {
         "id": "texas-city",
-        "name": "Texas City Incident (Demo)",
+        "name": "Texas City Incident Replay",
         "plant_id": "plant-a",
         "duration_minutes": 80,
         "timeline": timeline,
@@ -2470,10 +2470,90 @@ async def generate_compliance_report(request: ComplianceRequest, db: Session = D
     # Section 4: Mass-balance summary
     mb_anomalies = [a for a in anomalies if "mass_balance" in a.get("anomaly_type", "")]
 
-    # Section 5: Recommendations (LLM-generated if available)
+    # Section 5: Field verification task state. This is operational evidence,
+    # not a control action and not a confidence override.
+    verification_tasks = list_verification_tasks(
+        db,
+        plant_id=request.plant_id,
+        include_closed=True,
+        expire=True,
+        limit=50,
+    )
+    verification_task_rows = [
+        {
+            "task_id": task.get("task_id"),
+            "sensor_id": task.get("sensor_id"),
+            "state": task.get("state"),
+            "assigned_role": task.get("assigned_role"),
+            "verification_method": task.get("verification_method"),
+            "created_at": task.get("created_at_iso"),
+            "valid_until": task.get("valid_until_iso"),
+            "handover_required": task.get("handover_required"),
+            "confidence_override": False,
+            "note": task.get("note") or task.get("last_evidence_summary"),
+        }
+        for task in verification_tasks
+    ]
+    active_verification_count = sum(1 for task in verification_tasks if task.get("active"))
+    handover_required_task_count = sum(1 for task in verification_tasks if task.get("handover_required"))
+
+    # Section 6: Recommendations (deterministic from available evidence)
     recommendations = _generate_compliance_recommendations(
         alarm_by_severity, sensor_reliability, mb_anomalies, plant
     )
+
+    all_sections = {
+        "data_coverage": {
+            "source": "ConfidenceOS simulator/runtime logs",
+            "window_hours": request.hours,
+            "anomaly_rows": alarm_count,
+            "confidence_rows_by_sensor": {
+                sid: payload.get("data_points", 0)
+                for sid, payload in sensor_reliability.items()
+            },
+            "handover_rows": len(handovers),
+            "mass_balance_rows": len(mb_anomalies),
+            "verification_task_rows": len(verification_task_rows),
+            "production_certification": False,
+            "operator_note": "Empty counts mean the source log had no rows for that category in the selected window.",
+        },
+        "runtime_state_at_generation": {
+            "context_status": plant.latest_context.get("status") or plant.latest_context.get("state") or "UNKNOWN",
+            "context_focus": plant.latest_context.get("operator_focus") or plant.latest_context.get("recommended_focus"),
+            "active_incident_count": len(plant.latest_incidents or []),
+            "active_verification_tasks": active_verification_count,
+            "handover_acceptance": (plant.latest_handover_debt or {}).get("handover_acceptance") or "not_evaluated",
+            "latest_tick_available": bool(plant.latest_readings),
+            "read_only_boundary": "ConfidenceOS does not write setpoints, controller modes, tag values, or alarm acknowledgements.",
+        },
+        "alarm_summary": {
+            "total_alarms": alarm_count,
+            "by_severity": alarm_by_severity,
+            "alarm_rate_per_hour": round(alarm_count / max(request.hours, 0.1), 2),
+            "top_10_sensors": [{"sensor_id": s, "count": c} for s, c in top_10_alarms],
+        },
+        "sensor_reliability": sensor_reliability,
+        "shift_handover_log": {"count": len(handovers), "entries": handovers},
+        "mass_balance_summary": {
+            "total_flags": len(mb_anomalies),
+            "flags": mb_anomalies[:20],
+        },
+        "field_verification_tasks": {
+            "count": len(verification_task_rows),
+            "active_count": active_verification_count,
+            "handover_required_count": handover_required_task_count,
+            "confidence_override": False,
+            "entries": verification_task_rows,
+        },
+        "recommendations": recommendations,
+    }
+    section_profiles = {
+        "alarm": ["data_coverage", "runtime_state_at_generation", "alarm_summary", "mass_balance_summary", "recommendations"],
+        "sensor": ["data_coverage", "runtime_state_at_generation", "sensor_reliability", "field_verification_tasks", "recommendations"],
+        "handover": ["data_coverage", "runtime_state_at_generation", "shift_handover_log", "field_verification_tasks", "recommendations"],
+        "full": list(all_sections.keys()),
+    }
+    selected_section_keys = section_profiles.get(request.report_type, section_profiles["full"])
 
     report = {
         "plant_id": request.plant_id,
@@ -2482,34 +2562,9 @@ async def generate_compliance_report(request: ComplianceRequest, db: Session = D
         "report_type": request.report_type,
         "period_hours": request.hours,
         "generated_at": datetime.utcnow().isoformat(),
-        "sections": {
-            "data_coverage": {
-                "source": "ConfidenceOS simulator/runtime logs",
-                "window_hours": request.hours,
-                "anomaly_rows": alarm_count,
-                "confidence_rows_by_sensor": {
-                    sid: payload.get("data_points", 0)
-                    for sid, payload in sensor_reliability.items()
-                },
-                "handover_rows": len(handovers),
-                "mass_balance_rows": len(mb_anomalies),
-                "production_certification": False,
-                "operator_note": "Empty counts mean the source log had no rows for that category in the selected window.",
-            },
-            "alarm_summary": {
-                "total_alarms": alarm_count,
-                "by_severity": alarm_by_severity,
-                "alarm_rate_per_hour": round(alarm_count / max(request.hours, 0.1), 2),
-                "top_10_sensors": [{"sensor_id": s, "count": c} for s, c in top_10_alarms],
-            },
-            "sensor_reliability": sensor_reliability,
-            "shift_handover_log": {"count": len(handovers), "entries": handovers},
-            "mass_balance_summary": {
-                "total_flags": len(mb_anomalies),
-                "flags": mb_anomalies[:20],
-            },
-            "recommendations": recommendations,
-        },
+        "sections": {key: all_sections[key] for key in selected_section_keys},
+        "available_sections": list(all_sections.keys()),
+        "included_sections": selected_section_keys,
         "limitations": [
             "Generated from ConfidenceOS logged simulator/runtime data only.",
             "Confidence values are governed trust scores, not calibrated probabilities.",
@@ -2588,6 +2643,8 @@ def _format_compliance_report_text(report: dict) -> str:
     handover = sections.get("shift_handover_log", {})
     reliability = sections.get("sensor_reliability", {})
     coverage = sections.get("data_coverage", {})
+    runtime_state = sections.get("runtime_state_at_generation", {})
+    verification = sections.get("field_verification_tasks", {})
     recommendations = sections.get("recommendations", [])
     severity_items = alarm.get("by_severity", {}) or {}
     top_sensors = alarm.get("top_10_sensors", []) or []
@@ -2613,6 +2670,15 @@ def _format_compliance_report_text(report: dict) -> str:
         f"Handover rows: {coverage.get('handover_rows', 0)}",
         f"Production certification: {coverage.get('production_certification', False)}",
         f"Note: {coverage.get('operator_note', 'Empty counts mean no source rows were logged in the selected window.')}",
+        "",
+        "Runtime State At Generation",
+        f"Context status: {runtime_state.get('context_status', 'not included')}",
+        f"Operator focus: {runtime_state.get('context_focus', 'not included')}",
+        f"Active incidents: {runtime_state.get('active_incident_count', 'not included')}",
+        f"Active verification tasks: {runtime_state.get('active_verification_tasks', 'not included')}",
+        f"Handover acceptance: {runtime_state.get('handover_acceptance', 'not included')}",
+        f"Latest tick available: {runtime_state.get('latest_tick_available', 'not included')}",
+        f"Read-only boundary: {runtime_state.get('read_only_boundary', 'not included')}",
     ])
     lines.extend([
         "",
@@ -2676,6 +2742,25 @@ def _format_compliance_report_text(report: dict) -> str:
             )
     else:
         lines.append("- No handover entries logged in this period.")
+    lines.extend([
+        "",
+        "Field Verification Tasks",
+        f"Total tasks: {verification.get('count', 0)}",
+        f"Active tasks: {verification.get('active_count', 0)}",
+        f"Handover-required tasks: {verification.get('handover_required_count', 0)}",
+        f"Confidence override: {verification.get('confidence_override', False)}",
+        "Entries:",
+    ])
+    verification_entries = verification.get("entries", []) or []
+    if verification_entries:
+        for task in verification_entries[:20]:
+            lines.append(
+                f"- {task.get('sensor_id', 'UNKNOWN')} / {task.get('state', 'UNKNOWN')} / "
+                f"{task.get('assigned_role', 'Maintenance')} / due {task.get('valid_until', 'n/a')} / "
+                f"handover_required={task.get('handover_required', False)}"
+            )
+    else:
+        lines.append("- No field verification tasks logged for this report profile/window.")
     lines.extend([
         "",
         "Recommendations",
@@ -2757,12 +2842,15 @@ def _build_simple_pdf(text: str) -> bytes:
 @app.post("/api/sandbox/run")
 def run_sandbox(request: SandboxRequest):
     """Run a simulated failure scenario without affecting live data."""
-    from simulator import SensorSimulator
+    from simulator import SensorSimulator, DEFAULT_SENSORS
     from confidence import ConfidenceEngine
     from mass_balance import MassBalanceEngine
 
     # Create isolated instances
-    sim = SensorSimulator()
+    sensors = list(DEFAULT_SENSORS)
+    if request.sensor_id not in {sensor.sensor_id for sensor in sensors}:
+        sensors.append(_sandbox_sensor_config(request.sensor_id))
+    sim = SensorSimulator(sensors=sensors)
     confidence_cfg = confidence_engine_config()
     ce = ConfidenceEngine(
         weights=confidence_cfg["weights"],
@@ -2781,9 +2869,13 @@ def run_sandbox(request: SandboxRequest):
     # Simulate the failure progression
     results = []
     duration_ticks = int(request.duration_hours * 3600 / 60)  # Sample every 60 seconds
+    virtual_start = time.time()
     for i in range(min(duration_ticks, 360)):  # Cap at 360 samples
         time_hours = i * 60 / 3600
         readings = sim.tick()
+        virtual_timestamp = virtual_start + (i * 60)
+        for reading in readings:
+            reading["timestamp"] = virtual_timestamp
         for reading in readings:
             if reading["sensor_id"] != request.sensor_id:
                 continue
@@ -2807,6 +2899,13 @@ def run_sandbox(request: SandboxRequest):
         selected_confidence = next((cr for cr in confidence_payload if cr["sensor_id"] == request.sensor_id), None)
 
         if selected_confidence and selected_reading:
+            mb_applicable = selected_reading.get("sensor_type") in {"level", "flow_in", "flow_out", "valve"}
+            mb_payload = mb_state.to_dict() if mb_applicable else {
+                "applicable": False,
+                "reason": "Selected signal is not part of the inventory mass-balance validation relationship.",
+                "discrepancy": None,
+                "flags": [],
+            }
             _apply_sandbox_confidence_degradation(
                 selected_confidence,
                 request.failure_mode,
@@ -2820,8 +2919,8 @@ def run_sandbox(request: SandboxRequest):
                 "confidence_pct": selected_confidence["confidence_pct"],
                 "tier": selected_confidence["tier"],
                 "reasons": selected_confidence["reasons"][:2],
-                "mass_balance": mb_state.to_dict(),
-                "flags": [f.to_dict() for f in mb_state.flags],
+                "mass_balance": mb_payload,
+                "flags": [f.to_dict() for f in mb_state.flags] if mb_applicable else [],
                 "all_confidence": confidence_payload,
             })
 
@@ -2837,8 +2936,33 @@ def run_sandbox(request: SandboxRequest):
         "severity": request.severity,
         "duration_hours": request.duration_hours,
         "sample_count": len(results),
+        "sample_interval_seconds": 60,
+        "source": "isolated_sandbox_virtual_time",
+        "note": "Sandbox uses virtual timestamps and does not affect live Runtime tags.",
         "results": results,
     }
+
+
+def _sandbox_sensor_config(sensor_id: str):
+    """Create a lightweight simulator config for a metadata-only/model tag."""
+    from simulator import SensorConfig
+
+    normalized = sensor_id.upper().replace("_", "-")
+    if normalized.startswith(("LT", "LIT")):
+        return SensorConfig(sensor_id, "level", "ft", 50.0, 0.3, 0.0, 200.0, 5.0, 600.0)
+    if normalized.startswith(("FI", "FIT")):
+        return SensorConfig(sensor_id, "flow_in", "gpm", 132.0, 2.0, 0.0, 500.0, 10.0, 480.0)
+    if normalized.startswith(("FO", "FOT")):
+        return SensorConfig(sensor_id, "flow_out", "gpm", 118.0, 2.0, 0.0, 500.0, 8.0, 520.0)
+    if normalized.startswith("PT"):
+        return SensorConfig(sensor_id, "pressure", "psi", 21.0, 0.2, 0.0, 100.0, 1.5, 700.0)
+    if normalized.startswith(("TT", "TEMP")):
+        return SensorConfig(sensor_id, "temperature", "F", 350.0, 1.0, 60.0, 800.0, 8.0, 900.0)
+    if normalized.startswith(("ZT", "XV")):
+        return SensorConfig(sensor_id, "valve", "%", 60.0, 0.1, 0.0, 100.0, 0.0, 1.0)
+    if normalized.startswith("VIB"):
+        return SensorConfig(sensor_id, "vibration", "mm/s", 2.4, 0.12, 0.0, 25.0, 0.4, 360.0)
+    return SensorConfig(sensor_id, "generic", "eu", 50.0, 0.5, 0.0, 100.0, 2.0, 600.0)
 
 
 def _apply_sandbox_confidence_degradation(confidence: dict, failure_mode: str, severity: str, time_hours: float) -> None:
@@ -2865,6 +2989,137 @@ def _apply_sandbox_confidence_degradation(confidence: dict, failure_mode: str, s
 
 
 # ─── Health check ────────────────────────────────────────────────────────────
+
+def _readiness_component(status: str, message: str, **details) -> dict:
+    return {
+        "status": status,
+        "message": message,
+        **{key: value for key, value in details.items() if value is not None},
+    }
+
+
+def _count_template_entries(catalog: dict, key: str) -> int:
+    value = catalog.get(key)
+    if isinstance(value, dict):
+        return len(value)
+    if isinstance(value, list):
+        return len(value)
+    return 0
+
+
+def _runtime_readiness_report(plant_id: str, plant, stream_health: str, persistence_health: str) -> dict:
+    """Return operator-facing readiness without making Docker health brittle."""
+    components: dict[str, dict] = {}
+    issues: list[dict] = []
+
+    components["stream"] = _readiness_component(
+        stream_health,
+        "Live simulator/provider stream is ticking." if stream_health == "ok" else "Live stream is warming up or delayed.",
+        recent_plant_loops=sum(1 for status in _plant_loop_status.values() if status.get("status") == "ok"),
+    )
+    if stream_health != "ok":
+        issues.append({"severity": "WARNING", "component": "stream", "message": components["stream"]["message"]})
+
+    components["persistence"] = _readiness_component(
+        persistence_health,
+        "SQLite audit persistence is accepting writes." if persistence_health == "ok" else "SQLite audit persistence is delayed; live Runtime remains read-only.",
+    )
+    if persistence_health in {"degraded", "error"}:
+        issues.append({"severity": "WARNING", "component": "persistence", "message": components["persistence"]["message"]})
+
+    try:
+        model = load_asset_model()
+        components["asset_model"] = _readiness_component(
+            "ok",
+            "Active asset model loaded.",
+            model_key=active_asset_model_key(),
+            plant=model.get("plant", {}).get("name") or model.get("plant", {}).get("id"),
+            signal_count=len(get_signals()),
+            asset_count=len(get_assets()),
+        )
+    except Exception as exc:
+        components["asset_model"] = _readiness_component("error", "Asset model could not be loaded.", error=str(exc))
+        issues.append({"severity": "BLOCKING", "component": "asset_model", "message": str(exc)})
+
+    try:
+        catalog = get_template_catalog()
+        components["template_library"] = _readiness_component(
+            "ok",
+            "Reusable HMI templates loaded.",
+            equipment_templates=_count_template_entries(catalog, "equipment_templates"),
+            signal_templates=_count_template_entries(catalog, "signal_templates"),
+        )
+    except Exception as exc:
+        components["template_library"] = _readiness_component("error", "Template library could not be loaded.", error=str(exc))
+        issues.append({"severity": "BLOCKING", "component": "template_library", "message": str(exc)})
+
+    try:
+        build = studio_current_build()
+        blocking_count = len(build.get("validation", {}).get("blocking", []) or [])
+        components["studio_compiler"] = _readiness_component(
+            "ok" if blocking_count == 0 else "blocked",
+            "Latest Studio build can publish." if build.get("can_publish") else "Latest Studio build is blocked or not ready to publish.",
+            build_id=build.get("build_id"),
+            build_status=str(build.get("status") or "NOT_RUN").upper(),
+            can_publish=bool(build.get("can_publish")),
+            blocking_count=blocking_count,
+        )
+        if blocking_count:
+            issues.append({"severity": "BLOCKING", "component": "studio_compiler", "message": "Compiler has blocking validation issues."})
+    except Exception as exc:
+        components["studio_compiler"] = _readiness_component("error", "Studio compiler state could not be read.", error=str(exc))
+        issues.append({"severity": "BLOCKING", "component": "studio_compiler", "message": str(exc)})
+
+    try:
+        live_state = _runtime_live_state(plant_id, plant)
+        manifest = studio_runtime_manifest(role="Operator", context="auto", live_state=live_state)
+        publish_state = manifest.get("runtime_publish_state") or "UNKNOWN"
+        runtime_status = "ok" if publish_state in {"PUBLISHED", "PUBLISHED_WITH_WARNINGS"} else "preview"
+        components["generated_runtime"] = _readiness_component(
+            runtime_status,
+            "Published generated Runtime is available." if runtime_status == "ok" else "Runtime is available as metadata preview until Studio publishes a passing build.",
+            build_id=manifest.get("build_id"),
+            published_build_id=manifest.get("published_build_id"),
+            runtime_publish_state=publish_state,
+            runtime_source=manifest.get("runtime_source"),
+            faceplate_count=len(manifest.get("faceplates", []) or []),
+            situation_count=len(manifest.get("situations", []) or []),
+            live_binding_status=live_state.get("live_binding_status"),
+        )
+        if runtime_status != "ok":
+            issues.append({"severity": "WARNING", "component": "generated_runtime", "message": components["generated_runtime"]["message"]})
+    except Exception as exc:
+        components["generated_runtime"] = _readiness_component("error", "Generated Runtime manifest failed to hydrate.", error=str(exc))
+        issues.append({"severity": "BLOCKING", "component": "generated_runtime", "message": str(exc)})
+
+    try:
+        channel = build_shift_channel(plant_id, plant)
+        components["shift_channel"] = _readiness_component(
+            "ok",
+            "Shift channel can summarize unresolved operating debt.",
+            pinned_count=len(channel.get("pinned", []) or []),
+            entry_count=len(channel.get("thread", []) or channel.get("entries", []) or []),
+            handover_blocked=bool(channel.get("handover_acceptance_blocked")),
+        )
+    except Exception as exc:
+        components["shift_channel"] = _readiness_component("error", "Shift channel failed to build.", error=str(exc))
+        issues.append({"severity": "WARNING", "component": "shift_channel", "message": str(exc)})
+
+    if any(issue.get("severity") == "BLOCKING" for issue in issues):
+        summary = "blocked"
+    elif issues:
+        summary = "degraded"
+    else:
+        summary = "ready"
+
+    return {
+        "summary": summary,
+        "components": components,
+        "issues": issues,
+        "operator_runtime_ready": components.get("generated_runtime", {}).get("status") == "ok",
+        "read_only_boundary": "ConfidenceOS reads plant/simulator tags and generated metadata only; it does not write controls, modes, setpoints, or alarm acknowledgements.",
+    }
+
 
 @app.get("/api/health")
 def health_check():
@@ -2894,6 +3149,7 @@ def health_check():
         persistence_health = "ok"
     else:
         persistence_health = "warming_up"
+    readiness = _runtime_readiness_report("plant-a", plant_a, stream_health, persistence_health)
 
     return {
         "status": "ok",
@@ -2914,6 +3170,8 @@ def health_check():
         "stream_health": stream_health,
         "persistence_health": persistence_health,
         "db_status": "writing" if any(s.get("status") == "ok" for s in _plant_loop_status.values()) else "warming_up",
+        "readiness": readiness,
+        "readiness_summary": readiness.get("summary"),
         "mode": plant_a.startup_manager.mode_name,
         "scope": "judge-ready prototype; deterministic trust scoring; not a certified control or safety system",
         "read_only_contract": "ConfidenceOS reads simulator/provider tags and generates trust-aware HMI views; it does not write control commands.",
