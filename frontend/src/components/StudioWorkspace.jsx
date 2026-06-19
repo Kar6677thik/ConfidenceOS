@@ -21,6 +21,22 @@ function modelLabel(value) {
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
+function compilerStatusText(build) {
+  const status = String(build?.status || 'NOT_RUN').toUpperCase();
+  if (build?.can_publish) return 'Ready to publish';
+  if (status === 'FAILED') return 'Blocked by guardrails';
+  if (status === 'PASS_WITH_WARNINGS') return 'Passed with warnings';
+  if (status === 'PASS') return 'Build passed';
+  return 'Awaiting build';
+}
+
+function publishGateText(build) {
+  if (build?.can_publish) return 'publish gate: ready after engineering review';
+  const blocking = build?.validation?.blocking?.length || 0;
+  if (blocking) return `publish gate: ${blocking} blocking issue${blocking === 1 ? '' : 's'} to clear`;
+  return 'publish gate: run build to evaluate readiness';
+}
+
 function selectBestMappingItem(items, currentRawTag) {
   if (!items?.length) return '';
   if (currentRawTag && items.some((item) => item.raw_tag === currentRawTag)) return currentRawTag;
@@ -368,12 +384,12 @@ export default function StudioWorkspace() {
           <span className={`hmi-status-symbol ${build?.can_publish ? 'normal' : 'p2'}`}>{build?.can_publish ? 'N' : '2'}</span>
           <div className="min-w-0">
             <p className="label-caps text-[var(--text-muted)]">HMI Compiler</p>
-            <p className="caption-mono font-semibold truncate">Raw Tags {'->'} Asset Graph {'->'} Template Binding {'->'} Runtime</p>
+            <p className="caption-mono font-semibold truncate">Raw Tags {'->'} Asset Graph {'->'} Template Binding {'->'} Publish Readiness {'->'} Runtime</p>
           </div>
         </div>
         <div className="hmi-band-cell">
-          <span className={`caption-mono font-semibold ${statusClass(build?.status || 'NOT_RUN')}`}>{build?.status || 'NOT_RUN'}</span>
-          <span className="caption-mono text-[var(--text-muted)]">publish gate: {build?.can_publish ? 'ready' : 'blocked until validation clears'}</span>
+          <span className={`caption-mono font-semibold ${statusClass(build?.status || 'NOT_RUN')}`}>{compilerStatusText(build)}</span>
+          <span className="caption-mono text-[var(--text-muted)]">{publishGateText(build)}</span>
           <span className="caption-mono text-[var(--text-dim)]">{build?.build_id || 'no build run yet'}</span>
         </div>
         <div className="hmi-band-cell justify-end">

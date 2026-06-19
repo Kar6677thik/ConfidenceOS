@@ -54,6 +54,29 @@ function displayText(value) {
   return String(value);
 }
 
+function signalDisplayValue(signal, { includeUnit = true } = {}) {
+  const trust = signalTrustState(signal);
+  const rawValue = signal?.value;
+  const unavailable = ['METADATA_ONLY', 'NO_LIVE_SAMPLE', 'UNAVAILABLE'].includes(trust.tier);
+  if (rawValue == null || rawValue === '--' || typeof rawValue === 'object' || unavailable) {
+    if (trust.tier === 'UNAVAILABLE') return 'provider unavailable';
+    if (trust.tier === 'NO_LIVE_SAMPLE') return 'sample pending';
+    return 'metadata binding';
+  }
+  const numeric = Number(rawValue);
+  const formatted = Number.isFinite(numeric) ? numeric.toFixed(Math.abs(numeric) >= 100 ? 0 : 1) : String(rawValue);
+  return `${formatted}${includeUnit && signal?.unit ? ` ${signal.unit}` : ''}`;
+}
+
+function signalSourceNote(signal) {
+  const trust = signalTrustState(signal);
+  if (trust.tier === 'UNAVAILABLE') return 'Live provider reported unavailable.';
+  if (trust.tier === 'NO_LIVE_SAMPLE') return 'Awaiting the next live provider sample.';
+  if (trust.tier === 'METADATA_ONLY') return 'Generated from asset model; no live provider sample is bound yet.';
+  if (trust.tier === 'NO_CONFIDENCE_RESULT') return 'Live value present; confidence calculation is pending.';
+  return trust.pct != null ? `${formatText(trust.tier)} trust / ${trust.pct}%` : `${formatText(trust.tier)} trust`;
+}
+
 function asList(value) {
   if (Array.isArray(value)) return value.filter(Boolean);
   if (value == null || value === '') return [];
@@ -197,6 +220,19 @@ function buildBasisLines(manifest) {
   ];
 }
 
+function runtimeModeLabel(manifest) {
+  const publish = runtimeStatusLabel(manifest?.runtime_publish_state || manifest?.validation_status || 'LIVE');
+  const binding = formatText(manifest?.live_binding_status || 'live tags');
+  if (manifest?.runtime_preview) return `${publish} / metadata preview`;
+  return `${publish} / ${binding}`;
+}
+
+function primaryBasisStatement(manifest, situations) {
+  const basisLines = buildBasisLines(manifest);
+  const active = basisLines.find((line) => line.status === 'active');
+  return active?.statement || situations?.[0]?.title || basisLines[0]?.statement || 'Normal operation. No abnormal operating basis active.';
+}
+
 function decisionScore(situation, confidence) {
   const affected = asList(situation?.affected_sensors);
   const score = situation?.decision_time_score || situation?.interaction_compression_estimate || {};
@@ -233,14 +269,14 @@ function TrustStatusSymbol({ state }) {
 
 function HmiLiveValue({ signal }) {
   const trust = signalTrustState(signal);
-  const isMetadataOnly = trust.tier === 'METADATA_ONLY' || trust.tier === 'NO_LIVE_SAMPLE';
-  const value = isMetadataOnly || signal.value == null || typeof signal.value === 'object'
-    ? (trust.tier === 'NO_LIVE_SAMPLE' ? 'no live sample' : 'metadata-only')
-    : signal.value;
+  const isLiveValue = !['METADATA_ONLY', 'NO_LIVE_SAMPLE', 'UNAVAILABLE'].includes(trust.tier)
+    && signal.value != null
+    && signal.value !== '--'
+    && typeof signal.value !== 'object';
   return (
-    <span className="hmi-live-value" title={`${signal.tag} ${formatText(trust.tier)}`}>
-      <span>{value}</span>
-      {!isMetadataOnly && signal.unit && <span className="text-[11px] font-normal">{signal.unit}</span>}
+    <span className="hmi-live-value" title={`${signal.tag || 'generated signal'} - ${signalSourceNote(signal)}`}>
+      <span>{signalDisplayValue(signal, { includeUnit: false })}</span>
+      {isLiveValue && signal.unit && <span className="text-[11px] font-normal">{signal.unit}</span>}
     </span>
   );
 }
@@ -313,7 +349,7 @@ function TrustMapEdgeNav({ navigation, faceplates, selectedId, onSelect, situati
   );
 }
 
-function ProcessCanvas({ manifest, faceplates, readings, confidence, onSelect }) {
+function ProcessCanvas({ manifest, faceplates, readings, confidence, situations, onSelect }) {
   const vessel = faceplates.find((item) => /vessel|tank/i.test(`${item.template_id} ${item.template_label} ${item.title}`)) || faceplates[0];
   const pump = faceplates.find((item) => /pump/i.test(`${item.template_id} ${item.template_label} ${item.title}`));
   const valve = faceplates.find((item) => /valve/i.test(`${item.template_id} ${item.template_label} ${item.title}`));
@@ -325,6 +361,9 @@ function ProcessCanvas({ manifest, faceplates, readings, confidence, onSelect })
   const levelTrust = signalTrustState(level);
   const levelHeight = Number.isFinite(Number(level.value)) ? Math.max(8, Math.min(86, Number(level.value))) : 42;
   const title = manifest?.process_mimic?.relationship_label || manifest?.navigation?.name || 'Generated process mimic';
+  const basisStatement = primaryBasisStatement(manifest, situations);
+  const publishState = manifest?.runtime_publish_state || manifest?.validation_status || 'LIVE';
+  const previewLike = manifest?.runtime_preview || String(publishState).toUpperCase() === 'NOT_PUBLISHED';
 
   return (
     <section className="hmi-process-area">
@@ -333,8 +372,16 @@ function ProcessCanvas({ manifest, faceplates, readings, confidence, onSelect })
           <p className="label-caps text-[var(--text-muted)]">Level 2 Unit Overview / Generated Process Graphic</p>
           <h1 className="m-0 text-[16px] leading-[18px] font-bold truncate">{title}</h1>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <span className="caption-mono text-[var(--text-muted)]">confidence score is a governed trust rubric, not probability</span>
+        <div className="hmi-runtime-basis">
+          <div className="min-w-0">
+            <p className="label-caps text-[var(--text-muted)]">Operating Basis</p>
+            <p className={`caption-mono font-semibold truncate ${previewLike ? 'status-warning' : 'text-[var(--text)]'}`} title={basisStatement}>
+              {basisStatement}
+            </p>
+          </div>
+          <span className={`industrial-badge ${previewLike ? 'status-warning' : 'status-safe'}`} title={manifest?.runtime_notice || runtimeModeLabel(manifest)}>
+            {runtimeModeLabel(manifest)}
+          </span>
         </div>
       </div>
       <div className="hmi-process-canvas">
@@ -426,7 +473,7 @@ function ProcessCanvas({ manifest, faceplates, readings, confidence, onSelect })
           <foreignObject x="36" y="28" width="430" height="92">
             <div xmlns="http://www.w3.org/1999/xhtml" className="hmi-operation-note">
               <p className="label-caps text-[var(--text-muted)]">Operating Basis</p>
-              <p className="caption-mono font-semibold mt-1">{basis.abnormal_situation || 'No abnormal situation active.'}</p>
+              <p className="caption-mono font-semibold mt-1">{displayText(basis.abnormal_situation) || 'No abnormal situation active.'}</p>
               <p className="caption-mono text-[var(--text-muted)] mt-1">{asList(basis.evidence).slice(0, 2).map(displayText).filter(Boolean).join(' / ') || 'live process values within operating basis'}</p>
             </div>
           </foreignObject>
@@ -634,11 +681,10 @@ function GeneratedFaceplate({ faceplate, readings, confidence, compact = false, 
         <tbody>
           {signals.slice(0, compact ? 4 : 8).map((signal) => {
             const trust = signalTrustState(signal);
-            const unavailable = ['METADATA_ONLY', 'NO_LIVE_SAMPLE'].includes(trust.tier);
             return (
               <tr key={signal.tag}>
                 <td>{signal.tag}</td>
-                <td>{unavailable ? formatText(trust.tier) : `${signal.value} ${signal.unit || ''}`}</td>
+                <td title={signalSourceNote(signal)}>{signalDisplayValue(signal)}</td>
                 <td><span className={statusClass(trust.tier)}>{formatText(trust.tier)}{trust.pct != null ? ` / ${trust.pct}%` : ''}</span></td>
               </tr>
             );
@@ -1246,6 +1292,7 @@ export default function RuntimePlatform() {
             faceplates={faceplates}
             readings={readings}
             confidence={confidence}
+            situations={situations}
             onSelect={setSelected}
           />
           <aside className="hmi-dock">

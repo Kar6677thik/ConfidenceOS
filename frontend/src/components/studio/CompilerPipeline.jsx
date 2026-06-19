@@ -11,6 +11,15 @@ const STAGE_LABELS = {
   runtime: 'Runtime',
 };
 
+const STAGE_PURPOSE = {
+  import: 'Raw provider tags loaded from the selected asset model source.',
+  mapping: 'Tags proposed against canonical signals with evidence and approval state.',
+  template_binding: 'Reusable equipment templates bound to available signal roles.',
+  validation: 'Guardrails check missing signals, role visibility, and critical context behavior.',
+  screen_generation: 'Runtime manifests, faceplates, receipts, and stress panels generated.',
+  publish_readiness: 'Publish allowed only when blocking issues are cleared.',
+};
+
 const STATUS_LABELS = {
   PASS: 'PASS',
   PASS_WITH_WARNINGS: 'WARN',
@@ -52,7 +61,7 @@ export default function CompilerPipeline({ build }) {
               </span>
             </div>
             <p className="caption-mono text-[var(--text)] mt-3">{stage.label || STAGE_LABELS[stage.id] || formatText(stage.id)}</p>
-            <p className="caption-mono text-[var(--text-muted)] mt-2">{formatText(stage.status || 'NOT_RUN')}</p>
+            <p className="caption-mono text-[var(--text-muted)] mt-2">{STAGE_PURPOSE[stage.id] || formatText(stage.status || 'NOT_RUN')}</p>
           </div>
         ))}
       </div>

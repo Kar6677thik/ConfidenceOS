@@ -269,9 +269,11 @@ button:disabled { cursor: not-allowed; }
 
 .machine-token {
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   overflow-wrap: normal;
   word-break: normal;
-  white-space: normal;
+  white-space: nowrap;
   hyphens: none;
 }
 
@@ -359,9 +361,13 @@ button:disabled { cursor: not-allowed; }
 
 .studio-pipeline-stage {
   min-width: 0;
-  min-height: 112px;
+  min-height: 136px;
   padding: 12px;
   background: var(--surface-panel);
+}
+
+.studio-pipeline-stage .caption-mono {
+  overflow-wrap: anywhere;
 }
 
 .studio-pipeline-stage .industrial-badge {
@@ -395,7 +401,7 @@ button:disabled { cursor: not-allowed; }
 .forensics-toolbar {
   flex-shrink: 0;
   display: grid;
-  grid-template-columns: auto minmax(260px, 420px) auto minmax(360px, 1fr) auto auto;
+  grid-template-columns: auto minmax(280px, 1fr) auto auto auto;
   align-items: center;
   gap: 12px;
   padding: 12px 20px;
@@ -420,7 +426,9 @@ button:disabled { cursor: not-allowed; }
 }
 
 .forensics-scrubber {
-  min-width: 360px;
+  grid-column: 1 / -1;
+  grid-row: 2;
+  min-width: 0;
 }
 
 .forensics-speed-group {
@@ -445,20 +453,14 @@ button:disabled { cursor: not-allowed; }
 
 @media (max-width: 1500px) {
   .forensics-toolbar {
-    grid-template-columns: auto minmax(260px, 1fr) auto auto auto;
-  }
-
-  .forensics-scrubber {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    min-width: 0;
+    grid-template-columns: auto minmax(240px, 1fr) auto auto;
   }
 }
 
 .engineer-sensor-rail {
-  width: 320px;
-  min-width: 300px;
-  max-width: 360px;
+  width: 360px;
+  min-width: 340px;
+  max-width: 400px;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
@@ -481,6 +483,10 @@ button:disabled { cursor: not-allowed; }
   background: transparent;
 }
 
+.engineer-sensor-button .machine-token {
+  display: block;
+}
+
 .engineer-detail-header {
   display: flex;
   align-items: flex-end;
@@ -491,7 +497,7 @@ button:disabled { cursor: not-allowed; }
 
 @media (max-width: 1250px) {
   .forensics-toolbar {
-    grid-template-columns: auto minmax(220px, 1fr) auto auto;
+    grid-template-columns: auto minmax(220px, 1fr) auto;
   }
 
   .forensics-scrubber {
@@ -592,6 +598,15 @@ button:disabled { cursor: not-allowed; }
   padding: 6px 14px;
   background: var(--surface-elevated);
   border-bottom: 1px solid var(--border-strong);
+}
+
+.hmi-runtime-basis {
+  min-width: 360px;
+  max-width: min(680px, 58%);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
 }
 
 .hmi-process-canvas {
@@ -833,6 +848,17 @@ button:disabled { cursor: not-allowed; }
 
   .hmi-edge-button {
     min-width: 86px;
+  }
+
+  .hmi-process-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .hmi-runtime-basis {
+    min-width: 0;
+    max-width: 100%;
+    width: 100%;
   }
 
   .studio-professional-layout {

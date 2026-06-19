@@ -21,7 +21,87 @@ function formatValue(value) {
   if (typeof value === 'boolean') return value ? 'yes' : 'no';
   if (typeof value === 'number') return Number.isInteger(value) ? String(value) : value.toFixed(2);
   if (typeof value !== 'object') return String(value);
-  return 'structured evidence';
+  return summarizeEvidence(value);
+}
+
+function titleize(value) {
+  return String(value || '')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function summarizeEvidence(value) {
+  if (value == null) return 'not logged';
+  if (Array.isArray(value)) return `${value.length} row${value.length === 1 ? '' : 's'}`;
+  if (typeof value !== 'object') return formatValue(value);
+  const preferred = value.title
+    || value.name
+    || value.sensor_id
+    || value.task_id
+    || value.state
+    || value.status
+    || value.action
+    || value.description
+    || value.message
+    || value.note;
+  if (preferred) return String(preferred);
+  const entries = Object.entries(value).filter(([, item]) => item !== null && item !== undefined && typeof item !== 'object');
+  if (!entries.length) return 'structured evidence attached';
+  return entries.slice(0, 3).map(([key, item]) => `${titleize(key)}: ${formatValue(item)}`).join(' / ');
+}
+
+function sectionLabel(key) {
+  const labels = {
+    data_coverage: 'Data Coverage',
+    runtime_state_at_generation: 'Runtime State At Generation',
+    alarm_summary: 'Collapsed Situation / Alarm Evidence',
+    sensor_reliability: 'Instrument Trust Evidence',
+    shift_handover_log: 'Shift Handover Evidence',
+    mass_balance_summary: 'Mass-Balance Evidence',
+    field_verification_tasks: 'Field Verification Tasks',
+    recommendations: 'Deterministic Recommendations',
+  };
+  return labels[key] || titleize(key);
+}
+
+function reportSummary(report) {
+  const sections = report?.sections || {};
+  const coverage = sections.data_coverage || {};
+  const runtime = sections.runtime_state_at_generation || {};
+  const alarm = sections.alarm_summary || {};
+  const verification = sections.field_verification_tasks || {};
+  const massBalance = sections.mass_balance_summary || {};
+  return [
+    {
+      label: 'Logged Evidence Rows',
+      value: [
+        `${coverage.anomaly_rows ?? 0} anomalies`,
+        `${coverage.mass_balance_rows ?? 0} mass-balance`,
+        `${coverage.verification_task_rows ?? verification.count ?? 0} verification`,
+      ].join(' / '),
+      status: (coverage.anomaly_rows || coverage.mass_balance_rows || coverage.verification_task_rows) ? 'status-warning' : 'text-[var(--text-muted)]',
+    },
+    {
+      label: 'Runtime Context',
+      value: runtime.context_status || 'not evaluated',
+      status: ['CRITICAL', 'WARNING', 'MASS_BALANCE_DIVERGENCE'].includes(String(runtime.context_status || '').toUpperCase()) ? 'status-warning' : 'status-safe',
+    },
+    {
+      label: 'Collapsed Situation Evidence',
+      value: `${alarm.total_alarms ?? 0} rows / ${massBalance.total_flags ?? 0} mass-balance flags`,
+      status: (alarm.total_alarms || massBalance.total_flags) ? 'status-warning' : 'text-[var(--text-muted)]',
+    },
+    {
+      label: 'Handover Gate',
+      value: runtime.handover_acceptance || 'not evaluated',
+      status: String(runtime.handover_acceptance || '').includes('blocked') ? 'status-critical' : 'text-[var(--text-muted)]',
+    },
+    {
+      label: 'Verification State',
+      value: `${verification.active_count ?? 0} active / ${verification.handover_required_count ?? 0} handover-required`,
+      status: verification.handover_required_count ? 'status-critical' : 'status-safe',
+    },
+  ];
 }
 
 function EvidenceRows({ value, depth = 0 }) {
@@ -32,7 +112,10 @@ function EvidenceRows({ value, depth = 0 }) {
     return (
       <div className="space-y-2">
         {value.slice(0, 12).map((item, index) => (
-          <div key={`${depth}-${index}`} className="border border-[var(--border)] bg-[var(--surface-panel)] px-3 py-2">
+          <div key={`${depth}-${index}`} className="border border-[var(--border)] bg-[var(--surface-panel)] px-3 py-2 min-w-0">
+            {typeof item === 'object' && item !== null && (
+              <p className="caption-mono text-[var(--text)] font-semibold mb-2 break-words">{summarizeEvidence(item)}</p>
+            )}
             <EvidenceRows value={item} depth={depth + 1} />
           </div>
         ))}
@@ -53,12 +136,12 @@ function EvidenceRows({ value, depth = 0 }) {
     return (
       <div className={depth > 1 ? 'space-y-1' : 'grid grid-cols-1 lg:grid-cols-2 gap-3'}>
         {entries.map(([key, itemValue]) => (
-          <div key={key} className={depth > 1 ? 'caption-mono text-[var(--text-muted)]' : 'border border-[var(--border)] bg-[var(--surface-panel)] px-3 py-2 min-w-0'}>
-            <p className="label-caps text-[var(--text-muted)] mb-1">{key.replace(/_/g, ' ')}</p>
+          <div key={key} className={depth > 1 ? 'caption-mono text-[var(--text-muted)] min-w-0' : 'border border-[var(--border)] bg-[var(--surface-panel)] px-3 py-2 min-w-0'}>
+            <p className="label-caps text-[var(--text-muted)] mb-1">{titleize(key)}</p>
             {typeof itemValue === 'object' && itemValue !== null ? (
               <EvidenceRows value={itemValue} depth={depth + 1} />
             ) : (
-              <p className="caption-mono text-[var(--text)]">{formatValue(itemValue)}</p>
+              <p className="caption-mono text-[var(--text)] break-words">{formatValue(itemValue)}</p>
             )}
           </div>
         ))}
@@ -106,6 +189,8 @@ export default function CompliancePortal() {
     link.click();
     URL.revokeObjectURL(url);
   };
+
+  const summary = reportSummary(report);
 
   return (
     <div className="industrial-page flex overflow-hidden">
@@ -202,17 +287,28 @@ export default function CompliancePortal() {
                   <p className="caption-mono text-[var(--text-muted)] mt-2">
                     {report.plant_name} / {report.period_hours}h window / {report.included_sections?.length || 0} sections
                   </p>
+                  <p className="caption-mono text-[var(--text-dim)] mt-2">
+                    Evidence appendix from logged Runtime data. Empty counts mean no source rows were logged, not that the plant was proven healthy.
+                  </p>
                 </div>
                 <span className="industrial-badge text-[var(--text-muted)] border-[var(--border)]">Unsigned</span>
               </div>
             </div>
 
+            <div className="grid grid-cols-1 xl:grid-cols-5 gap-[1px] bg-[var(--border-strong)]">
+              {summary.map((item) => (
+                <div key={item.label} className="bg-[var(--surface-panel)] border border-[var(--border)] p-4 min-w-0">
+                  <p className="label-caps text-[var(--text-muted)]">{item.label}</p>
+                  <p className={`caption-mono mt-2 break-words ${item.status}`}>{item.value}</p>
+                </div>
+              ))}
+            </div>
+
             {report.sections && Object.entries(report.sections).map(([key, section]) => (
               <div key={key} className="industrial-card">
                 <div className="industrial-card-header">
-                  <p className="text-[14px] font-semibold text-[var(--text)] capitalize">
-                    {key.replace(/_/g, ' ')}
-                  </p>
+                  <p className="text-[14px] font-semibold text-[var(--text)]">{sectionLabel(key)}</p>
+                  <p className="caption-mono text-[var(--text-muted)]">{summarizeEvidence(section)}</p>
                 </div>
                 <div className="p-4">
                   <EvidenceRows value={section} />

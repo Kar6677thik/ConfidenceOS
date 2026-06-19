@@ -131,6 +131,7 @@ BASE_MB_TOLERANCE = DEFAULT_TOLERANCE
 _confidence_log_counter: dict[str, int] = {}
 CONFIDENCE_LOG_INTERVAL = max(1, int(os.getenv("CONFIDENCEOS_CONFIDENCE_LOG_INTERVAL", "10")))  # log every N ticks
 PERSIST_READINGS_INTERVAL = max(1, int(os.getenv("CONFIDENCEOS_PERSIST_READINGS_INTERVAL", "10")))
+VERIFICATION_SYNC_INTERVAL = max(1, int(os.getenv("CONFIDENCEOS_VERIFICATION_SYNC_INTERVAL", "5")))
 _plant_loop_status: dict[str, dict] = {}
 
 # Serialize all plant-loop DB writes through one in-process lock so the
@@ -466,80 +467,87 @@ async def _plant_tick_loop(plant_id: str, plant, start_delay: float = 0.0):
 
                 persistence_status = "not_run"
                 persistence_error = None
-                # Only one plant loop commits at a time (in-process serialization).
-                await _db_write_lock.acquire()
-                try:
-                    db = SessionLocal()
-                    plant.verification_tokens = sync_auto_tasks(
-                        db,
-                        plant_id=plant_id,
-                        incidents=plant.latest_incidents,
-                        confidence=confidence_data,
-                        plant_context=plant.latest_context,
-                        now=now,
-                        commit=False,
-                    )
+                should_sync_verification = tick_count % VERIFICATION_SYNC_INTERVAL == 0
+                should_persist_readings = tick_count % PERSIST_READINGS_INTERVAL == 0
+                should_persist_confidence = tick_count % CONFIDENCE_LOG_INTERVAL == 0
+                should_write_db = bool(pending_anomalies) or should_sync_verification or should_persist_readings or should_persist_confidence
 
-                    for sensor_id, anomaly_type, description, severity in pending_anomalies:
-                        log_anomaly(
-                            db,
-                            sensor_id,
-                            anomaly_type,
-                            description,
-                            severity,
-                            plant_id=plant_id,
-                            commit=False,
-                        )
-
-                    if tick_count % PERSIST_READINGS_INTERVAL == 0:
-                        for r in readings:
-                            db_reading = SensorReadingModel(
+                if should_write_db:
+                    # Only one plant loop commits at a time (in-process serialization).
+                    await _db_write_lock.acquire()
+                    try:
+                        db = SessionLocal()
+                        if should_sync_verification:
+                            plant.verification_tokens = sync_auto_tasks(
+                                db,
                                 plant_id=plant_id,
-                                sensor_id=r["sensor_id"],
-                                sensor_type=r["sensor_type"],
-                                value=r["value"],
-                                unit=r["unit"],
-                                timestamp=datetime.fromtimestamp(r["timestamp"]),
-                                failure_mode=r["failure_mode"],
-                            )
-                            db.add(db_reading)
-
-                    if tick_count % CONFIDENCE_LOG_INTERVAL == 0:
-                        for cr in confidence_results:
-                            log_confidence(
-                                db, plant_id, cr.sensor_id,
-                                cr.confidence_pct, cr.tier,
-                                sub_scores={
-                                    "calibration": cr.sub_scores.calibration_score,
-                                    "stability": cr.sub_scores.stability_score,
-                                    "cross_sensor": cr.sub_scores.cross_sensor_score,
-                                    "physical_plausibility": cr.sub_scores.physical_plausibility_score,
-                                }
+                                incidents=plant.latest_incidents,
+                                confidence=confidence_data,
+                                plant_context=plant.latest_context,
+                                now=now,
+                                commit=False,
                             )
 
-                    db.commit()
-                    persistence_status = "ok"
-                except OperationalError as exc:
-                    if db:
-                        db.rollback()
-                    persistence_error = str(exc)
-                    if "database is locked" in persistence_error.lower():
-                        persistence_status = "skipped_locked"
-                        print(f"[PlantTick] Persistence skipped for {plant_id}: database is locked")
-                    else:
+                        for sensor_id, anomaly_type, description, severity in pending_anomalies:
+                            log_anomaly(
+                                db,
+                                sensor_id,
+                                anomaly_type,
+                                description,
+                                severity,
+                                plant_id=plant_id,
+                                commit=False,
+                            )
+
+                        if should_persist_readings:
+                            for r in readings:
+                                db_reading = SensorReadingModel(
+                                    plant_id=plant_id,
+                                    sensor_id=r["sensor_id"],
+                                    sensor_type=r["sensor_type"],
+                                    value=r["value"],
+                                    unit=r["unit"],
+                                    timestamp=datetime.fromtimestamp(r["timestamp"]),
+                                    failure_mode=r["failure_mode"],
+                                )
+                                db.add(db_reading)
+
+                        if should_persist_confidence:
+                            for cr in confidence_results:
+                                log_confidence(
+                                    db, plant_id, cr.sensor_id,
+                                    cr.confidence_pct, cr.tier,
+                                    sub_scores={
+                                        "calibration": cr.sub_scores.calibration_score,
+                                        "stability": cr.sub_scores.stability_score,
+                                        "cross_sensor": cr.sub_scores.cross_sensor_score,
+                                        "physical_plausibility": cr.sub_scores.physical_plausibility_score,
+                                    }
+                                )
+
+                        db.commit()
+                        persistence_status = "ok"
+                    except OperationalError as exc:
+                        if db:
+                            db.rollback()
+                        persistence_error = str(exc)
+                        if "database is locked" in persistence_error.lower():
+                            persistence_status = "skipped_locked"
+                            print(f"[PlantTick] Persistence skipped for {plant_id}: database is locked")
+                        else:
+                            persistence_status = "error"
+                            print(f"[PlantTick] Persistence error in {plant_id}: {exc}")
+                    except Exception as exc:
+                        if db:
+                            db.rollback()
                         persistence_status = "error"
+                        persistence_error = str(exc)
                         print(f"[PlantTick] Persistence error in {plant_id}: {exc}")
-                except Exception as exc:
-                    if db:
-                        db.rollback()
-                    persistence_status = "error"
-                    persistence_error = str(exc)
-                    print(f"[PlantTick] Persistence error in {plant_id}: {exc}")
-                finally:
-                    if db:
-                        db.close()
-                        db = None
-                    _db_write_lock.release()
+                    finally:
+                        if db:
+                            db.close()
+                            db = None
+                        _db_write_lock.release()
 
                 plant.latest_confidence_debt = update_confidence_debt(
                     plant.confidence_debt_state,
@@ -3164,15 +3172,15 @@ def _runtime_readiness_report(plant_id: str, plant, stream_health: str, persiste
         build = studio_current_build()
         blocking_count = len(build.get("validation", {}).get("blocking", []) or [])
         components["studio_compiler"] = _readiness_component(
-            "ok" if blocking_count == 0 else "blocked",
-            "Latest Studio build can publish." if build.get("can_publish") else "Latest Studio build is blocked or not ready to publish.",
+            "ok" if blocking_count == 0 else "publish_blocked",
+            "Latest Studio build can publish." if build.get("can_publish") else "Studio publish gate is blocked by engineering validation; live Runtime remains available.",
             build_id=build.get("build_id"),
             build_status=str(build.get("status") or "NOT_RUN").upper(),
             can_publish=bool(build.get("can_publish")),
             blocking_count=blocking_count,
         )
         if blocking_count:
-            issues.append({"severity": "BLOCKING", "component": "studio_compiler", "message": "Compiler has blocking validation issues."})
+            issues.append({"severity": "WARNING", "component": "studio_compiler", "message": "Studio publish gate has blocking validation issues."})
     except Exception as exc:
         components["studio_compiler"] = _readiness_component("error", "Studio compiler state could not be read.", error=str(exc))
         issues.append({"severity": "BLOCKING", "component": "studio_compiler", "message": str(exc)})
