@@ -14,7 +14,6 @@ from pydantic import BaseModel
 
 import deps
 from auth import require_role
-from asset_model import active_asset_model_key
 from model_graph import get_assets, get_model_graph, get_navigation, get_signals
 from screen_generator import equipment_manifest, generate_screen_manifest
 from template_library import get_template_catalog
@@ -78,9 +77,12 @@ def _annotate_generated_preview(manifest: dict, live_state: dict) -> dict:
     if callable(annotate):
         return annotate(manifest, live_state)
     publish_state = str(manifest.get("runtime_publish_state") or manifest.get("validation_status") or "").upper()
-    preview = publish_state in {"NOT_PUBLISHED", "FAILED", "BLOCKED"}
+    authority = manifest.get("runtime_authority") or ("published" if publish_state.startswith("PUBLISHED") else "preview")
+    preview = authority != "published" or publish_state in {"NOT_PUBLISHED", "FAILED", "BLOCKED"}
     return {
         **manifest,
+        "runtime_authority": authority,
+        "operator_authoritative": authority == "published",
         "plant_id": live_state.get("plant_id", "plant-a"),
         "runtime_preview": preview,
         "live_binding_status": live_state.get("live_binding_status", "metadata_only_no_live_tags"),
@@ -91,10 +93,13 @@ def _annotate_generated_preview(manifest: dict, live_state: dict) -> dict:
     }
 
 
-def _runtime_live_state(plant_id: str, plant) -> dict:
+def _runtime_live_state(plant_id: str, plant, model_key: str | None = None) -> dict:
     live_state = getattr(deps, "runtime_live_state", None)
     if callable(live_state):
-        return live_state(plant_id, plant)
+        try:
+            return live_state(plant_id, plant, model_key=model_key)
+        except TypeError:
+            return live_state(plant_id, plant)
     return _fallback_runtime_live_state(plant_id, plant)
 
 
@@ -136,19 +141,19 @@ class StudioTemplateMutationRequest(BaseModel):
 # ── Model / asset graph routes ────────────────────────────────────────────────
 
 @router.get("/api/model/graph")
-def get_model_graph_endpoint():
-    return get_model_graph()
+def get_model_graph_endpoint(model_key: Optional[str] = Query(default=None)):
+    return get_model_graph(model_key=model_key)
 
 
 @router.get("/api/model/assets")
-def get_model_assets():
-    assets = get_assets()
+def get_model_assets(model_key: Optional[str] = Query(default=None)):
+    assets = get_assets(model_key=model_key)
     return {"assets": assets, "count": len(assets)}
 
 
 @router.get("/api/model/signals")
-def get_model_signals():
-    signals = get_signals()
+def get_model_signals(model_key: Optional[str] = Query(default=None)):
+    signals = get_signals(model_key=model_key)
     return {"signals": signals, "count": len(signals), "source": "asset_model.json"}
 
 
@@ -164,19 +169,40 @@ def get_generated_screens(
     role: str = Query(default="Operator"),
     context: str = Query(default="auto"),
     plant_id: str = Query(default="plant-a"),
+    model_key: Optional[str] = Query(default=None),
 ):
     plant = plant_manager.get(plant_id)
-    live_state = _runtime_live_state(plant_id, plant)
+    live_state = _runtime_live_state(plant_id, plant, model_key=model_key)
     try:
-        manifest = studio_runtime_manifest(role=role, context=context, live_state=live_state)
+        manifest = studio_runtime_manifest(role=role, context=context, live_state=live_state, model_key=model_key)
+        if manifest.get("runtime_authority") != "published" and role not in {"Engineer", "Manager"}:
+            raise HTTPException(status_code=409, detail={
+                "runtime_authority": manifest.get("runtime_authority", "preview"),
+                "operator_authoritative": False,
+                "model_key": manifest.get("model_key") or model_key,
+                "reason": manifest.get("runtime_notice") or "No published Runtime exists for this asset model.",
+                "read_only_trust_layer": True,
+            })
         return _annotate_generated_preview(manifest, live_state)
+    except HTTPException:
+        raise
     except Exception as exc:
-        assignments = studio_overview().get("state", {}).get("assignments", [])
+        if role not in {"Engineer", "Manager"}:
+            raise HTTPException(status_code=503, detail={
+                "runtime_authority": "unavailable",
+                "operator_authoritative": False,
+                "model_key": model_key,
+                "reason": "Published Runtime manifest could not be hydrated.",
+                "error": str(exc),
+                "read_only_trust_layer": True,
+            })
+        assignments = studio_overview(model_key).get("state", {}).get("assignments", [])
         manifest = generate_screen_manifest(
             role=role, context=context, live_state=live_state, assignments=assignments,
             build_context={
                 "build_id": "runtime-fallback",
                 "validation_status": "PASS_WITH_WARNINGS",
+                "model_key": model_key,
                 "validation": {
                     "info": [{"rule": "runtime_fallback_generation",
                               "message": "Generated fallback Runtime because published manifest hydration failed."}],
@@ -187,17 +213,20 @@ def get_generated_screens(
                                "message": "Runtime fallback generated from asset model and template assignments.",
                                "source": "api/screens/generated"}],
             },
+            model_key=model_key,
         )
         return _annotate_generated_preview({**manifest, "runtime_source": "fallback_runtime_generation",
+                                            "runtime_authority": "fallback",
+                                            "operator_authoritative": False,
                                             "runtime_warning": str(exc)}, live_state)
 
 
 # ── Runtime navigation / situations ──────────────────────────────────────────
 
 @router.get("/api/runtime/navigation")
-def get_runtime_navigation():
+def get_runtime_navigation(model_key: Optional[str] = Query(default=None)):
     return {
-        "navigation": get_navigation(),
+        "navigation": get_navigation(model_key=model_key),
         "semantic_zoom": ["plant", "area", "unit", "module", "equipment", "signal"],
     }
 
@@ -218,12 +247,14 @@ def get_runtime_equipment(
     equipment_id: str,
     role: str = Query(default="Operator"),
     plant_id: str = Query(default="plant-a"),
+    model_key: Optional[str] = Query(default=None),
 ):
     plant = plant_manager.get(plant_id)
     faceplate = equipment_manifest(
         equipment_id, role,
-        live_state=_runtime_live_state(plant_id, plant),
-        assignments=studio_overview()["state"].get("assignments", []),
+        live_state=_runtime_live_state(plant_id, plant, model_key=model_key),
+        assignments=studio_overview(model_key)["state"].get("assignments", []),
+        model_key=model_key,
     )
     if not faceplate:
         raise HTTPException(status_code=404, detail=f"Equipment not found: {equipment_id}")
@@ -233,8 +264,8 @@ def get_runtime_equipment(
 # ── Studio routes ─────────────────────────────────────────────────────────────
 
 @router.get("/api/studio/imported-signals")
-def get_studio_imported_signals():
-    return studio_imported_signals()
+def get_studio_imported_signals(model_key: Optional[str] = Query(default=None)):
+    return studio_imported_signals(model_key=model_key)
 
 
 @router.post("/api/studio/asset-model", dependencies=[Depends(require_role("Engineer", "Manager"))])
@@ -243,18 +274,24 @@ def post_studio_asset_model(request: StudioAssetModelRequest):
 
 
 @router.post("/api/studio/template-mutation", dependencies=[Depends(require_role("Engineer", "Manager"))])
-def post_studio_template_mutation(request: StudioTemplateMutationRequest):
-    return studio_update_template_mutation(request.require_manual_verification_when_level_quarantined)
+def post_studio_template_mutation(
+    request: StudioTemplateMutationRequest,
+    model_key: Optional[str] = Query(default=None),
+):
+    return studio_update_template_mutation(
+        request.require_manual_verification_when_level_quarantined,
+        model_key=model_key,
+    )
 
 
 @router.get("/api/studio/build")
-def get_studio_build():
-    return studio_current_build()
+def get_studio_build(model_key: Optional[str] = Query(default=None)):
+    return studio_current_build(model_key=model_key)
 
 
 @router.post("/api/studio/build/run", dependencies=[Depends(require_role("Engineer", "Manager"))])
-def post_studio_build_run():
-    return studio_run_compiler_build()
+def post_studio_build_run(model_key: Optional[str] = Query(default=None)):
+    return studio_run_compiler_build(model_key=model_key)
 
 
 @router.get("/api/studio/build/artifacts")
@@ -274,41 +311,42 @@ def get_studio_import_batches(
 
 
 @router.get("/api/studio/template-tests")
-def get_studio_template_tests():
-    return studio_template_tests()
+def get_studio_template_tests(model_key: Optional[str] = Query(default=None)):
+    return studio_template_tests(model_key=model_key)
 
 
 @router.get("/api/studio/mapping-court")
-def get_studio_mapping_court():
-    return studio_mapping_court()
+def get_studio_mapping_court(model_key: Optional[str] = Query(default=None)):
+    return studio_mapping_court(model_key=model_key)
 
 
 @router.get("/api/studio/mapping-court/{raw_tag:path}")
-def get_studio_mapping_court_detail(raw_tag: str):
-    return studio_mapping_court_detail(raw_tag)
+def get_studio_mapping_court_detail(raw_tag: str, model_key: Optional[str] = Query(default=None)):
+    return studio_mapping_court_detail(raw_tag, model_key=model_key)
 
 
 @router.post("/api/studio/mapping-court/approve", dependencies=[Depends(require_role("Engineer", "Manager"))])
-def post_studio_mapping_approve(request: StudioRawTagResolutionRequest):
-    result = studio_approve_raw_tag(request.raw_tag)
+def post_studio_mapping_approve(request: StudioRawTagResolutionRequest, model_key: Optional[str] = Query(default=None)):
+    result = studio_approve_raw_tag(request.raw_tag, model_key=model_key)
     if result.get("status") == "not_approved":
         raise HTTPException(status_code=409, detail=result)
     return result
 
 
 @router.post("/api/studio/mapping-court/ignore", dependencies=[Depends(require_role("Engineer", "Manager"))])
-def post_studio_mapping_ignore(request: StudioRawTagResolutionRequest):
-    result = studio_ignore_raw_tag(request.raw_tag, request.reason)
+def post_studio_mapping_ignore(request: StudioRawTagResolutionRequest, model_key: Optional[str] = Query(default=None)):
+    result = studio_ignore_raw_tag(request.raw_tag, request.reason, model_key=model_key)
     if result.get("status") == "not_ignored":
         raise HTTPException(status_code=422, detail=result)
     return result
 
 
 @router.post("/api/studio/mapping-court/manual-map", dependencies=[Depends(require_role("Engineer", "Manager"))])
-def post_studio_mapping_manual_map(request: StudioManualMapRequest):
+def post_studio_mapping_manual_map(request: StudioManualMapRequest, model_key: Optional[str] = Query(default=None)):
     result = studio_manual_map_raw_tag(
         request.raw_tag, request.canonical_tag,
         request.asset_id, request.signal_role, request.reason,
+        model_key=model_key,
     )
     if result.get("status") == "not_mapped":
         raise HTTPException(status_code=422, detail=result)
@@ -316,68 +354,68 @@ def post_studio_mapping_manual_map(request: StudioManualMapRequest):
 
 
 @router.post("/api/studio/mapping-court/keep-blocking", dependencies=[Depends(require_role("Engineer", "Manager"))])
-def post_studio_mapping_keep_blocking(request: StudioRawTagResolutionRequest):
-    return studio_keep_raw_tag_blocking(request.raw_tag)
+def post_studio_mapping_keep_blocking(request: StudioRawTagResolutionRequest, model_key: Optional[str] = Query(default=None)):
+    return studio_keep_raw_tag_blocking(request.raw_tag, model_key=model_key)
 
 
 @router.post("/api/studio/auto-map", dependencies=[Depends(require_role("Engineer", "Manager"))])
-async def post_studio_auto_map():
-    return await studio_auto_map()
+async def post_studio_auto_map(model_key: Optional[str] = Query(default=None)):
+    return await studio_auto_map(model_key=model_key)
 
 
 @router.post("/api/studio/import-tags", dependencies=[Depends(require_role("Engineer", "Manager"))])
-async def post_studio_import_tags(request: dict):
+async def post_studio_import_tags(request: dict, model_key: Optional[str] = Query(default=None)):
     raw_tags = request.get("tags", [])
     if not isinstance(raw_tags, list):
         raise HTTPException(status_code=422, detail="'tags' must be a list of strings.")
     cleaned = [str(t).strip() for t in raw_tags if str(t).strip()]
     if not cleaned:
         raise HTTPException(status_code=422, detail="No non-empty tags provided.")
-    return await studio_import_arbitrary_tags(cleaned)
+    return await studio_import_arbitrary_tags(cleaned, model_key=model_key)
 
 
 @router.post("/api/studio/suggest-template", dependencies=[Depends(require_role("Engineer", "Manager"))])
-async def post_studio_suggest_template(request: dict):
+async def post_studio_suggest_template(request: dict, model_key: Optional[str] = Query(default=None)):
     description = (request.get("description") or "").strip()
     if not description:
         raise HTTPException(status_code=422, detail="'description' is required.")
-    return await studio_suggest_template(description)
+    return await studio_suggest_template(description, model_key=model_key)
 
 
 @router.post("/api/studio/assign-template", dependencies=[Depends(require_role("Engineer", "Manager"))])
-def post_studio_assign_template(request: StudioTemplateAssignmentRequest):
-    return studio_assign_template(request.asset_id, request.template_id, approved=request.approved)
+def post_studio_assign_template(request: StudioTemplateAssignmentRequest, model_key: Optional[str] = Query(default=None)):
+    return studio_assign_template(request.asset_id, request.template_id, approved=request.approved, model_key=model_key)
 
 
 @router.post("/api/studio/generate", dependencies=[Depends(require_role("Engineer", "Manager"))])
-def post_studio_generate(request: StudioGenerateRequest | None = None):
+def post_studio_generate(request: StudioGenerateRequest | None = None, model_key: Optional[str] = Query(default=None)):
     payload = request or StudioGenerateRequest()
-    return studio_generate_preview(role=payload.role, context=payload.context)
+    return studio_generate_preview(role=payload.role, context=payload.context, model_key=model_key)
 
 
 @router.post("/api/studio/publish", dependencies=[Depends(require_role("Engineer", "Manager"))])
-def post_studio_publish():
-    result = studio_publish()
+def post_studio_publish(model_key: Optional[str] = Query(default=None)):
+    result = studio_publish(model_key=model_key)
     if result.get("status") == "blocked":
         raise HTTPException(status_code=409, detail=result)
     return result
 
 
 @router.post("/api/studio/reset", dependencies=[Depends(require_role("Engineer", "Manager"))])
-def post_studio_reset():
-    return studio_reset()
+def post_studio_reset(model_key: Optional[str] = Query(default=None)):
+    return studio_reset(model_key=model_key)
 
 
 @router.get("/api/studio/validation")
-def get_studio_validation():
-    return studio_validation()
+def get_studio_validation(model_key: Optional[str] = Query(default=None)):
+    return studio_validation(model_key=model_key)
 
 
 @router.get("/api/studio/diff")
-def get_studio_diff():
-    return studio_diff()
+def get_studio_diff(model_key: Optional[str] = Query(default=None)):
+    return studio_diff(model_key=model_key)
 
 
 @router.get("/api/studio")
-def get_studio_overview():
-    return studio_overview()
+def get_studio_overview(model_key: Optional[str] = Query(default=None)):
+    return studio_overview(model_key)

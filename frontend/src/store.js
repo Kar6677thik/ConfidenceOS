@@ -17,6 +17,14 @@ const CHART_HISTORY_MAX = 120;
 
 // WebSocket reconnect delay (ms)
 const RECONNECT_DELAY = 2000;
+const DEFAULT_ASSET_MODEL_KEY = 'texas_city_vessel';
+const storedAssetModelKey = () => {
+  try {
+    return window.localStorage.getItem('confidenceos.assetModelKey') || DEFAULT_ASSET_MODEL_KEY;
+  } catch {
+    return DEFAULT_ASSET_MODEL_KEY;
+  }
+};
 
 const useStore = create((set, get) => ({
   // -- Connection state --------------------------------------------------
@@ -38,6 +46,7 @@ const useStore = create((set, get) => ({
   // -- V2: Plant & Role --------------------------------------------------
   plantId: 'plant-a',
   role: 'Operator',  // Operator | Maintenance | Engineer | Manager | Auditor
+  assetModelKey: storedAssetModelKey(),
 
   // -- V2: Instrument integrity overview ---------------------------------
   fleetData: [],
@@ -113,6 +122,16 @@ const useStore = create((set, get) => ({
   },
 
   setRole: (role) => set({ role }),
+
+  setAssetModelKey: (assetModelKey) => {
+    const key = assetModelKey || DEFAULT_ASSET_MODEL_KEY;
+    try {
+      window.localStorage.setItem('confidenceos.assetModelKey', key);
+    } catch {
+      // Ignore storage failures; in-memory state remains authoritative for this session.
+    }
+    set({ assetModelKey: key });
+  },
 
   login: async (username, password) => {
     set({ authLoading: true, authError: null });

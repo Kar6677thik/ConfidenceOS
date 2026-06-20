@@ -7,18 +7,17 @@ process-control tests and they never write commands to the plant or simulator.
 
 from __future__ import annotations
 
-from asset_model import active_asset_model_key, set_active_asset_model
 from screen_generator import generate_screen_manifest
 from template_library import validate_assignments
 
 
-def run_template_tests(assignments: list[dict] | None = None) -> dict:
+def run_template_tests(assignments: list[dict] | None = None, model_key: str | None = None) -> dict:
     assignments = assignments or [
         {"asset_id": "V-5100", "template_id": "vessel", "approved": True},
         {"asset_id": "XV-6100", "template_id": "valve", "approved": True},
         {"asset_id": "FG-2010", "template_id": "flow_pair", "approved": True},
     ]
-    validation = validate_assignments(assignments)
+    validation = validate_assignments(assignments, model_key=model_key)
     contradiction_state = _contradiction_live_state()
     contradiction_manifest = generate_screen_manifest(
         role="Operator",
@@ -29,7 +28,9 @@ def run_template_tests(assignments: list[dict] | None = None) -> dict:
             "build_id": "template-test",
             "validation_status": "PASS_WITH_WARNINGS",
             "source_tags": ["LT-5100", "FI-2010", "FO-2020"],
+            "model_key": model_key,
         },
+        model_key=model_key,
     )
     startup_manifest = generate_screen_manifest(
         role="Operator",
@@ -44,7 +45,9 @@ def run_template_tests(assignments: list[dict] | None = None) -> dict:
             "build_id": "template-test-startup",
             "validation_status": "PASS_WITH_WARNINGS",
             "source_tags": ["LT-5100", "FI-2010", "FO-2020"],
+            "model_key": model_key,
         },
+        model_key=model_key,
     )
     validation_messages = [item.get("message", "") for item in validation.get("warnings", [])]
     pump_result = _pump_station_template_result()
@@ -166,46 +169,43 @@ def _contradiction_live_state() -> dict:
 
 
 def _pump_station_template_result() -> dict:
-    previous = active_asset_model_key()
     assignments = [
         {"asset_id": "TK-100", "template_id": "vessel", "approved": True},
         {"asset_id": "P-101", "template_id": "pump", "approved": True},
         {"asset_id": "FG-100", "template_id": "flow_pair", "approved": True},
     ]
-    try:
-        set_active_asset_model("pump_station")
-        validation = validate_assignments(assignments)
-        manifest = generate_screen_manifest(
-            role="Maintenance",
-            context="MANUAL_VERIFICATION_REQUIRED",
-            live_state={
-                "plant_id": "plant-a",
-                "readings": [
-                    {"sensor_id": "LIT-100", "value": 48.0, "unit": "%"},
-                    {"sensor_id": "FIT-101", "value": 180.0, "unit": "gpm"},
-                    {"sensor_id": "FIT-102", "value": 155.0, "unit": "gpm"},
-                    {"sensor_id": "VIB-101", "value": 0.21, "unit": "in/s"},
-                ],
-                "confidence": [
-                    {"sensor_id": "LIT-100", "confidence_pct": 42, "tier": "LOW", "trust_state": "QUARANTINED"},
-                    {"sensor_id": "FIT-101", "confidence_pct": 86, "tier": "HIGH", "trust_state": "SUBSTITUTED"},
-                    {"sensor_id": "FIT-102", "confidence_pct": 84, "tier": "HIGH", "trust_state": "SUBSTITUTED"},
-                    {"sensor_id": "VIB-101", "confidence_pct": 91, "tier": "HIGH", "trust_state": "TRUSTED"},
-                ],
-                "mass_balance": {"status": "DIVERGING", "discrepancy": 18.0},
-                "plant_context": {"severity": "WARNING", "state": "MANUAL_VERIFICATION_REQUIRED"},
-                "incidents": [],
-                "verification_tasks": [],
-            },
-            assignments=assignments,
-            build_context={
-                "build_id": "template-test-pump",
-                "validation_status": "PASS_WITH_WARNINGS",
-                "source_tags": ["LIT-100", "FIT-101", "FIT-102", "VIB-101"],
-            },
-        )
-    finally:
-        set_active_asset_model(previous)
+    validation = validate_assignments(assignments, model_key="pump_station")
+    manifest = generate_screen_manifest(
+        role="Maintenance",
+        context="MANUAL_VERIFICATION_REQUIRED",
+        live_state={
+            "plant_id": "plant-a",
+            "readings": [
+                {"sensor_id": "LIT-100", "value": 48.0, "unit": "%"},
+                {"sensor_id": "FIT-101", "value": 180.0, "unit": "gpm"},
+                {"sensor_id": "FIT-102", "value": 155.0, "unit": "gpm"},
+                {"sensor_id": "VIB-101", "value": 0.21, "unit": "in/s"},
+            ],
+            "confidence": [
+                {"sensor_id": "LIT-100", "confidence_pct": 42, "tier": "LOW", "trust_state": "QUARANTINED"},
+                {"sensor_id": "FIT-101", "confidence_pct": 86, "tier": "HIGH", "trust_state": "SUBSTITUTED"},
+                {"sensor_id": "FIT-102", "confidence_pct": 84, "tier": "HIGH", "trust_state": "SUBSTITUTED"},
+                {"sensor_id": "VIB-101", "confidence_pct": 91, "tier": "HIGH", "trust_state": "TRUSTED"},
+            ],
+            "mass_balance": {"status": "DIVERGING", "discrepancy": 18.0},
+            "plant_context": {"severity": "WARNING", "state": "MANUAL_VERIFICATION_REQUIRED"},
+            "incidents": [],
+            "verification_tasks": [],
+        },
+        assignments=assignments,
+        build_context={
+            "build_id": "template-test-pump",
+            "validation_status": "PASS_WITH_WARNINGS",
+            "source_tags": ["LIT-100", "FIT-101", "FIT-102", "VIB-101"],
+            "model_key": "pump_station",
+        },
+        model_key="pump_station",
+    )
     pump_faceplate = next((item for item in manifest.get("faceplates", []) if item.get("equipment_id") == "P-101"), {})
     faceplate_ids = {item.get("equipment_id") for item in manifest.get("faceplates", [])}
     return {

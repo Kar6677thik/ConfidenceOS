@@ -18,13 +18,15 @@ def generate_screen_manifest(
     live_state: dict | None = None,
     assignments: list[dict] | None = None,
     build_context: dict | None = None,
+    model_key: str | None = None,
 ) -> dict:
     live_state = live_state or {}
     build_context = build_context or {}
+    model_key = model_key or build_context.get("model_key")
     context_state = _resolve_context(context, live_state)
     role_policy = load_role_policies().get("policies", {}).get(role) or load_role_policies().get("policies", {}).get("Operator", {})
     context_policy = load_context_policies().get("policies", {}).get(context_state, {})
-    validation = validate_assignments(assignments or [])
+    validation = validate_assignments(assignments or [], model_key=model_key)
     stress = _is_stress(live_state, context_state)
     build_id = build_context.get("build_id", "runtime-ad-hoc")
     validation_status = build_context.get("validation_status") or ("PASS_WITH_WARNINGS" if validation.get("warnings") else "PASS")
@@ -33,17 +35,18 @@ def generate_screen_manifest(
     build_context = {
         **build_context,
         "build_id": build_id,
+        "model_key": model_key,
         "validation_status": validation_status,
         "validation": build_context.get("validation") or validation,
         "source_tags": source_tags,
     }
     warnings = _validation_messages(build_context.get("validation") or validation)
     plant_id = live_state.get("plant_id", "plant-a")
-    navigation = get_navigation()
+    navigation = get_navigation(model_key=model_key)
     unit = _first_unit(navigation)
     unit_id = unit.get("id", "unit-runtime")
     unit_name = unit.get("name", "Generated Unit")
-    assets = get_assets()
+    assets = get_assets(model_key=model_key)
     faceplates = [
         _faceplate_for_asset(asset, live_state, role, context_state, assignments or [], build_context)
         for asset in assets
@@ -99,7 +102,7 @@ def generate_screen_manifest(
     trust_rubric_receipts = _trust_rubric_receipts(live_state)
     worst_trust_exception = _worst_trust_exception(live_state.get("confidence", []))
     interaction_compression_estimate = _interaction_compression_estimate(situations, live_state.get("confidence", []))
-    process_mimic = _process_mimic(faceplates, live_state, situations)
+    process_mimic = _process_mimic(faceplates, live_state, situations, build_context)
     stress_mode_panel = _stress_mode_panel(
         live_state=live_state,
         situations=situations,
@@ -127,8 +130,9 @@ def generate_screen_manifest(
         "context_policy": context_policy,
         "validation": build_context.get("validation") or validation,
         "semantic_zoom": ["plant", "area", "unit", "module", "equipment", "signal"],
+        "model_key": model_key,
         "provenance": {
-            "asset_model_id": get_model_graph().get("model_id"),
+            "asset_model_id": get_model_graph(model_key=model_key).get("model_id"),
             "build_id": build_id,
             "validation_status": validation_status,
             "role_policy": role,
@@ -159,25 +163,31 @@ def _first_unit(navigation: dict) -> dict:
     return {"id": "unit-runtime", "name": "Generated Unit"}
 
 
-def _primary_equipment_id() -> str:
-    for asset in get_assets():
+def _primary_equipment_id(model_key: str | None = None) -> str:
+    for asset in get_assets(model_key=model_key):
         if asset.get("asset_type") in ("process_vessel", "pump", "valve", "flow_pair"):
             return asset.get("asset_id") or "primary-equipment"
     return "primary-equipment"
 
 
-def _primary_level_signal_id() -> str:
-    for signal in get_model_graph().get("signals", []):
+def _primary_level_signal_id(model_key: str | None = None) -> str:
+    for signal in get_model_graph(model_key=model_key).get("signals", []):
         if signal.get("role") == "primary_level" or signal.get("sensor_type") == "level":
             return signal.get("tag") or "primary-level"
     return "primary-level"
 
 
-def equipment_manifest(equipment_id: str, role: str, live_state: dict | None = None, assignments: list[dict] | None = None) -> dict:
-    asset = next((item for item in get_assets() if item.get("asset_id") == equipment_id), None)
+def equipment_manifest(
+    equipment_id: str,
+    role: str,
+    live_state: dict | None = None,
+    assignments: list[dict] | None = None,
+    model_key: str | None = None,
+) -> dict:
+    asset = next((item for item in get_assets(model_key=model_key) if item.get("asset_id") == equipment_id), None)
     if not asset:
         return {}
-    return _faceplate_for_asset(asset, live_state or {}, role, "auto", assignments or [], {})
+    return _faceplate_for_asset(asset, live_state or {}, role, "auto", assignments or [], {"model_key": model_key})
 
 
 def _faceplate_for_asset(
@@ -195,7 +205,8 @@ def _faceplate_for_asset(
     template = template_by_id(template_id)
     if not template:
         return {}
-    signals = equipment_signals(asset_id)
+    model_key = build_context.get("model_key")
+    signals = equipment_signals(asset_id, model_key=model_key)
     readings_by_id = {item.get("sensor_id"): item for item in live_state.get("readings", [])}
     confidence_by_id = {item.get("sensor_id"): item for item in live_state.get("confidence", [])}
     signal_rows = []
@@ -302,7 +313,7 @@ def _situations(
     incidents = live_state.get("incidents") or []
     decorated = []
     for index, incident in enumerate(incidents):
-        asset_id = incident.get("asset_id") or _primary_equipment_id()
+        asset_id = incident.get("asset_id") or _primary_equipment_id(build_context.get("model_key"))
         source_tags = _situation_source_tags(incident, build_context)
         decorated.append({
             **_generation_metadata(
@@ -374,11 +385,12 @@ def _role_sections(
         ]
     elif role == "Engineer":
         confidence = live_state.get("confidence", [])
-        primary_level = _primary_level_signal_id()
+        model_key = build_context.get("model_key")
+        primary_level = _primary_level_signal_id(model_key)
         lead_confidence = next((item for item in confidence if item.get("sensor_id") == primary_level), confidence[0] if confidence else {})
         build_id = build_context.get("build_id", "runtime-ad-hoc")
         rows = [
-            {"section": "signal_mapping", "items": get_model_graph().get("signals", [])},
+            {"section": "signal_mapping", "items": get_model_graph(model_key=model_key).get("signals", [])},
             {"section": "template_receipt", "items": build_context.get("receipts", [])},
             {"section": "assumptions_used", "items": _assumptions_used()},
             {"section": "score_sensitivity", "items": [build_score_sensitivity(lead_confidence.get("sensor_id", primary_level), lead_confidence, role="Engineer")] if lead_confidence else []},
@@ -658,8 +670,8 @@ def _interaction_compression_estimate(situations: list[dict], confidence: list[d
     return _decision_time_score({}, confidence)
 
 
-def _process_mimic(faceplates: list[dict], live_state: dict, situations: list[dict]) -> dict:
-    graph = get_model_graph()
+def _process_mimic(faceplates: list[dict], live_state: dict, situations: list[dict], build_context: dict | None = None) -> dict:
+    graph = get_model_graph(model_key=(build_context or {}).get("model_key"))
     relationships = graph.get("relationships", [])
     mass_balance = next((rel for rel in relationships if rel.get("type") == "mass_balance_validation"), {})
     confidence_by_id = {item.get("sensor_id"): item for item in live_state.get("confidence", []) or []}

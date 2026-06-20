@@ -105,6 +105,15 @@ function runtimeStatusLabel(value) {
   return formatText(value || 'Runtime live');
 }
 
+function runtimeErrorMessage(payload, fallback) {
+  const detail = payload?.detail || payload;
+  if (typeof detail === 'string') return detail;
+  if (detail && typeof detail === 'object') {
+    return detail.reason || detail.message || detail.error || fallback;
+  }
+  return fallback;
+}
+
 function normalizeRole(role) {
   return String(role || 'Operator').trim().toLowerCase();
 }
@@ -1178,6 +1187,7 @@ export default function RuntimePlatform() {
     chartHistory,
     massBalance,
     providerType,
+    assetModelKey,
   } = storeState;
   const isSimulation = providerType === 'simulator';
   const [manifest, setManifest] = useState(null);
@@ -1202,11 +1212,11 @@ export default function RuntimePlatform() {
       const controller = new AbortController();
       currentController = controller;
       const timeout = setTimeout(() => controller.abort(), 8000);
-      apiFetch(`/api/screens/generated?role=${role}&context=auto&plant_id=${plantId}`, { signal: controller.signal })
+      apiFetch(`/api/screens/generated?role=${role}&context=auto&plant_id=${plantId}&model_key=${encodeURIComponent(assetModelKey || 'texas_city_vessel')}`, { signal: controller.signal })
         .then(async (res) => {
           const payload = await res.json().catch(() => null);
           if (!res.ok) {
-            throw new Error(payload?.detail || `Runtime manifest request failed: ${res.status}`);
+            throw new Error(runtimeErrorMessage(payload, `Runtime manifest request failed: ${res.status}`));
           }
           if (!payload) {
             throw new Error('Runtime manifest response was empty.');
@@ -1247,7 +1257,7 @@ export default function RuntimePlatform() {
         currentController.abort();
       }
     };
-  }, [plantId, role, retryToken]);
+  }, [plantId, role, assetModelKey, retryToken]);
 
   const faceplates = useMemo(() => manifest?.faceplates || [], [manifest]);
   const selectedFaceplate = useMemo(

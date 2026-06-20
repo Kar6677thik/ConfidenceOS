@@ -54,7 +54,7 @@ def template_by_id(template_id: str) -> dict:
     return {}
 
 
-def validate_assignments(assignments: list[dict]) -> dict:
+def validate_assignments(assignments: list[dict], model_key: str | None = None) -> dict:
     info = []
     warnings = []
     blocking = []
@@ -64,7 +64,7 @@ def validate_assignments(assignments: list[dict]) -> dict:
         for item in assignments or []
         if item.get("asset_id") and item.get("template_id")
     }
-    assets = get_assets()
+    assets = get_assets(model_key=model_key)
 
     for asset in assets:
         asset_id = asset.get("asset_id")
@@ -72,7 +72,7 @@ def validate_assignments(assignments: list[dict]) -> dict:
         template = template_by_id(template_id)
         if not template or not asset_id:
             continue
-        signals = equipment_signals(asset_id)
+        signals = equipment_signals(asset_id, model_key=model_key)
         present_types = {signal.get("sensor_type") for signal in signals}
         missing = [
             signal_type for signal_type in template.get("required_signal_types", [])
@@ -90,6 +90,7 @@ def validate_assignments(assignments: list[dict]) -> dict:
             info=asset_info,
             warnings=asset_warnings,
             blocking=asset_blocking,
+            model_key=model_key,
         )
         row = {
             "asset_id": asset_id,
@@ -148,6 +149,7 @@ def _apply_guardrails(
     info: list[dict],
     warnings: list[dict],
     blocking: list[dict],
+    model_key: str | None = None,
 ) -> None:
     asset_id = asset.get("asset_id")
     template_id = template.get("template_id")
@@ -267,7 +269,7 @@ def _apply_guardrails(
             "message": "CRITICAL context must keep evidence ledger visible; stress mode cannot suppress operating evidence.",
         })
 
-    if template_id in {"vessel", "flow_pair"} and not _has_mass_balance_relationship():
+    if template_id in {"vessel", "flow_pair"} and not _has_mass_balance_relationship(model_key=model_key):
         warnings.append({
             **source,
             "severity": "WARNING",
@@ -292,5 +294,5 @@ def _has_confidence_substitute_wording(template: dict) -> bool:
     return "trusted substitute" in normalized or "confidence substitute" in normalized
 
 
-def _has_mass_balance_relationship() -> bool:
-    return any(rel.get("type") == "mass_balance_validation" for rel in get_relationships())
+def _has_mass_balance_relationship(model_key: str | None = None) -> bool:
+    return any(rel.get("type") == "mass_balance_validation" for rel in get_relationships(model_key=model_key))

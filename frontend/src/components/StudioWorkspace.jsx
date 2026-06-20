@@ -49,8 +49,13 @@ function selectBestMappingItem(items, currentRawTag) {
   );
 }
 
+function withModel(path, modelKey) {
+  const separator = path.includes('?') ? '&' : '?';
+  return `${path}${separator}model_key=${encodeURIComponent(modelKey || 'texas_city_vessel')}`;
+}
+
 export default function StudioWorkspace() {
-  const { role, plantId, setRole } = useStore();
+  const { role, plantId, setRole, assetModelKey, setAssetModelKey } = useStore();
   const navigate = useNavigate();
   const [overview, setOverview] = useState(null);
   const [imported, setImported] = useState(null);
@@ -71,13 +76,14 @@ export default function StudioWorkspace() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
 
-  const refresh = async () => {
+  const refresh = async (modelOverride) => {
+    const model = modelOverride || assetModelKey || 'texas_city_vessel';
     const [studio, importedSignals, buildPayload, testPayload, courtPayload] = await Promise.all([
-      fetchJson('/api/studio'),
-      fetchJson('/api/studio/imported-signals'),
-      fetchJson('/api/studio/build'),
-      fetchJson('/api/studio/template-tests'),
-      fetchJson('/api/studio/mapping-court'),
+      fetchJson(withModel('/api/studio', model)),
+      fetchJson(withModel('/api/studio/imported-signals', model)),
+      fetchJson(withModel('/api/studio/build', model)),
+      fetchJson(withModel('/api/studio/template-tests', model)),
+      fetchJson(withModel('/api/studio/mapping-court', model)),
     ]);
     setOverview(studio);
     setImported(importedSignals);
@@ -158,8 +164,8 @@ export default function StudioWorkspace() {
     setBusy(true);
     setActionMessage('');
     try {
-      await fn();
-      await refresh();
+      const nextModel = await fn();
+      await refresh(nextModel);
     } catch (err) {
       setActionMessage(err.payload?.detail?.reason || err.payload?.reason || err.message || 'Action failed.');
     } finally {
@@ -168,7 +174,7 @@ export default function StudioWorkspace() {
   };
 
   const runAutoMap = () => runAction(async () => {
-    const payload = await fetchJson('/api/studio/auto-map', { method: 'POST' });
+    const payload = await fetchJson(withModel('/api/studio/auto-map', assetModelKey), { method: 'POST' });
     const newCourt = payload.mapping_court || court;
     if (newCourt) setCourt(newCourt);
     setCourtAiLabel(payload.ai_label || '');
@@ -180,14 +186,14 @@ export default function StudioWorkspace() {
   });
 
   const runBuild = () => runAction(async () => {
-    const payload = await fetchJson('/api/studio/build/run', { method: 'POST' });
+    const payload = await fetchJson(withModel('/api/studio/build/run', assetModelKey), { method: 'POST' });
     setBuild(payload);
     setPublishResult(null);
     setActionMessage(payload.can_publish ? 'Build passed with publish readiness.' : 'Build failed. Resolve blocking guardrails and run again.');
   });
 
   const generatePreview = () => runAction(async () => {
-    const payload = await fetchJson('/api/studio/generate', {
+    const payload = await fetchJson(withModel('/api/studio/generate', assetModelKey), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ role, context: 'auto' }),
@@ -197,7 +203,7 @@ export default function StudioWorkspace() {
 
   const publish = () => runAction(async () => {
     try {
-      const payload = await fetchJson('/api/studio/publish', { method: 'POST' });
+      const payload = await fetchJson(withModel('/api/studio/publish', assetModelKey), { method: 'POST' });
       setPublishResult(payload);
     } catch (err) {
       setPublishResult(err.payload?.detail || err.payload || { status: 'blocked', reason: err.message });
@@ -206,7 +212,7 @@ export default function StudioWorkspace() {
   });
 
   const reset = () => runAction(async () => {
-    await fetchJson('/api/studio/reset', { method: 'POST' });
+    await fetchJson(withModel('/api/studio/reset', assetModelKey), { method: 'POST' });
     await fetchJson(`/api/simulation/reset-source?plant_id=${plantId}`, { method: 'POST' }).catch(() => null);
     setPreview(null);
     setPublishResult(null);
@@ -220,7 +226,7 @@ export default function StudioWorkspace() {
 
   const approveSelected = () => runAction(async () => {
     if (!selectedItem) return;
-    const payload = await fetchJson('/api/studio/mapping-court/approve', {
+    const payload = await fetchJson(withModel('/api/studio/mapping-court/approve', assetModelKey), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ raw_tag: selectedItem.raw_tag }),
@@ -230,7 +236,7 @@ export default function StudioWorkspace() {
 
   const ignoreSelected = () => runAction(async () => {
     if (!selectedItem) return;
-    const payload = await fetchJson('/api/studio/mapping-court/ignore', {
+    const payload = await fetchJson(withModel('/api/studio/mapping-court/ignore', assetModelKey), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ raw_tag: selectedItem.raw_tag, reason: ignoreReason }),
@@ -240,7 +246,7 @@ export default function StudioWorkspace() {
 
   const keepBlocking = () => runAction(async () => {
     if (!selectedItem) return;
-    await fetchJson('/api/studio/mapping-court/keep-blocking', {
+    await fetchJson(withModel('/api/studio/mapping-court/keep-blocking', assetModelKey), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ raw_tag: selectedItem.raw_tag }),
@@ -250,7 +256,7 @@ export default function StudioWorkspace() {
 
   const manualMapSelected = () => runAction(async () => {
     if (!selectedItem) return;
-    const payload = await fetchJson('/api/studio/mapping-court/manual-map', {
+    const payload = await fetchJson(withModel('/api/studio/mapping-court/manual-map', assetModelKey), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -270,6 +276,7 @@ export default function StudioWorkspace() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ model_key: modelKey }),
     });
+    setAssetModelKey(modelKey);
     setPreview(null);
     setPublishResult(null);
     setSelectedRawTag('');
@@ -278,10 +285,11 @@ export default function StudioWorkspace() {
     setManualRole('');
     setManualReason('');
     setActionMessage('Asset model switched. Run deterministic mapping, then build to compile the selected model.');
+    return modelKey;
   });
 
   const toggleVerificationMutation = (enabled) => runAction(async () => {
-    await fetchJson('/api/studio/template-mutation', {
+    await fetchJson(withModel('/api/studio/template-mutation', assetModelKey), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ require_manual_verification_when_level_quarantined: enabled }),
@@ -369,7 +377,7 @@ export default function StudioWorkspace() {
 
         <section className="studio-board-section">
           <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.7fr)] gap-[1px] bg-[var(--border-strong)]">
-            <PasteImportPanel busy={busy} onImportResult={importResult} />
+            <PasteImportPanel busy={busy} onImportResult={importResult} modelKey={assetModelKey} />
             <PublishGuardrails build={build} onPublish={publish} busy={busy} result={publishResult} />
           </div>
           <PublishDiff diff={build?.publish_diff || overview?.diff?.compiler_publish_diff} />

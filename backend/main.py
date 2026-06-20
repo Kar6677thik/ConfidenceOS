@@ -756,13 +756,13 @@ def _handover_debt_events(plant_id: str, debt: dict, timestamp: float) -> list[d
     return events
 
 
-def _derive_trust_states(confidence: list[dict], readings: list[dict], mass_balance: dict | None) -> list[dict]:
+def _derive_trust_states(confidence: list[dict], readings: list[dict], mass_balance: dict | None, model_key: str | None = None) -> list[dict]:
     """Derive read-only trust quarantine state from confidence and mass-balance evidence."""
     readings_by_id = {item.get("sensor_id"): item for item in readings or []}
     flags = (mass_balance or {}).get("flags", [])
     contradiction_active = any(flag.get("severity") in ("WARNING", "CRITICAL") for flag in flags)
     by_id = {item.get("sensor_id"): item for item in confidence if item.get("sensor_id")}
-    relationship = mass_balance_validation()
+    relationship = mass_balance_validation(load_asset_model(model_key) if model_key else None)
     validated_tag = relationship.get("validated_tag")
     source_tags = relationship.get("source_tags", [])
     inferred_variable = relationship.get("inferred_variable") or f"{validated_tag or 'signal'}_substitute"
@@ -836,24 +836,24 @@ PUMP_STATION_DEMO_ALIASES = {
 }
 
 
-def _active_model_tags() -> set[str]:
-    return {signal.get("tag") for signal in get_signals() if signal.get("tag")}
+def _active_model_tags(model_key: str | None = None) -> set[str]:
+    return {signal.get("tag") for signal in get_signals(model_key=model_key) if signal.get("tag")}
 
 
-def _demo_alias_source_to_target() -> dict[str, str]:
-    if active_asset_model_key() != "pump_station":
+def _demo_alias_source_to_target(model_key: str | None = None) -> dict[str, str]:
+    if model_key != "pump_station":
         return {}
     return {spec["source"]: target for target, spec in PUMP_STATION_DEMO_ALIASES.items()}
 
 
-def _translate_mass_balance_state_for_active_model(mass_balance_state: dict | None) -> dict | None:
+def _translate_mass_balance_state_for_active_model(mass_balance_state: dict | None, model_key: str | None = None) -> dict | None:
     """Keep mass-balance evidence process-specific for alternate demo models.
 
     The pump-station model is driven by transparent read-only aliases from the
     Texas City simulator. Operator-facing evidence should name the active model
     tags (LIT/FIT) while alias receipts continue to disclose the source stream.
     """
-    alias_map = _demo_alias_source_to_target()
+    alias_map = _demo_alias_source_to_target(model_key)
     if not mass_balance_state or not alias_map:
         return mass_balance_state
 
@@ -872,7 +872,7 @@ def _translate_mass_balance_state_for_active_model(mass_balance_state: dict | No
     return translated(mass_balance_state)
 
 
-def _apply_demo_asset_model_bindings(live_state: dict) -> dict:
+def _apply_demo_asset_model_bindings(live_state: dict, model_key: str | None = None) -> dict:
     """Bind the pump-station metadata model to deterministic demo live values.
 
     This is not a control integration and not a second simulator. It is a
@@ -880,7 +880,7 @@ def _apply_demo_asset_model_bindings(live_state: dict) -> dict:
     for a second asset model while the read-only simulator still emits the
     original Texas City tag stream.
     """
-    if active_asset_model_key() != "pump_station":
+    if model_key != "pump_station":
         live_state["live_binding_status"] = "native_live_tags"
         live_state.setdefault("demo_alias_bindings", [])
         live_state.setdefault("unbound_tags", [])
@@ -890,7 +890,7 @@ def _apply_demo_asset_model_bindings(live_state: dict) -> dict:
     confidence = list(live_state.get("confidence") or [])
     reading_by_id = {row.get("sensor_id"): row for row in readings if row.get("sensor_id")}
     confidence_by_id = {row.get("sensor_id"): row for row in confidence if row.get("sensor_id")}
-    model_tags = _active_model_tags()
+    model_tags = _active_model_tags(model_key)
     live_tags = set(reading_by_id)
     alias_receipts = []
 
@@ -952,11 +952,11 @@ def _apply_demo_asset_model_bindings(live_state: dict) -> dict:
     return live_state
 
 
-def _runtime_live_state(plant_id: str, plant) -> dict:
+def _runtime_live_state(plant_id: str, plant, model_key: str | None = None) -> dict:
     """Collect frontend-friendly live state for generated Runtime manifests."""
     confidence = list(plant.latest_confidence.values())
     if confidence and any("trust_state" not in item for item in confidence):
-        confidence = _derive_trust_states(confidence, plant.latest_readings, plant.latest_mb_state)
+        confidence = _derive_trust_states(confidence, plant.latest_readings, plant.latest_mb_state, model_key=model_key)
     now = time.time()
     verification_tasks = [normalize_verification_task(task, now) for task in plant.verification_tokens or []]
     active_tasks = active_verification_tokens(plant.verification_tokens, now)
@@ -964,7 +964,7 @@ def _runtime_live_state(plant_id: str, plant) -> dict:
         "plant_id": plant_id,
         "readings": plant.latest_readings,
         "confidence": confidence,
-        "mass_balance": plant.latest_mb_state,
+        "mass_balance": _translate_mass_balance_state_for_active_model(plant.latest_mb_state, model_key=model_key),
         "mode": plant.latest_mode_payload,
         "plant_context": plant.latest_context,
         "incidents": plant.latest_incidents,
@@ -975,7 +975,7 @@ def _runtime_live_state(plant_id: str, plant) -> dict:
         "confidence_debt": plant.latest_confidence_debt,
         "demo_state": get_demo_state(plant_id, plant, _plant_loop_status.get(plant_id, {})),
     }
-    return _apply_demo_asset_model_bindings(live_state)
+    return _apply_demo_asset_model_bindings(live_state, model_key=model_key)
 
 
 def _annotate_generated_preview(manifest: dict, live_state: dict) -> dict:

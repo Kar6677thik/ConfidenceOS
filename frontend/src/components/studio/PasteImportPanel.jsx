@@ -2,7 +2,7 @@ import { useState } from 'react';
 import Panel from './Panel';
 import { fetchJson } from './studioUtils';
 
-export default function PasteImportPanel({ busy, onImportResult }) {
+export default function PasteImportPanel({ busy, onImportResult, modelKey }) {
   const [tagText, setTagText] = useState('');
   const [importing, setImporting] = useState(false);
   const [result, setResult] = useState(null);
@@ -13,7 +13,7 @@ export default function PasteImportPanel({ busy, onImportResult }) {
     setImporting(true);
     setResult(null);
     try {
-      const payload = await fetchJson('/api/studio/import-tags', {
+      const payload = await fetchJson(`/api/studio/import-tags?model_key=${encodeURIComponent(modelKey || 'texas_city_vessel')}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tags }),

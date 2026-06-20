@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from model_graph import get_assets, get_model_graph, get_signals
-from asset_model import active_asset_model_key, mass_balance_validation
+from asset_model import active_asset_model_key, load_asset_model, mass_balance_validation
 from screen_generator import generate_screen_manifest
 from template_library import validate_assignments
 
@@ -102,7 +102,7 @@ def imported_tag_buckets(state: dict | None = None) -> dict:
         }, model_key)
     else:
         imported = load_imported_tags(model_key)
-    rows = [mapping_court_for_tag(tag["raw_tag"], state=state) for tag in imported.get("tags", [])]
+    rows = [mapping_court_for_tag(tag["raw_tag"], state=state, model_key=model_key) for tag in imported.get("tags", [])]
     buckets = {
         "mapped": [],
         "ambiguous": [],
@@ -137,8 +137,9 @@ def mapping_court(state: dict | None = None) -> dict:
     }
 
 
-def mapping_court_for_tag(raw_tag: str, state: dict | None = None) -> dict:
+def mapping_court_for_tag(raw_tag: str, state: dict | None = None, model_key: str | None = None) -> dict:
     state = state or {}
+    model_key = model_key or _active_model_key(state)
     approved = _approved_binding(raw_tag, state)
     tag = _tag_by_raw(raw_tag, state)
     if not tag:
@@ -150,7 +151,7 @@ def mapping_court_for_tag(raw_tag: str, state: dict | None = None) -> dict:
                 "counter_evidence": [],
             }
         else:
-            derived = _derive_mapping(raw_tag)
+            derived = _derive_mapping(raw_tag, model_key=model_key)
             if derived:
                 tag = derived
             else:
@@ -167,7 +168,7 @@ def mapping_court_for_tag(raw_tag: str, state: dict | None = None) -> dict:
                     "verdict": "UNKNOWN_TAG",
                 }
 
-    derived = _derive_mapping(raw_tag, fallback=tag)
+    derived = _derive_mapping(raw_tag, fallback=tag, model_key=model_key)
     if derived and not approved and tag.get("status") != "ignored":
         tag = {**tag, **derived}
     elif not derived and not approved and tag:
@@ -227,9 +228,10 @@ def run_build(
     live_state: dict | None = None,
 ) -> dict:
     state = state or {}
+    model_key = _active_model_key(state)
     assignments = state.get("assignments", [])
     mapping_payload = mapping_court(state)
-    validation = _build_validation(mapping_payload, assignments)
+    validation = _build_validation(mapping_payload, assignments, model_key=model_key)
     blocking = validation["blocking"]
     warnings = validation["warnings"]
     receipts = _build_receipts(mapping_payload, validation)
@@ -249,8 +251,10 @@ def run_build(
                 "receipts": receipts,
                 "source_tags": _source_tags(mapping_payload),
                 "template_mutations": state.get("template_mutations", {}),
-                "active_asset_model": state.get("selected_asset_model") or active_asset_model_key(),
+                "active_asset_model": model_key,
+                "model_key": model_key,
             },
+            model_key=model_key,
         )
         receipts.append(_receipt(
             "screen_generation",
@@ -261,7 +265,13 @@ def run_build(
 
     can_publish = not blocking
     status = "FAILED" if blocking else ("PASS_WITH_WARNINGS" if warnings else "PASS")
-    publish_diff = _publish_diff(generated_manifest, validation, can_publish, state.get("template_mutations", {}))
+    publish_diff = _publish_diff(
+        generated_manifest,
+        validation,
+        can_publish,
+        state.get("template_mutations", {}),
+        model_key=model_key,
+    )
 
     return {
         "build_id": build_id,
@@ -270,19 +280,20 @@ def run_build(
         "read_only_trust_layer": True,
         "pipeline": "Raw Tags -> Asset Graph -> Template Binding -> Validation -> Screen Generation -> Publish Readiness -> Runtime",
         "suggestion_labels": dict(SUGGESTION_LABELS),
-        "active_asset_model": state.get("selected_asset_model") or active_asset_model_key(),
+        "active_asset_model": model_key,
+        "model_key": model_key,
         "template_mutations": state.get("template_mutations", {}),
         "stages": _stages(mapping_payload, validation, generated_manifest, can_publish),
         "validation": validation,
         "imported_tags": mapping_payload,
-        "asset_graph": get_model_graph(),
+        "asset_graph": get_model_graph(model_key=model_key),
         "generated_manifest": generated_manifest,
         "publish_diff": publish_diff,
         "receipts": receipts,
     }
 
 
-def _build_validation(mapping_payload: dict, assignments: list[dict]) -> dict:
+def _build_validation(mapping_payload: dict, assignments: list[dict], model_key: str | None = None) -> dict:
     info = []
     warnings = []
     blocking = []
@@ -305,7 +316,7 @@ def _build_validation(mapping_payload: dict, assignments: list[dict]) -> dict:
                 "raw_tag": raw_tag,
                 "message": f"{raw_tag} is unresolved and must be mapped or ignored with a reason before publish.",
             })
-        elif _maps_to_critical_asset_without_approval(item):
+        elif _maps_to_critical_asset_without_approval(item, model_key=model_key):
             blocking.append({
                 "severity": "BLOCKING",
                 "level": "BLOCKING",
@@ -331,7 +342,7 @@ def _build_validation(mapping_payload: dict, assignments: list[dict]) -> dict:
                 "message": f"{raw_tag} uses deterministic suggestion; engineer approval is required for final commissioning.",
             })
 
-    template_validation = validate_assignments(assignments)
+    template_validation = validate_assignments(assignments, model_key=model_key)
     info.extend(template_validation.get("info", []))
     warnings.extend(template_validation.get("warnings", []))
     blocking.extend(template_validation.get("blocking", []))
@@ -393,7 +404,13 @@ def _build_receipts(mapping_payload: dict, validation: dict) -> list[dict]:
     return receipts
 
 
-def _publish_diff(generated_manifest: dict, validation: dict, can_publish: bool, template_mutations: dict | None = None) -> dict:
+def _publish_diff(
+    generated_manifest: dict,
+    validation: dict,
+    can_publish: bool,
+    template_mutations: dict | None = None,
+    model_key: str | None = None,
+) -> dict:
     blocking = validation.get("blocking", [])
     warnings = validation.get("warnings", [])
     if not can_publish:
@@ -415,7 +432,7 @@ def _publish_diff(generated_manifest: dict, validation: dict, can_publish: bool,
         {"type": "generated_faceplate", "equipment_id": item.get("equipment_id"), "template_id": item.get("template_id")}
         for item in faceplates
     ])
-    changes.extend(_semantic_generation_diff(generated_manifest, validation, template_mutations or {}))
+    changes.extend(_semantic_generation_diff(generated_manifest, validation, template_mutations or {}, model_key=model_key))
     return {
         "status": "ready",
         "changes": changes,
@@ -485,7 +502,7 @@ PREFIX_TO_TYPE = {
 }
 
 
-def _derive_mapping(raw_tag: str, fallback: dict | None = None) -> dict | None:
+def _derive_mapping(raw_tag: str, fallback: dict | None = None, model_key: str | None = None) -> dict | None:
     raw_norm = _normalize_tag(raw_tag)
     if raw_norm == "BADTAG123":
         return {
@@ -519,8 +536,8 @@ def _derive_mapping(raw_tag: str, fallback: dict | None = None) -> dict | None:
         }
     if fallback and fallback.get("status") == "ignored":
         return fallback
-    signals = get_signals()
-    assets = {asset.get("asset_id"): asset for asset in get_assets()}
+    signals = get_signals(model_key=model_key)
+    assets = {asset.get("asset_id"): asset for asset in get_assets(model_key=model_key)}
     raw_numbers = set(re.findall(r"\d+", raw_norm))
     raw_type = _type_from_raw(raw_norm)
     best = None
@@ -624,7 +641,7 @@ def _confidence_band(confidence: float) -> str:
     return "LOW_MAPPING_COVERAGE"
 
 
-def _maps_to_critical_asset_without_approval(item: dict) -> bool:
+def _maps_to_critical_asset_without_approval(item: dict, model_key: str | None = None) -> bool:
     if item.get("approved") or item.get("ignored"):
         return False
     if item.get("bucket") not in {"mapped", "ambiguous"}:
@@ -634,7 +651,7 @@ def _maps_to_critical_asset_without_approval(item: dict) -> bool:
         return False
     criticality_by_asset = {
         asset.get("asset_id"): asset.get("criticality")
-        for asset in get_assets()
+        for asset in get_assets(model_key=model_key)
     }
     return criticality_by_asset.get(asset_id) in {"high", "critical", "safety_critical"}
 
@@ -660,7 +677,12 @@ def _blocked_diff_items(blocking: list[dict], warnings: list[dict]) -> list[dict
     return changes
 
 
-def _semantic_generation_diff(generated_manifest: dict, validation: dict, template_mutations: dict) -> list[dict]:
+def _semantic_generation_diff(
+    generated_manifest: dict,
+    validation: dict,
+    template_mutations: dict,
+    model_key: str | None = None,
+) -> list[dict]:
     changes = []
     faceplates = generated_manifest.get("faceplates", [])
 
@@ -678,7 +700,7 @@ def _semantic_generation_diff(generated_manifest: dict, validation: dict, templa
     # active asset model's relationship — attached to whichever faceplate actually
     # carries the relationship's source + validated tags (works for the pump-station
     # tank, not just the demo vessel).
-    relationship = mass_balance_validation()
+    relationship = mass_balance_validation(load_asset_model(model_key) if model_key else None)
     required_tags = set(relationship.get("source_tags", []) + [relationship.get("validated_tag")])
     required_tags.discard(None)
     if required_tags:

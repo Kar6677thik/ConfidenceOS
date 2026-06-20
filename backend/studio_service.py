@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 
 from hmi_compiler import imported_tag_buckets, mapping_court, mapping_court_for_tag, run_build
-from asset_model import available_asset_models, set_active_asset_model
+from asset_model import available_asset_models
 from hmi_compiler import load_imported_tags
 from model_graph import equipment_signals, get_assets, get_model_graph, get_signals
 from screen_generator import generate_screen_manifest
@@ -54,15 +54,16 @@ MODEL_APPROVED_BINDINGS = {
 }
 
 
-def _active_model_key() -> str:
-    """Return the currently active asset model key (default: texas_city_vessel)."""
-    from asset_model import _active_asset_model_key  # imported lazily to avoid circular import
-    return _active_asset_model_key or "texas_city_vessel"
+def _active_model_key(model_key: str | None = None) -> str:
+    """Normalize a requested Studio model key without mutating process-global state."""
+    if model_key in MODEL_ASSIGNMENTS:
+        return str(model_key)
+    return "texas_city_vessel"
 
 
-def get_state() -> dict:
-    """Load studio state from the DB for the active model, falling back to defaults."""
-    model_key = _active_model_key()
+def get_state(model_key: str | None = None) -> dict:
+    """Load Studio state from the DB for the requested model, falling back to defaults."""
+    model_key = _active_model_key(model_key)
     db = SessionLocal()
     try:
         row = db.query(StudioState).filter(StudioState.model_key == model_key).one_or_none()
@@ -74,19 +75,20 @@ def get_state() -> dict:
             try:
                 state = _with_default_fields(json.loads(row.state_json))
             except Exception:
-                state = _default_state()
+                state = _default_state(model_key)
         state["_model_key"] = model_key
         state["_revision"] = state.get("revision", 0)
-        _activate_state_model(state)
         return state
     finally:
         db.close()
 
 
-def save_state(state: dict) -> dict:
-    """Persist studio state for the active model to the DB."""
+def save_state(state: dict, model_key: str | None = None) -> dict:
+    """Persist Studio state for the requested model to the DB."""
     state["revision"] = int(state.get("revision", 0)) + 1
-    model_key = state.get("_model_key") or _active_model_key()
+    model_key = _active_model_key(model_key or state.get("_model_key") or state.get("selected_asset_model"))
+    state["selected_asset_model"] = model_key
+    state["_model_key"] = model_key
     db = SessionLocal()
     try:
         _persist_state(db, model_key, state)
@@ -128,12 +130,13 @@ def _load_legacy_or_default(model_key: str) -> dict:
                 return _with_default_fields(legacy)
         except Exception:
             pass
-    return _default_state()
+    return _default_state(model_key)
 
 
-def imported_signals() -> dict:
-    signals = get_signals()
-    dirty_import = imported_tag_buckets(get_state())
+def imported_signals(model_key: str | None = None) -> dict:
+    model_key = _active_model_key(model_key)
+    signals = get_signals(model_key=model_key)
+    dirty_import = imported_tag_buckets(get_state(model_key))
     return {
         "source": "SimulatorProvider + asset_model.json",
         "signals": signals,
@@ -146,10 +149,11 @@ def imported_signals() -> dict:
     }
 
 
-async def auto_map() -> dict:
-    state = get_state()
+async def auto_map(model_key: str | None = None) -> dict:
+    model_key = _active_model_key(model_key)
+    state = get_state(model_key)
     court = mapping_court(state)
-    suggestions = _asset_mapping_suggestions(court)
+    suggestions = _asset_mapping_suggestions(court, model_key=model_key)
 
     # AI explanation layer — attaches Claude narrative to each court item when key present.
     # Deterministic verdict remains authoritative; AI explains it.
@@ -180,9 +184,9 @@ async def auto_map() -> dict:
         if ai_assisted:
             ai_label = "AI explanation active; deterministic rule authoritative; engineer approval required"
 
-    state = get_state()
+    state = get_state(model_key)
     state["suggestions"] = suggestions
-    save_state(state)
+    save_state(state, model_key)
     return {
         "suggestions": suggestions,
         "mapping_court": court,
@@ -193,26 +197,27 @@ async def auto_map() -> dict:
     }
 
 
-def manual_map_raw_tag(raw_tag: str, canonical_tag: str, asset_id: str, signal_role: str, reason: str) -> dict:
+def manual_map_raw_tag(raw_tag: str, canonical_tag: str, asset_id: str, signal_role: str, reason: str, model_key: str | None = None) -> dict:
+    model_key = _active_model_key(model_key)
     reason = (reason or "").strip()
     if not reason:
         return {
             "status": "not_mapped",
             "reason": "Manual mapping requires an engineering reason.",
-            "mapping": mapping_court_for_tag(raw_tag, get_state()),
+            "mapping": mapping_court_for_tag(raw_tag, get_state(model_key), model_key=model_key),
         }
-    signals = {signal.get("tag"): signal for signal in get_signals()}
-    assets = {asset.get("asset_id"): asset for asset in get_assets()}
+    signals = {signal.get("tag"): signal for signal in get_signals(model_key=model_key)}
+    assets = {asset.get("asset_id"): asset for asset in get_assets(model_key=model_key)}
     signal = signals.get(canonical_tag)
     asset = assets.get(asset_id)
     if not signal or not asset:
         return {
             "status": "not_mapped",
             "reason": "Manual mapping requires a known canonical signal and asset.",
-            "mapping": mapping_court_for_tag(raw_tag, get_state()),
+            "mapping": mapping_court_for_tag(raw_tag, get_state(model_key), model_key=model_key),
         }
 
-    state = get_state()
+    state = get_state(model_key)
     approved = [
         item for item in state.get("approved_bindings", [])
         if item.get("raw_tag") != raw_tag
@@ -243,16 +248,17 @@ def manual_map_raw_tag(raw_tag: str, canonical_tag: str, asset_id: str, signal_r
     state["ignored_raw_tags"] = ignored
     state["last_build"] = None
     state["last_build_id"] = None
-    save_state(state)
+    save_state(state, model_key)
     return {
         "status": "manual_mapped",
-        "mapping": mapping_court_for_tag(raw_tag, get_state()),
+        "mapping": mapping_court_for_tag(raw_tag, get_state(model_key), model_key=model_key),
         "build_invalidated": True,
     }
 
 
-def assign_template(asset_id: str, template_id: str, approved: bool = True) -> dict:
-    state = get_state()
+def assign_template(asset_id: str, template_id: str, approved: bool = True, model_key: str | None = None) -> dict:
+    model_key = _active_model_key(model_key)
+    state = get_state(model_key)
     assignments = [
         item for item in state.get("assignments", [])
         if item.get("asset_id") != asset_id
@@ -265,12 +271,13 @@ def assign_template(asset_id: str, template_id: str, approved: bool = True) -> d
         "updated_at": time.time(),
     })
     state["assignments"] = assignments
-    save_state(state)
-    return {"assignment": assignments[-1], "validation": validate_assignments(assignments)}
+    save_state(state, model_key)
+    return {"assignment": assignments[-1], "validation": validate_assignments(assignments, model_key=model_key)}
 
 
-def generate_preview(role: str = "Engineer", context: str = "auto") -> dict:
-    state = get_state()
+def generate_preview(role: str = "Engineer", context: str = "auto", model_key: str | None = None) -> dict:
+    model_key = _active_model_key(model_key)
+    state = get_state(model_key)
     build = state.get("last_build") or {}
     build_context = {
         "build_id": build.get("build_id", "studio-preview"),
@@ -278,26 +285,29 @@ def generate_preview(role: str = "Engineer", context: str = "auto") -> dict:
         "receipts": build.get("receipts", []),
         "source_tags": (build.get("generated_manifest") or {}).get("provenance", {}).get("source_tags", []),
         "template_mutations": state.get("template_mutations", {}),
+        "model_key": model_key,
     }
     manifest = generate_screen_manifest(
         role=role,
         context=context,
         assignments=state.get("assignments", []),
         build_context=build_context,
+        model_key=model_key,
     )
     state["last_generated_manifest_id"] = manifest.get("manifest_id")
     state["last_generated_at"] = manifest.get("generated_at")
-    save_state(state)
+    save_state(state, model_key)
     return manifest
 
 
-def runtime_manifest(role: str = "Operator", context: str = "auto", live_state: dict | None = None) -> dict:
+def runtime_manifest(role: str = "Operator", context: str = "auto", live_state: dict | None = None, model_key: str | None = None) -> dict:
     """Return Runtime manifest hydrated from the latest published compiler build.
 
     Runtime remains read-only: this function only joins the approved compiler
     artifact with current simulator/provider state for display.
     """
-    state = get_state()
+    model_key = _active_model_key(model_key)
+    state = get_state(model_key)
     published = state.get("published_manifest") or {}
     published_build_id = state.get("published_build_id")
     last_build = state.get("last_build") or {}
@@ -311,12 +321,13 @@ def runtime_manifest(role: str = "Operator", context: str = "auto", live_state: 
     build_context = {
         "build_id": published.get("build_id") or published_build_id or "runtime-not-published",
         "validation_status": runtime_status,
-        "validation": build_validation or published.get("validation") or validate_assignments(state.get("assignments", [])),
+        "validation": build_validation or published.get("validation") or validate_assignments(state.get("assignments", []), model_key=model_key),
         "receipts": build_receipts or published.get("receipts") or published.get("provenance", {}).get("receipts", []),
         "source_tags": published.get("provenance", {}).get("source_tags", []),
         "published_build_id": published_build_id,
         "runtime_source": "published_build" if has_published_runtime else "not_published_runtime_preview",
         "template_mutations": state.get("template_mutations", {}),
+        "model_key": model_key,
     }
     manifest = generate_screen_manifest(
         role=role,
@@ -324,12 +335,17 @@ def runtime_manifest(role: str = "Operator", context: str = "auto", live_state: 
         live_state=live_state or {},
         assignments=state.get("assignments", []),
         build_context=build_context,
+        model_key=model_key,
     )
+    runtime_authority = "published" if has_published_runtime else "preview"
     return {
         **manifest,
+        "model_key": model_key,
         "published_build_id": published_build_id,
         "published_revision": state.get("published_revision"),
         "runtime_source": build_context["runtime_source"],
+        "runtime_authority": runtime_authority,
+        "operator_authoritative": runtime_authority == "published",
         "runtime_publish_state": runtime_status,
         "runtime_notice": None if has_published_runtime else "No published Runtime exists for the active asset model. Publish a passing Studio build before using this as the primary operator view.",
     }
@@ -346,8 +362,9 @@ def _runtime_status_from_build(status: str | None, has_published_runtime: bool) 
     return "PUBLISHED_WITH_WARNINGS"
 
 
-def publish() -> dict:
-    state = get_state()
+def publish(model_key: str | None = None) -> dict:
+    model_key = _active_model_key(model_key)
+    state = get_state(model_key)
     build = state.get("last_build")
     if build:
         blocking = build.get("validation", {}).get("blocking", [])
@@ -360,14 +377,32 @@ def publish() -> dict:
                 "blocking": blocking,
                 "read_only_trust_layer": True,
             }
+        if build.get("active_asset_model") and build.get("active_asset_model") != model_key:
+            return {
+                "status": "blocked",
+                "reason": "Latest compiler build belongs to a different asset model. Run build for the selected model before publish.",
+                "build_id": build.get("build_id"),
+                "model_key": model_key,
+                "build_model_key": build.get("active_asset_model"),
+                "read_only_trust_layer": True,
+            }
+        if not build.get("generated_manifest"):
+            return {
+                "status": "blocked",
+                "reason": "Latest compiler build has no generated Runtime manifest. Run a passing build before publish.",
+                "build_id": build.get("build_id"),
+                "model_key": model_key,
+                "read_only_trust_layer": True,
+            }
         state["published_build_id"] = build.get("build_id")
         state["published_revision"] = state.get("revision", 1)
         state["last_published_at"] = time.time()
         state["published_manifest"] = build.get("generated_manifest", {})
-        save_state(state)
+        save_state(state, model_key)
         _mark_published_build(build.get("build_id"))
         return {
             "status": "published",
+            "model_key": model_key,
             "published_build_id": state["published_build_id"],
             "published_revision": state["published_revision"],
             "validation": build.get("validation", {}),
@@ -375,30 +410,28 @@ def publish() -> dict:
             "read_only_trust_layer": True,
         }
 
-    validation = validate_assignments(state.get("assignments", []))
-    state["published_revision"] = state.get("revision", 1)
-    state["last_published_at"] = time.time()
-    state["published_manifest"] = generate_screen_manifest(assignments=state.get("assignments", []))
-    save_state(state)
     return {
-        "status": "published",
-        "published_revision": state["published_revision"],
-        "validation": validation,
+        "status": "blocked",
+        "reason": "No compiler build exists for this model. Run a passing build before publish.",
+        "model_key": model_key,
+        "validation": validation(model_key),
         "read_only_trust_layer": True,
     }
 
 
-def reset() -> dict:
-    state = _default_state()
-    with open(STATE_PATH, "w", encoding="utf-8") as f:
-        json.dump(state, f, indent=2)
-    return state
+def reset(model_key: str | None = None) -> dict:
+    model_key = _active_model_key(model_key)
+    state = _default_state(model_key)
+    state["revision"] = int(get_state(model_key).get("revision", 0))
+    save_state(state, model_key)
+    return get_state(model_key)
 
 
-def validation() -> dict:
-    state = get_state()
+def validation(model_key: str | None = None) -> dict:
+    model_key = _active_model_key(model_key)
+    state = get_state(model_key)
     build = state.get("last_build")
-    template_validation = validate_assignments(state.get("assignments", []))
+    template_validation = validate_assignments(state.get("assignments", []), model_key=model_key)
     if not build:
         return template_validation
     return {
@@ -409,8 +442,9 @@ def validation() -> dict:
     }
 
 
-def diff() -> dict:
-    state = get_state()
+def diff(model_key: str | None = None) -> dict:
+    model_key = _active_model_key(model_key)
+    state = get_state(model_key)
     current = state.get("assignments", [])
     default_by_asset = {item["asset_id"]: item for item in _default_assignments_for_model(state.get("selected_asset_model"))}
     current_by_asset = {item["asset_id"]: item for item in current}
@@ -435,13 +469,15 @@ def diff() -> dict:
     }
 
 
-def current_build() -> dict:
-    state = get_state()
+def current_build(model_key: str | None = None) -> dict:
+    model_key = _active_model_key(model_key)
+    state = get_state(model_key)
     return state.get("last_build") or run_build(state, build_id="hmi-build-0001")
 
 
-def run_compiler_build() -> dict:
-    state = get_state()
+def run_compiler_build(model_key: str | None = None) -> dict:
+    model_key = _active_model_key(model_key)
+    state = get_state(model_key)
     state["build_counter"] = int(state.get("build_counter", 0)) + 1
     build_id = f"hmi-build-{state['build_counter']:04d}"
     import_batch_id = _record_current_import_batch(state, build_id)
@@ -450,14 +486,14 @@ def run_compiler_build() -> dict:
     state["last_build_id"] = build_id
     state["last_build"] = build
     state["last_import_batch_id"] = import_batch_id
-    save_state(state)
+    save_state(state, model_key)
     _record_build_artifact(build, state, import_batch_id)
     return build
 
 
 def select_asset_model(model_key: str) -> dict:
-    state = get_state()
-    selected = set_active_asset_model(model_key)
+    selected = _active_model_key(model_key)
+    state = get_state(selected)
     state["selected_asset_model"] = selected
     state["assignments"] = _default_assignments_for_model(selected)
     state["approved_bindings"] = []
@@ -467,34 +503,38 @@ def select_asset_model(model_key: str) -> dict:
     state["last_build_id"] = None
     state["published_manifest"] = {}
     state["published_build_id"] = None
-    save_state(state)
-    return studio_overview()
+    save_state(state, selected)
+    return studio_overview(selected)
 
 
-def update_template_mutation(require_manual_verification_when_level_quarantined: bool) -> dict:
-    state = get_state()
+def update_template_mutation(require_manual_verification_when_level_quarantined: bool, model_key: str | None = None) -> dict:
+    model_key = _active_model_key(model_key)
+    state = get_state(model_key)
     state.setdefault("template_mutations", {})["require_manual_verification_when_level_quarantined"] = bool(require_manual_verification_when_level_quarantined)
     state["last_build"] = None
     state["last_build_id"] = None
-    save_state(state)
+    save_state(state, model_key)
     return {"template_mutations": state["template_mutations"], "state": state}
 
 
-def template_tests() -> dict:
-    return run_template_tests(get_state().get("assignments", []))
+def template_tests(model_key: str | None = None) -> dict:
+    model_key = _active_model_key(model_key)
+    return run_template_tests(get_state(model_key).get("assignments", []), model_key=model_key)
 
 
-def mapping_court_items() -> dict:
-    return mapping_court(get_state())
+def mapping_court_items(model_key: str | None = None) -> dict:
+    return mapping_court(get_state(model_key))
 
 
-def mapping_court_detail(raw_tag: str) -> dict:
-    return mapping_court_for_tag(raw_tag, get_state())
+def mapping_court_detail(raw_tag: str, model_key: str | None = None) -> dict:
+    model_key = _active_model_key(model_key)
+    return mapping_court_for_tag(raw_tag, get_state(model_key), model_key=model_key)
 
 
-def approve_raw_tag(raw_tag: str) -> dict:
-    state = get_state()
-    row = mapping_court_for_tag(raw_tag, state)
+def approve_raw_tag(raw_tag: str, model_key: str | None = None) -> dict:
+    model_key = _active_model_key(model_key)
+    state = get_state(model_key)
+    row = mapping_court_for_tag(raw_tag, state, model_key=model_key)
     if not row.get("proposed_canonical_tag"):
         return {
             "status": "not_approved",
@@ -516,19 +556,20 @@ def approve_raw_tag(raw_tag: str) -> dict:
     state["ignored_raw_tags"] = ignored
     state["last_build"] = None
     state["last_build_id"] = None
-    save_state(state)
-    return {"status": "approved", "mapping": mapping_court_for_tag(raw_tag, get_state())}
+    save_state(state, model_key)
+    return {"status": "approved", "mapping": mapping_court_for_tag(raw_tag, get_state(model_key), model_key=model_key)}
 
 
-def ignore_raw_tag(raw_tag: str, reason: str) -> dict:
+def ignore_raw_tag(raw_tag: str, reason: str, model_key: str | None = None) -> dict:
+    model_key = _active_model_key(model_key)
     reason = (reason or "").strip()
     if not reason:
         return {
             "status": "not_ignored",
             "reason": "Ignored raw tags require an engineering reason.",
-            "mapping": mapping_court_for_tag(raw_tag, get_state()),
+            "mapping": mapping_court_for_tag(raw_tag, get_state(model_key), model_key=model_key),
         }
-    state = get_state()
+    state = get_state(model_key)
     approved = [
         item for item in state.get("approved_bindings", [])
         if item.get("raw_tag") != raw_tag
@@ -539,12 +580,13 @@ def ignore_raw_tag(raw_tag: str, reason: str) -> dict:
     state["ignored_raw_tags"] = ignored
     state["last_build"] = None
     state["last_build_id"] = None
-    save_state(state)
-    return {"status": "ignored", "mapping": mapping_court_for_tag(raw_tag, get_state())}
+    save_state(state, model_key)
+    return {"status": "ignored", "mapping": mapping_court_for_tag(raw_tag, get_state(model_key), model_key=model_key)}
 
 
-def keep_raw_tag_blocking(raw_tag: str) -> dict:
-    state = get_state()
+def keep_raw_tag_blocking(raw_tag: str, model_key: str | None = None) -> dict:
+    model_key = _active_model_key(model_key)
+    state = get_state(model_key)
     state["approved_bindings"] = [
         item for item in state.get("approved_bindings", [])
         if item.get("raw_tag") != raw_tag
@@ -554,35 +596,37 @@ def keep_raw_tag_blocking(raw_tag: str) -> dict:
     state["ignored_raw_tags"] = ignored
     state["last_build"] = None
     state["last_build_id"] = None
-    save_state(state)
-    return {"status": "blocking", "mapping": mapping_court_for_tag(raw_tag, get_state())}
+    save_state(state, model_key)
+    return {"status": "blocking", "mapping": mapping_court_for_tag(raw_tag, get_state(model_key), model_key=model_key)}
 
 
-def studio_overview() -> dict:
-    state = get_state()
+def studio_overview(model_key: str | None = None) -> dict:
+    model_key = _active_model_key(model_key)
+    state = get_state(model_key)
     return {
         "state": state,
         "asset_models": available_asset_models(),
         "selected_asset_model": state.get("selected_asset_model"),
         "template_mutations": state.get("template_mutations", {}),
-        "graph": get_model_graph(),
-        "assets": get_assets(),
+        "graph": get_model_graph(model_key=model_key),
+        "assets": get_assets(model_key=model_key),
         "templates": get_template_catalog(),
-        "validation": validation(),
-        "diff": diff(),
+        "validation": validation(model_key),
+        "diff": diff(model_key),
         "build": state.get("last_build"),
         "mapping_court": mapping_court(state),
     }
 
 
-async def import_arbitrary_tags(raw_tag_list: list[str]) -> dict:
+async def import_arbitrary_tags(raw_tag_list: list[str], model_key: str | None = None) -> dict:
     """
     Accept an arbitrary pasted tag list, route through AI parse → Mapping Court.
 
     Every proposal is returned for engineer review via the Mapping Court flow.
     Nothing is auto-approved or auto-published.
     """
-    state = get_state()
+    model_key = _active_model_key(model_key)
+    state = get_state(model_key)
     model_context = _model_context_for_ai(state)
     import_batch_id = f"manual-import-{int(time.time())}"
     _record_import_batch(
@@ -597,7 +641,7 @@ async def import_arbitrary_tags(raw_tag_list: list[str]) -> dict:
     state["ignored_raw_tags"] = {}
     state["last_build"] = None
     state["last_build_id"] = None
-    save_state(state)
+    save_state(state, model_key)
 
     result = await _ai.parse_arbitrary_tags(raw_tag_list, model_context)
 
@@ -606,7 +650,7 @@ async def import_arbitrary_tags(raw_tag_list: list[str]) -> dict:
     proposals = result.get("proposals", [])
     enriched_proposals = []
     for prop in proposals:
-        court_item = mapping_court_for_tag(prop["raw_tag"], state)
+        court_item = mapping_court_for_tag(prop["raw_tag"], state, model_key=model_key)
         enriched_proposals.append({
             **court_item,
             "ai_proposed_canonical_tag": prop.get("proposed_canonical_tag"),
@@ -653,7 +697,7 @@ def persisted_import_batches(model_key: str | None = None, limit: int = 20) -> d
         db.close()
 
 
-async def suggest_template_for_asset(asset_description: str) -> dict:
+async def suggest_template_for_asset(asset_description: str, model_key: str | None = None) -> dict:
     """
     Given a plain-English asset description, Claude proposes a template from
     the real template library. Compiler validates; engineer approves.
@@ -671,8 +715,9 @@ async def suggest_template_for_asset(asset_description: str) -> dict:
         for t in equipment_templates
         if isinstance(t, dict)
     ]
-    state = get_state()
-    signals = get_signals()
+    model_key = _active_model_key(model_key)
+    state = get_state(model_key)
+    signals = get_signals(model_key=model_key)
 
     result = await _ai.suggest_template(asset_description, available_templates, signals)
 
@@ -688,7 +733,7 @@ async def suggest_template_for_asset(asset_description: str) -> dict:
             "approved": False,
             "source": "ai_suggestion_preview",
         })
-        validation_preview = validate_assignments(trial_assignments)
+        validation_preview = validate_assignments(trial_assignments, model_key=model_key)
 
     return {
         **result,
@@ -699,9 +744,9 @@ async def suggest_template_for_asset(asset_description: str) -> dict:
 
 
 def _model_context_for_ai(state: dict) -> dict:
-    signals = get_signals()
-    assets = get_assets()
-    active_model = state.get("selected_asset_model", "texas_city_vessel")
+    active_model = _active_model_key(state.get("selected_asset_model"))
+    signals = get_signals(model_key=active_model)
+    assets = get_assets(model_key=active_model)
     equipment_label = active_model.replace("_", " ").title()
     return {
         "equipment_id": active_model,
@@ -722,18 +767,19 @@ def _model_context_for_ai(state: dict) -> dict:
     }
 
 
-def _asset_mapping_suggestions(court: dict) -> list[dict]:
+def _asset_mapping_suggestions(court: dict, model_key: str | None = None) -> list[dict]:
     rows = [
         item for item in court.get("items", [])
         if item.get("proposed_canonical_tag") and not item.get("ignored")
     ]
     rows_by_tag = {item.get("proposed_canonical_tag"): item for item in rows}
     suggestions = []
-    for asset in get_assets():
+    model_key = _active_model_key(model_key)
+    for asset in get_assets(model_key=model_key):
         template_id = asset.get("template_id")
         if template_id not in {"vessel", "valve", "pump", "flow_pair"}:
             continue
-        signals = equipment_signals(asset.get("asset_id"))
+        signals = equipment_signals(asset.get("asset_id"), model_key=model_key)
         signal_tags = [signal.get("tag") for signal in signals if signal.get("tag")]
         mapped_rows = [rows_by_tag[tag] for tag in signal_tags if tag in rows_by_tag]
         confidence_values = [float(row.get("confidence") or 0) for row in mapped_rows]
@@ -837,7 +883,8 @@ def _mark_published_build(build_id: str | None) -> None:
         db.close()
 
 
-def _default_state() -> dict:
+def _default_state(model_key: str | None = None) -> dict:
+    model_key = _active_model_key(model_key)
     return {
         "revision": 1,
         "published_revision": 1,
@@ -846,8 +893,8 @@ def _default_state() -> dict:
         "build_counter": 0,
         "last_build_id": None,
         "last_build": None,
-        "selected_asset_model": "texas_city_vessel",
-        "assignments": _default_assignments_for_model("texas_city_vessel"),
+        "selected_asset_model": model_key,
+        "assignments": _default_assignments_for_model(model_key),
         "template_mutations": {
             "require_manual_verification_when_level_quarantined": False,
         },
@@ -860,7 +907,7 @@ def _default_state() -> dict:
 
 
 def _with_default_fields(state: dict) -> dict:
-    default = _default_state()
+    default = _default_state(state.get("selected_asset_model"))
     merged = {**default, **state}
     for key in ("assignments", "suggestions", "notes", "approved_bindings"):
         if not isinstance(merged.get(key), list):
@@ -889,4 +936,5 @@ def _default_approved_bindings_for_model(model_key: str | None) -> list[dict]:
 
 
 def _activate_state_model(state: dict) -> None:
-    set_active_asset_model(state.get("selected_asset_model", "texas_city_vessel"))
+    """Deprecated compatibility hook; Studio/Runtime request paths are model-key scoped."""
+    return None

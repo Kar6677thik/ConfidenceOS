@@ -10,8 +10,12 @@ from __future__ import annotations
 from asset_model import load_asset_model
 
 
-def get_model_graph() -> dict:
-    model = load_asset_model()
+def _resolve_model(model: dict | None = None, model_key: str | None = None) -> dict:
+    return model or load_asset_model(model_key)
+
+
+def get_model_graph(model_key: str | None = None, model: dict | None = None) -> dict:
+    model = _resolve_model(model, model_key)
     assets = get_assets(model)
     signals = get_signals(model)
     nodes = []
@@ -58,13 +62,13 @@ def get_model_graph() -> dict:
     }
 
 
-def get_navigation(model: dict | None = None) -> dict:
-    model = model or load_asset_model()
+def get_navigation(model: dict | None = None, model_key: str | None = None) -> dict:
+    model = _resolve_model(model, model_key)
     return model.get("hierarchy", {}).get("plant", {})
 
 
-def get_assets(model: dict | None = None) -> list[dict]:
-    model = model or load_asset_model()
+def get_assets(model: dict | None = None, model_key: str | None = None) -> list[dict]:
+    model = _resolve_model(model, model_key)
     plant = model.get("hierarchy", {}).get("plant", {})
     assets = [{
         "asset_id": plant.get("id", "plant-a"),
@@ -111,8 +115,8 @@ def get_assets(model: dict | None = None) -> list[dict]:
     return assets
 
 
-def get_signals(model: dict | None = None) -> list[dict]:
-    model = model or load_asset_model()
+def get_signals(model: dict | None = None, model_key: str | None = None) -> list[dict]:
+    model = _resolve_model(model, model_key)
     primary_equipment = model.get("equipment", {}).get("equipment_id", "V-5100")
     signals = []
     for tag in model.get("equipment", {}).get("sensor_tags", []):
@@ -124,15 +128,15 @@ def get_signals(model: dict | None = None) -> list[dict]:
     return signals
 
 
-def get_relationships(model: dict | None = None) -> list[dict]:
-    model = model or load_asset_model()
+def get_relationships(model: dict | None = None, model_key: str | None = None) -> list[dict]:
+    model = _resolve_model(model, model_key)
     relationships = list(model.get("equipment", {}).get("relationships", []))
     relationships.extend(model.get("graph_relationships", []))
     return relationships
 
 
-def equipment_signals(equipment_id: str, model: dict | None = None) -> list[dict]:
-    model = model or load_asset_model()
+def equipment_signals(equipment_id: str, model: dict | None = None, model_key: str | None = None) -> list[dict]:
+    model = _resolve_model(model, model_key)
     signals = get_signals(model)
     declared_tags = _declared_signal_tags(equipment_id, model)
     if declared_tags:
@@ -147,8 +151,8 @@ def equipment_signals(equipment_id: str, model: dict | None = None) -> list[dict
     return [signal for signal in signals if signal.get("equipment_id") == equipment_id]
 
 
-def model_or_primary_id(model: dict | None = None) -> str:
-    model = model or load_asset_model()
+def model_or_primary_id(model: dict | None = None, model_key: str | None = None) -> str:
+    model = _resolve_model(model, model_key)
     return model.get("equipment", {}).get("equipment_id", "V-5100")
 
 
