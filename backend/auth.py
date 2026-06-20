@@ -148,23 +148,16 @@ def decode_token(token: str) -> dict:
 
 def get_current_user(
     token: Optional[str] = Depends(oauth2_scheme),
-    x_role: Optional[str] = Header(default=None),
 ) -> dict:
     """
     Resolve the current authenticated user from a Bearer token.
 
-    Backward-compatibility bridge: if no Bearer token is present but X-Role is
-    sent (old client behaviour), accept X-Role as an unauthenticated hint so the
-    demo frontend continues to work without a login flow. This bridge should be
-    removed once the frontend is fully updated to use JWT login.
+    Read-only routes may use this dependency to get a best-effort identity. It
+    never trusts X-Role; role-authorized mutations must use require_role().
     """
     if token:
         return decode_token(token)
-    # Backward-compat fallback: trust X-Role header (unauthenticated)
-    if x_role and x_role in VALID_ROLES:
-        logger.debug("X-Role fallback used for role=%s (unauthenticated)", x_role)
-        return {"username": "anonymous", "role": x_role}
-    # Open demo mode: no token, no role header → default to Operator
+    # Open read-only demo mode: no token means an anonymous Operator identity.
     return {"username": "anonymous", "role": "Operator"}
 
 
@@ -190,7 +183,7 @@ def require_role(*allowed: str):
     """
     allowed_set = set(allowed)
 
-    def _dep(user: dict = Depends(get_current_user)) -> dict:
+    def _dep(user: dict = Depends(get_authenticated_user)) -> dict:
         role = user.get("role", "")
         if role not in VALID_ROLES:
             raise HTTPException(

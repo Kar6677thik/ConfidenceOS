@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import useStore from '../store';
 import PageIdentity from './hmi/PageIdentity';
 import StatusTag from './hmi/StatusTag';
+import apiFetch from '../lib/apiFetch';
 
 function eventTime(timestamp) {
   if (!timestamp) return 'live';
@@ -141,7 +142,7 @@ export default function ShiftChannel() {
   const addNote = async (event) => {
     event.preventDefault();
     if (!message.trim()) return;
-    await fetch('/api/shift-channel/note', {
+    await apiFetch('/api/shift-channel/note', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ plant_id: plantId, author, message: message.trim() }),

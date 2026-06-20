@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import useStore from '../store';
+import apiFetch from '../lib/apiFetch';
 
 function formatExpiry(value) {
   if (!value) return 'unknown expiry';
@@ -45,7 +46,7 @@ export default function VerificationTokens({ selectedSensorId, confidence = [] }
     if (!targetSensorId) return;
     setCreating(true);
     try {
-      const res = await fetch(`/api/verification-tokens?plant_id=${plantId}`, {
+      const res = await apiFetch(`/api/verification-tokens?plant_id=${plantId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -67,7 +68,7 @@ export default function VerificationTokens({ selectedSensorId, confidence = [] }
   const advanceTask = async (task, state) => {
     const taskId = task.task_id || task.token_id;
     if (!taskId) return;
-    await fetch(`/api/verification-tasks/state?plant_id=${plantId}`, {
+    await apiFetch(`/api/verification-tasks/state?plant_id=${plantId}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

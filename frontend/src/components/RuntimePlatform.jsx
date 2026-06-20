@@ -764,7 +764,7 @@ function VerificationTaskControls({ tasks, role, plantId }) {
     setBusy(`${taskId}:${state}`);
     setMessage('');
     try {
-      const res = await fetch(`/api/verification-tasks/state?plant_id=${plantId}`, {
+      const res = await apiFetch(`/api/verification-tasks/state?plant_id=${plantId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1268,7 +1268,7 @@ export default function RuntimePlatform() {
   const runDemoAction = async (path) => {
     setDemoBusy(true);
     try {
-      const res = await fetch(`${path}?plant_id=${plantId}`, { method: 'POST' });
+      const res = await apiFetch(`${path}?plant_id=${plantId}`, { method: 'POST' });
       const payload = await res.json().catch(() => null);
       if (!res.ok) throw new Error(payload?.detail || `Simulator action failed: ${res.status}`);
       setLocalDemoState(payload?.simulation_state || payload?.demo_state || payload || null);

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import useStore from '../store';
 import PageIdentity from './hmi/PageIdentity';
 import StatusTag from './hmi/StatusTag';
+import apiFetch from '../lib/apiFetch';
 
 const ROLE_TRANSITIONS = {
   Operator: new Set(['EXPIRED']),
@@ -107,7 +108,7 @@ function VerificationTaskCard({ task, role, plantId, onChanged }) {
     setBusy(state);
     setMessage('');
     try {
-      const res = await fetch(`/api/verification-tasks/state?plant_id=${plantId}`, {
+      const res = await apiFetch(`/api/verification-tasks/state?plant_id=${plantId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -221,7 +222,7 @@ function ExpiredTaskRecoveryCard({ task, plantId, role, onChanged }) {
     setBusy(true);
     setMessage('');
     try {
-      const res = await fetch(`/api/verification-tokens?plant_id=${plantId}`, {
+      const res = await apiFetch(`/api/verification-tokens?plant_id=${plantId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

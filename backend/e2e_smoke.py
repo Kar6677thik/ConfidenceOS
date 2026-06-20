@@ -24,6 +24,14 @@ import urllib.request
 
 BASE = os.getenv("CONFIDENCEOS_E2E_BASE", "http://127.0.0.1:8001")
 PLANTS = ["plant-a", "plant-b", "plant-c"]
+DEMO_CREDS = {
+    "Operator": ("operator", "ConfidenceOS-Op-2025"),
+    "Maintenance": ("maint", "ConfidenceOS-Maint-2025"),
+    "Engineer": ("engineer", "ConfidenceOS-Eng-2025"),
+    "Manager": ("manager", "ConfidenceOS-Mgr-2025"),
+    "Auditor": ("auditor", "ConfidenceOS-Aud-2025"),
+}
+TOKENS = {}
 
 
 class Response:
@@ -38,14 +46,41 @@ class Response:
         return json.loads(self.text)
 
 
-def _request(method: str, path: str, params: dict | None = None, body: dict | None = None, timeout: int = 15) -> Response:
+def _login(role: str) -> str | None:
+    if role in TOKENS:
+        return TOKENS[role]
+    username, password = DEMO_CREDS[role]
+    data = urllib.parse.urlencode({"username": username, "password": password}).encode("utf-8")
+    req = urllib.request.Request(
+        BASE + "/api/auth/login",
+        data=data,
+        method="POST",
+        headers={"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as res:
+            payload = json.loads(res.read().decode("utf-8"))
+            TOKENS[role] = payload.get("access_token")
+            return TOKENS[role]
+    except Exception:
+        return None
+
+
+def _request(method: str, path: str, params: dict | None = None, body: dict | None = None, timeout: int = 15, auth_role: str | None = None, extra_headers: dict | None = None) -> Response:
     query = f"?{urllib.parse.urlencode(params)}" if params else ""
     data = json.dumps(body).encode("utf-8") if body is not None else None
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    if auth_role:
+        token = _login(auth_role)
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+    if extra_headers:
+        headers.update(extra_headers)
     req = urllib.request.Request(
         BASE + path + query,
         data=data,
         method=method,
-        headers={"Content-Type": "application/json", "Accept": "application/json"},
+        headers=headers,
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as res:
@@ -67,12 +102,20 @@ def record(area, item, scenario, expected, ok, notes="", severity="High"):
     print(f"  {flag}[{area}] {item} :: {scenario} -> {result} {('('+notes+')') if notes else ''}")
 
 
-def get(path, **params):
-    return _request("GET", path, params=params or None, timeout=15)
+def get(path, auth_role=None, **params):
+    return _request("GET", path, params=params or None, timeout=15, auth_role=auth_role)
 
 
-def post(path, body=None, **params):
+def post(path, body=None, auth_role="Engineer", **params):
+    return _request("POST", path, params=params or None, body=body, timeout=30, auth_role=auth_role)
+
+
+def post_without_auth(path, body=None, **params):
     return _request("POST", path, params=params or None, body=body, timeout=30)
+
+
+def post_with_role_header_only(path, body=None, role="Engineer", **params):
+    return _request("POST", path, params=params or None, body=body, timeout=30, extra_headers={"X-Role": role})
 
 
 def check(area, item, scenario, fn, expected="200 + shape"):
@@ -139,9 +182,9 @@ def test_sensors_confidence(plant, sensors):
     check("Confidence", "GET /api/confidence/{sid}/explain", f"{plant}/{sid} alias",
           lambda: (get(f"/api/confidence/{sid}/explain", plant_id=plant).status_code == 200, ""))
     check("Confidence", "GET /api/confidence/sensitivity/{sid}", "role=Engineer -> 200",
-          lambda: (get(f"/api/confidence/sensitivity/{sid}", plant_id=plant, role="Engineer").status_code == 200, ""))
-    check("Confidence", "GET /api/confidence/sensitivity/{sid}", "role=Operator -> 403",
-          lambda: (get(f"/api/confidence/sensitivity/{sid}", plant_id=plant, role="Operator").status_code == 403, ""),
+          lambda: (get(f"/api/confidence/sensitivity/{sid}", auth_role="Engineer", plant_id=plant).status_code == 200, ""))
+    check("Confidence", "GET /api/confidence/sensitivity/{sid}", "Operator JWT -> 403",
+          lambda: (get(f"/api/confidence/sensitivity/{sid}", auth_role="Operator", plant_id=plant).status_code == 403, ""),
           expected="403")
     check("Confidence", "GET /api/confidence/debt/{plant}", f"{plant}",
           lambda: (get(f"/api/confidence/debt/{plant}").status_code == 200, ""))
@@ -276,6 +319,13 @@ def test_studio_lifecycle():
                  "/api/studio/import-batches"]:
         check("Studio", f"GET {path}", "read", lambda p=path: (get(p).status_code == 200, ""))
 
+    check("Auth", "POST /api/studio/build/run", "X-Role only rejected",
+          lambda: (post_with_role_header_only("/api/studio/build/run", None, role="Engineer").status_code == 401, ""),
+          expected="401")
+    check("Auth", "POST /api/studio/build/run", "Operator JWT rejected",
+          lambda: (post("/api/studio/build/run", None, auth_role="Operator").status_code == 403, ""),
+          expected="403")
+
     # Switch asset model to pump_station and back.
     check("Studio", "POST /api/studio/asset-model", "switch pump_station",
           lambda: (post("/api/studio/asset-model", {"model_key": "pump_station"}).status_code == 200, ""))
@@ -340,7 +390,7 @@ def test_verification_lifecycle(plant, sensors):
     def st(state, role, note=""):
         body = {"task_id": task_id, "state": state, "actor": f"{role}-1",
                 "actor_role": role, "evidence_note": note}
-        return post("/api/verification-tasks/state", body, plant_id=plant)
+        return post("/api/verification-tasks/state", body, auth_role=role, plant_id=plant)
 
     # Negative cases first (task still REQUESTED):
     check("Verify", "state REQUESTED->ACCEPTED", "illegal -> 400",

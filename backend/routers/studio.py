@@ -242,7 +242,7 @@ def post_studio_asset_model(request: StudioAssetModelRequest):
     return studio_select_asset_model(request.model_key)
 
 
-@router.post("/api/studio/template-mutation")
+@router.post("/api/studio/template-mutation", dependencies=[Depends(require_role("Engineer", "Manager"))])
 def post_studio_template_mutation(request: StudioTemplateMutationRequest):
     return studio_update_template_mutation(request.require_manual_verification_when_level_quarantined)
 
@@ -252,7 +252,7 @@ def get_studio_build():
     return studio_current_build()
 
 
-@router.post("/api/studio/build/run")
+@router.post("/api/studio/build/run", dependencies=[Depends(require_role("Engineer", "Manager"))])
 def post_studio_build_run():
     return studio_run_compiler_build()
 
@@ -288,7 +288,7 @@ def get_studio_mapping_court_detail(raw_tag: str):
     return studio_mapping_court_detail(raw_tag)
 
 
-@router.post("/api/studio/mapping-court/approve")
+@router.post("/api/studio/mapping-court/approve", dependencies=[Depends(require_role("Engineer", "Manager"))])
 def post_studio_mapping_approve(request: StudioRawTagResolutionRequest):
     result = studio_approve_raw_tag(request.raw_tag)
     if result.get("status") == "not_approved":
@@ -296,7 +296,7 @@ def post_studio_mapping_approve(request: StudioRawTagResolutionRequest):
     return result
 
 
-@router.post("/api/studio/mapping-court/ignore")
+@router.post("/api/studio/mapping-court/ignore", dependencies=[Depends(require_role("Engineer", "Manager"))])
 def post_studio_mapping_ignore(request: StudioRawTagResolutionRequest):
     result = studio_ignore_raw_tag(request.raw_tag, request.reason)
     if result.get("status") == "not_ignored":
@@ -304,7 +304,7 @@ def post_studio_mapping_ignore(request: StudioRawTagResolutionRequest):
     return result
 
 
-@router.post("/api/studio/mapping-court/manual-map")
+@router.post("/api/studio/mapping-court/manual-map", dependencies=[Depends(require_role("Engineer", "Manager"))])
 def post_studio_mapping_manual_map(request: StudioManualMapRequest):
     result = studio_manual_map_raw_tag(
         request.raw_tag, request.canonical_tag,
@@ -315,17 +315,17 @@ def post_studio_mapping_manual_map(request: StudioManualMapRequest):
     return result
 
 
-@router.post("/api/studio/mapping-court/keep-blocking")
+@router.post("/api/studio/mapping-court/keep-blocking", dependencies=[Depends(require_role("Engineer", "Manager"))])
 def post_studio_mapping_keep_blocking(request: StudioRawTagResolutionRequest):
     return studio_keep_raw_tag_blocking(request.raw_tag)
 
 
-@router.post("/api/studio/auto-map")
+@router.post("/api/studio/auto-map", dependencies=[Depends(require_role("Engineer", "Manager"))])
 async def post_studio_auto_map():
     return await studio_auto_map()
 
 
-@router.post("/api/studio/import-tags")
+@router.post("/api/studio/import-tags", dependencies=[Depends(require_role("Engineer", "Manager"))])
 async def post_studio_import_tags(request: dict):
     raw_tags = request.get("tags", [])
     if not isinstance(raw_tags, list):
@@ -336,7 +336,7 @@ async def post_studio_import_tags(request: dict):
     return await studio_import_arbitrary_tags(cleaned)
 
 
-@router.post("/api/studio/suggest-template")
+@router.post("/api/studio/suggest-template", dependencies=[Depends(require_role("Engineer", "Manager"))])
 async def post_studio_suggest_template(request: dict):
     description = (request.get("description") or "").strip()
     if not description:
@@ -344,12 +344,12 @@ async def post_studio_suggest_template(request: dict):
     return await studio_suggest_template(description)
 
 
-@router.post("/api/studio/assign-template")
+@router.post("/api/studio/assign-template", dependencies=[Depends(require_role("Engineer", "Manager"))])
 def post_studio_assign_template(request: StudioTemplateAssignmentRequest):
     return studio_assign_template(request.asset_id, request.template_id, approved=request.approved)
 
 
-@router.post("/api/studio/generate")
+@router.post("/api/studio/generate", dependencies=[Depends(require_role("Engineer", "Manager"))])
 def post_studio_generate(request: StudioGenerateRequest | None = None):
     payload = request or StudioGenerateRequest()
     return studio_generate_preview(role=payload.role, context=payload.context)

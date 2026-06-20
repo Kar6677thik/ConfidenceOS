@@ -215,8 +215,8 @@ class VerificationTaskUpdateRequest(BaseModel):
     state: str
     accepted_by: Optional[str] = None
     note: str = ""
-    actor: Optional[str] = None        # client-supplied identity (no real auth yet)
-    actor_role: Optional[str] = None   # Operator / Maintenance / Engineer / Manager / Auditor
+    actor: Optional[str] = None        # compatibility field; authorization uses JWT identity
+    actor_role: Optional[str] = None   # compatibility field; role checks use the verified token
     evidence_note: str = ""            # required for FIELD_CHECK_DONE and ACCEPTED
     evidence: Optional[VerificationEvidenceRequest] = None
 
@@ -329,7 +329,7 @@ app.add_middleware(
     allow_origins=_configured_cors_origins(),
     allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type", "Accept", "Authorization", "X-API-Key", "X-Role"],
+    allow_headers=["Content-Type", "Accept", "Authorization", "X-API-Key"],
 )
 
 app.include_router(demo_router.router)
@@ -1160,22 +1160,18 @@ def explain_confidence_alias(sensor_id: str, plant_id: str = Query(default="plan
 def get_score_sensitivity(
     sensor_id: str,
     plant_id: str = Query(default="plant-a"),
-    role: str = Query(default="Engineer"),
-    header_role: str | None = Depends(require_role("Engineer")),
+    user: dict = Depends(require_role("Engineer")),
 ):
     """Engineer-only deterministic score sensitivity view data.
 
-    Role is enforced server-side: via the X-Role header when present (require_role),
-    falling back to the legacy `role` query param for older clients.
+    Role is enforced server-side from a verified JWT, not from X-Role or query
+    parameters.
     """
-    effective_role = header_role or role
-    if effective_role != "Engineer":
-        raise HTTPException(status_code=403, detail="Score sensitivity requires Engineer role.")
     plant = plant_manager.get(plant_id)
     result = plant.latest_confidence.get(sensor_id)
     if result is None:
         raise HTTPException(status_code=404, detail=f"No confidence data for sensor '{sensor_id}'.")
-    return build_score_sensitivity(sensor_id, result, role=role)
+    return build_score_sensitivity(sensor_id, result, role=user.get("role", "Engineer"))
 
 
 @app.get("/api/confidence/debt/{plant_id}")
@@ -1257,9 +1253,14 @@ def get_shift_channel(plant_id: str = Query(default="plant-a"), db: Session = De
 
 
 @app.post("/api/shift-channel/note")
-def post_shift_channel_note(request: ShiftNoteRequest, db: Session = Depends(get_db)):
+def post_shift_channel_note(
+    request: ShiftNoteRequest,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_role("Operator", "Maintenance", "Engineer", "Manager", "Auditor")),
+):
     """Add an operator note to the persistent shift channel."""
-    note = add_shift_note(request.plant_id, request.author, request.message)
+    author = user.get("username") or user.get("role") or "authenticated-user"
+    note = add_shift_note(request.plant_id, author, request.message)
     plant = plant_manager.get(request.plant_id)
     plant.verification_tokens = list_verification_tasks(db, plant_id=request.plant_id, include_closed=True)
     return {
@@ -1269,7 +1270,9 @@ def post_shift_channel_note(request: ShiftNoteRequest, db: Session = Depends(get
 
 
 @app.post("/api/shift-channel/reset")
-def post_shift_channel_reset():
+def post_shift_channel_reset(
+    user: dict = Depends(require_role("Engineer", "Manager")),
+):
     """Reset demo shift-channel notes; operational debt is rebuilt from live state."""
     return {"status": "reset", "state": reset_shift_notes()}
 
@@ -1431,7 +1434,7 @@ def post_alarm_acknowledge(
     request: AlarmAcknowledgeRequest,
     plant_id: str = Query(default="plant-a"),
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_role("Operator", "Maintenance", "Engineer", "Manager")),
 ):
     """Acknowledge an active alarm. ISA-18.2: UNACK_ALARM→ACK_ALARM, UNACK_NORM→NORM."""
     actor = user.get("username") or request.actor
@@ -1449,7 +1452,7 @@ def post_alarm_shelve(
     request: AlarmShelveRequest,
     plant_id: str = Query(default="plant-a"),
     db: Session = Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_role("Engineer", "Manager")),
 ):
     """Shelve (suppress) an alarm for up to shelve_hours. ISA-18.2 §6.5."""
     actor = user.get("username") or request.actor
@@ -1478,7 +1481,11 @@ def get_mode(plant_id: str = Query(default="plant-a")):
 
 
 @app.post("/api/mode/startup")
-def toggle_startup_mode(request: StartupModeRequest, plant_id: str = Query(default="plant-a")):
+def toggle_startup_mode(
+    request: StartupModeRequest,
+    plant_id: str = Query(default="plant-a"),
+    user: dict = Depends(require_role("Operator", "Engineer", "Manager")),
+):
     """Toggle startup mode on or off."""
     plant = plant_manager.get(plant_id)
     plant.startup_manager.toggle(request.active)
@@ -1492,7 +1499,11 @@ def toggle_startup_mode(request: StartupModeRequest, plant_id: str = Query(defau
 
 
 @app.post("/api/mode/startup/acknowledge/{sensor_id}")
-def acknowledge_stale_reading(sensor_id: str, plant_id: str = Query(default="plant-a")):
+def acknowledge_stale_reading(
+    sensor_id: str,
+    plant_id: str = Query(default="plant-a"),
+    user: dict = Depends(require_role("Operator", "Engineer", "Manager")),
+):
     """Acknowledge a stale reading flag."""
     plant = plant_manager.get(plant_id)
     success = plant.startup_manager.acknowledge_stale(sensor_id)
@@ -1514,7 +1525,7 @@ VERIFICATION_TRANSITIONS = {
 }
 # Transitions that must cite an evidence note (field work / engineer acceptance).
 VERIFICATION_EVIDENCE_REQUIRED = {"FIELD_CHECK_DONE", "ACCEPTED"}
-# Light, advisory role scoping (no real auth — actor_role is client-supplied).
+# Role-scoped workflow transitions; authorization uses the verified JWT role.
 VERIFICATION_ROLE_SCOPE = {
     "ASSIGNED": {"Maintenance", "Engineer", "Manager"},
     "FIELD_CHECK_DONE": {"Maintenance", "Engineer"},
@@ -1528,6 +1539,7 @@ def create_verification_token(
     request: VerificationTokenRequest,
     plant_id: str = Query(default="plant-a"),
     db: Session = Depends(get_db),
+    user: dict = Depends(require_role("Operator", "Maintenance", "Engineer", "Manager")),
 ):
     """Create a temporary field verification token without overriding confidence."""
     plant = plant_manager.get(plant_id)
@@ -1567,6 +1579,7 @@ def update_verification_task_state(
     request: VerificationTaskUpdateRequest,
     plant_id: str = Query(default="plant-a"),
     db: Session = Depends(get_db),
+    user: dict = Depends(require_role("Operator", "Maintenance", "Engineer", "Manager", "Auditor")),
 ):
     """
     Advance a field verification task along its guarded lifecycle.
@@ -1582,8 +1595,8 @@ def update_verification_task_state(
         plant_id=plant_id,
         task_id=request.task_id,
         to_state=request.state,
-        actor=request.actor or request.accepted_by,
-        actor_role=request.actor_role,
+        actor=user.get("username") or request.actor or request.accepted_by,
+        actor_role=user.get("role"),
         evidence_note=request.evidence_note or request.note,
         evidence=request.evidence.model_dump(exclude_none=True) if request.evidence else None,
     )
@@ -2637,7 +2650,10 @@ def _build_simple_pdf(text: str) -> bytes:
 
 
 @app.post("/api/sandbox/run")
-def run_sandbox(request: SandboxRequest):
+def run_sandbox(
+    request: SandboxRequest,
+    user: dict = Depends(require_role("Engineer", "Manager")),
+):
     """Run a simulated failure scenario without affecting live data."""
     from simulator import SensorSimulator, DEFAULT_SENSORS
     from confidence import ConfidenceEngine

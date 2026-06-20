@@ -16,6 +16,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import useStore from '../store';
+import apiFetch from '../lib/apiFetch';
 
 const FALLBACK_SENSORS = ['LT-5100', 'FI-2010', 'FO-2020', 'PT-3100', 'TT-4100', 'ZT-6100'];
 
@@ -61,7 +62,7 @@ export default function AbnormalityLab({ onClose }) {
     setBusy(true);
     setStatus(null);
     try {
-      const res = await fetch(url.path, {
+      const res = await apiFetch(url.path, {
         method: 'POST',
         headers: url.body ? { 'Content-Type': 'application/json' } : undefined,
         body: url.body ? JSON.stringify(url.body) : undefined,

@@ -299,10 +299,12 @@ const useStore = create((set, get) => ({
 
   toggleStartupMode: async (active) => {
     try {
-      const { plantId } = get();
+      const { plantId, authToken } = get();
+      const headers = { 'Content-Type': 'application/json' };
+      if (authToken) headers.Authorization = `Bearer ${authToken}`;
       const res = await fetch(`/api/mode/startup?plant_id=${plantId}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ active }),
       });
       if (!res.ok) throw new Error(`Server responded ${res.status}`);
@@ -313,9 +315,12 @@ const useStore = create((set, get) => ({
 
   acknowledgeStale: async (sensorId) => {
     try {
-      const { plantId } = get();
+      const { plantId, authToken } = get();
+      const headers = {};
+      if (authToken) headers.Authorization = `Bearer ${authToken}`;
       const res = await fetch(`/api/mode/startup/acknowledge/${sensorId}?plant_id=${plantId}`, {
         method: 'POST',
+        headers,
       });
       if (!res.ok) throw new Error(`Server responded ${res.status}`);
     } catch (err) {

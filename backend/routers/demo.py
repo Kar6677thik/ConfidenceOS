@@ -8,7 +8,7 @@ All routes are behaviour-preserving extractions from main.py; no logic changed.
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from demo_service import advance_demo, get_demo_state, reset_demo, start_abnormal_situation
@@ -19,6 +19,7 @@ from studio_service import (
     select_asset_model as studio_select_asset_model,
 )
 from deps import plant_manager, plant_loop_status
+from auth import require_role
 
 router = APIRouter()
 
@@ -73,7 +74,7 @@ def _require_simulator_plant(plant_id: str):
 
 # ─── Scenario control ────────────────────────────────────────────────────────
 
-@router.post("/api/scenario/load")
+@router.post("/api/scenario/load", dependencies=[Depends(require_role("Engineer", "Manager"))])
 def load_scenario(scenario_path: Optional[str] = None, plant_id: str = Query(default="plant-a")):
     """Load a failure injection scenario."""
     plant = plant_manager.get(plant_id)
@@ -84,7 +85,7 @@ def load_scenario(scenario_path: Optional[str] = None, plant_id: str = Query(def
     return {"status": "loaded", "scenario": path.name}
 
 
-@router.post("/api/scenario/reset")
+@router.post("/api/scenario/reset", dependencies=[Depends(require_role("Engineer", "Manager"))])
 def reset_scenario(plant_id: str = Query(default="plant-a")):
     """Reset the simulator clock and state."""
     plant = plant_manager.get(plant_id)
@@ -102,7 +103,7 @@ def get_simulation_state(plant_id: str = Query(default="plant-a")):
     return get_demo_state(plant_id, plant, plant_loop_status.get(plant_id, {}))
 
 
-@router.post("/api/simulation/reset-source")
+@router.post("/api/simulation/reset-source", dependencies=[Depends(require_role("Engineer", "Manager"))])
 def reset_simulation_source(plant_id: str = Query(default="plant-a")):
     """Reset only the simulator source and scenario state."""
     plant = _require_simulator_plant(plant_id)
@@ -110,7 +111,7 @@ def reset_simulation_source(plant_id: str = Query(default="plant-a")):
     return {"status": "reset", "simulation_state": state, "demo_state": state}
 
 
-@router.post("/api/simulation/start-abnormal-situation")
+@router.post("/api/simulation/start-abnormal-situation", dependencies=[Depends(require_role("Engineer", "Manager"))])
 def start_simulation_abnormal_situation(plant_id: str = Query(default="plant-a")):
     """Start the abnormal simulator scenario without changing Studio state."""
     plant = _require_simulator_plant(plant_id)
@@ -118,7 +119,7 @@ def start_simulation_abnormal_situation(plant_id: str = Query(default="plant-a")
     return {"status": "started", "simulation_state": state, "demo_state": state}
 
 
-@router.post("/api/simulation/advance")
+@router.post("/api/simulation/advance", dependencies=[Depends(require_role("Engineer", "Manager"))])
 def advance_simulation_scenario(plant_id: str = Query(default="plant-a")):
     """Advance the simulator scenario phase without writing plant controls."""
     plant = _require_simulator_plant(plant_id)
@@ -135,7 +136,7 @@ def get_judge_demo_state(plant_id: str = Query(default="plant-a")):
     return get_demo_state(plant_id, plant, plant_loop_status.get(plant_id, {}))
 
 
-@router.post("/api/demo/reset")
+@router.post("/api/demo/reset", dependencies=[Depends(require_role("Engineer", "Manager"))])
 def reset_judge_demo(plant_id: str = Query(default="plant-a")):
     """Compatibility endpoint: reset the app-wide training baseline."""
     plant = _require_simulator_plant(plant_id)
@@ -154,7 +155,7 @@ def reset_judge_demo(plant_id: str = Query(default="plant-a")):
     }
 
 
-@router.post("/api/demo/start-abnormal-situation")
+@router.post("/api/demo/start-abnormal-situation", dependencies=[Depends(require_role("Engineer", "Manager"))])
 def start_judge_abnormal_situation(plant_id: str = Query(default="plant-a")):
     """Compatibility endpoint: trigger the trust-quarantine simulator scenario."""
     plant = _require_simulator_plant(plant_id)
@@ -164,7 +165,7 @@ def start_judge_abnormal_situation(plant_id: str = Query(default="plant-a")):
     return {"status": "started", "demo_state": state}
 
 
-@router.post("/api/demo/advance")
+@router.post("/api/demo/advance", dependencies=[Depends(require_role("Engineer", "Manager"))])
 def advance_judge_demo(plant_id: str = Query(default="plant-a")):
     """Compatibility endpoint: advance the simulator scenario phase without writing plant controls."""
     plant = _require_simulator_plant(plant_id)
@@ -174,7 +175,7 @@ def advance_judge_demo(plant_id: str = Query(default="plant-a")):
 
 # ─── Live failure injection ──────────────────────────────────────────────────
 
-@router.post("/api/sim/inject")
+@router.post("/api/sim/inject", dependencies=[Depends(require_role("Engineer", "Manager"))])
 def sim_inject(request: SimInjectRequest):
     """Inject a single failure into the LIVE simulator."""
     from simulator import FailureConfig
@@ -214,7 +215,7 @@ def sim_inject(request: SimInjectRequest):
     }
 
 
-@router.post("/api/sim/clear")
+@router.post("/api/sim/clear", dependencies=[Depends(require_role("Engineer", "Manager"))])
 def sim_clear(plant_id: str = Query(default="plant-a")):
     """Clear all injected failures from the LIVE simulator."""
     plant = _require_simulator_plant(plant_id)

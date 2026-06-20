@@ -13,6 +13,7 @@ import useStore from '../store';
 import { chartColors, chartGrid, axisTick, axisLine, TRUST_COLOR } from '../lib/chartTheme';
 import PageIdentity from '../components/hmi/PageIdentity';
 import StatusTag from '../components/hmi/StatusTag';
+import apiFetch from '../lib/apiFetch';
 
 // Fallback only — the live list is fetched from the active asset model
 // (/api/model/signals) so the sandbox reflects whatever model is loaded.
@@ -75,7 +76,7 @@ export default function SandboxSimulator() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/sandbox/run', {
+      const res = await apiFetch('/api/sandbox/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

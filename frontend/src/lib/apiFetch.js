@@ -3,19 +3,16 @@
  *
  * Priority:
  *   1. Authorization: Bearer <jwt>  — when the user has logged in
- *   2. X-Role header fallback        — legacy demo mode without login
- *   3. X-API-Key                     — machine-client API key (optional)
+ *   2. X-API-Key                     — machine-client API key (optional)
  */
 import useStore from '../store';
 
-function buildHeaders(options = {}, forceDemoRole = false) {
+function buildHeaders(options = {}) {
   const headers = { ...(options.headers || {}) };
   try {
-    const { authToken, role } = useStore.getState();
-    if (authToken && !forceDemoRole) {
+    const { authToken } = useStore.getState();
+    if (authToken) {
       headers['Authorization'] = `Bearer ${authToken}`;
-    } else if (role) {
-      headers['X-Role'] = role;
     }
   } catch {
     /* store not ready — send without auth */
@@ -50,9 +47,8 @@ export default async function apiFetch(path, options = {}) {
   if (!authToken || !isJwtFailure(payload)) return response;
 
   // Backend JWT secrets can be ephemeral in demo deployments. If a token was
-  // minted before a restart, retry once through the explicit read-only demo
-  // role bridge instead of letting Runtime collapse to a blank error state.
+  // minted before a restart, clear it and let the caller surface the 401/login
+  // state. Never retry by downgrading to a role header.
   logout();
-  const retryHeaders = buildHeaders(options, true);
-  return fetch(path, { ...options, headers: retryHeaders });
+  return response;
 }

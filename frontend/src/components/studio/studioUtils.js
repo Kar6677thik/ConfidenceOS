@@ -22,8 +22,8 @@ export function asList(value) {
 import apiFetch from '../../lib/apiFetch';
 
 export async function fetchJson(url, options) {
-  // Route through apiFetch so role-gated studio writes (publish/asset-model/
-  // reset) carry the X-Role header (and X-API-Key when configured).
+  // Route through apiFetch so role-gated studio writes carry the Bearer token
+  // (and X-API-Key when configured).
   const res = await apiFetch(url, options);
   const payload = await res.json().catch(() => null);
   if (!res.ok) {

@@ -192,7 +192,7 @@ class VerificationEvent(Base):
     sensor_id = Column(String(20), nullable=True)
     from_state = Column(String(20), nullable=True)   # null on creation
     to_state = Column(String(20), nullable=False)
-    actor = Column(String(60), nullable=True)        # client-supplied identity (no real auth yet)
+    actor = Column(String(60), nullable=True)        # verified actor or compatibility label
     actor_role = Column(String(20), nullable=True)
     evidence_note = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
