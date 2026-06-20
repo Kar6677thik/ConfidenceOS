@@ -91,12 +91,12 @@ export default function NavBar() {
 
   return (
     <header className="top-nav">
-      <div className="flex items-center gap-8 min-w-0">
+      <div className="flex items-center gap-4 min-w-0">
         <NavLink to="/runtime" className="brand-mark shrink-0">
           ConfidenceOS
         </NavLink>
         <div className="hidden md:block h-8 w-px bg-[var(--border-strong)]" />
-        <nav className="flex items-center gap-7 overflow-x-auto min-w-0">
+        <nav className="flex items-center gap-4 overflow-x-auto overflow-y-hidden min-w-0">
           {visibleItems.map((item) => (
             <NavLink
               key={item.path}
@@ -113,7 +113,7 @@ export default function NavBar() {
               onChange={(event) => {
                 if (event.target.value) navigate(event.target.value);
               }}
-              className="industrial-control bg-transparent max-w-[200px] shrink-0 opacity-70 hover:opacity-100 transition-opacity text-[var(--text-muted)]"
+              className="industrial-control bg-transparent max-w-[168px] shrink-0 opacity-70 hover:opacity-100 transition-opacity text-[var(--text-muted)]"
               aria-label="Support views"
               title="Secondary support views"
             >
@@ -126,7 +126,7 @@ export default function NavBar() {
         </nav>
       </div>
 
-      <div className="flex items-center gap-5 shrink-0">
+      <div className="flex items-center gap-3 shrink min-w-0 overflow-hidden">
         {authToken && authUser ? (
           <span
             className="caption-mono"
@@ -158,7 +158,7 @@ export default function NavBar() {
           </select>
         )}
 
-        <div className={`caption-mono ${alerts > 0 ? 'status-critical' : trustException.status}`}>
+        <div className={`caption-mono shrink-0 ${alerts > 0 ? 'status-critical' : trustException.status}`}>
           {alerts > 0 ? `${alerts} Trust Alert${alerts > 1 ? 's' : ''}` : trustException.label}
         </div>
         {unackedAlarms > 0 && (
@@ -169,7 +169,7 @@ export default function NavBar() {
 
         {!runtimeReady && (
           <div
-            className={`caption-mono ${readinessClass}`}
+            className={`caption-mono shrink-0 ${readinessClass}`}
             title={healthError || systemHealth?.readiness?.issues?.map((issue) => issue.message).join(' | ') || 'Runtime readiness'}
           >
             {readinessLabel}
@@ -177,7 +177,7 @@ export default function NavBar() {
         )}
 
         {location.pathname !== '/runtime' && location.pathname !== '/' && (
-          <div className={`caption-mono ${healthClass}`}>
+          <div className={`caption-mono shrink-0 ${healthClass}`}>
             Integrity {averageConfidence}%
           </div>
         )}
@@ -193,13 +193,13 @@ export default function NavBar() {
           </span>
         </button>
 
-        <div className="flex items-center gap-2 caption-mono">
+        <div className="flex items-center gap-2 caption-mono shrink-0">
           <span className={`led-square ${connected ? 'status-safe dot-blink' : 'status-critical'}`} />
           <span>{connected ? 'LIVE' : 'OFFLINE'}</span>
         </div>
 
-        <div className="flex items-center gap-2 caption-mono" title={`Signed in as ${authUser?.username}`}>
-          <span className="text-[var(--text-muted)]">{authUser?.username}</span>
+        <div className="flex items-center gap-2 caption-mono shrink-0" title={`Signed in as ${authUser?.username}`}>
+          <span className="text-[var(--text-muted)] hidden 2xl:inline">{authUser?.username}</span>
           <button
             onClick={logout}
             className="industrial-control shrink-0 px-2"

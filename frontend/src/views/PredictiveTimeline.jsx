@@ -21,6 +21,25 @@ function ConfidenceBadge({ conf }) {
   return <span className="label-caps font-bold" style={{ color }}>{conf}% trust</span>;
 }
 
+function ForecastStatusBadge({ pred }) {
+  const status = pred.forecast_status || pred.model_fit || 'unknown';
+  const label = status === 'flat_or_no_degradation'
+    ? 'Stable'
+    : status === 'insufficient_history'
+    ? 'Collecting'
+    : status === 'active_degradation'
+    ? 'Degrading'
+    : status === 'model_error'
+    ? 'Model Issue'
+    : status;
+  const cls = status === 'active_degradation'
+    ? 'status-warning'
+    : status === 'model_error'
+    ? 'status-critical'
+    : 'text-[var(--text-muted)]';
+  return <span className={`industrial-badge ${cls}`}>{label}</span>;
+}
+
 function forecastLabel(pred) {
   const status = pred.forecast_status || pred.model_fit;
   if (status === 'insufficient_history') return `Collecting history (${pred.sample_count || 0} samples)`;
@@ -75,8 +94,8 @@ export default function PredictiveTimeline() {
 
       {/* -- Context header -- */}
       <PageIdentity displayName="Confidence Degradation Timeline" level={3} area="12-Hour Trust Forecast Window / Sorted by Criticality" plant={plantId} />
-      <div className="px-6 py-2 border-b border-[var(--border)] flex items-center justify-end gap-3 flex-shrink-0 bg-[var(--bg-low)]">
-        <div className="mr-auto caption-mono text-[var(--text-muted)]">
+      <div className="px-6 py-2 border-b border-[var(--border)] flex items-center justify-end gap-3 flex-shrink-0 bg-[var(--bg-low)] min-w-0">
+        <div className="mr-auto caption-mono text-[var(--text-muted)] min-w-0 truncate">
           {predictionsMeta
             ? `${predictionsMeta.status || 'unknown'} / ${predictionsMeta.history_sample_count ?? 0} persisted samples / ${predictionsMeta.live_snapshot_count ?? 0} live trust states`
             : 'Forecast evidence not loaded'}
@@ -100,13 +119,13 @@ export default function PredictiveTimeline() {
       <div className="flex flex-1 overflow-hidden">
 
         {/* Timeline canvas */}
-        <div className="flex-1 flex flex-col min-w-0 border-r border-[var(--border)] overflow-hidden">
+        <div className="forecast-timeline flex-1 flex flex-col min-w-0 border-r border-[var(--border)] overflow-hidden">
           {/* Time axis */}
           <div className="h-10 border-b border-[var(--border)] flex flex-shrink-0 bg-[var(--bg-surface)]">
-            <div className="w-48 shrink-0 border-r border-[var(--border)] px-4 flex items-center">
+            <div className="forecast-axis-label border-r border-[var(--border)] px-4 flex items-center">
               <span className="label-caps text-[var(--text-muted)]">Sensor ID</span>
             </div>
-            <div className="flex-1 flex items-end pb-1.5 px-2 justify-between">
+            <div className="forecast-track flex-1 flex items-end pb-1.5 px-2 justify-between overflow-hidden">
               {['Now', '+2h', '+4h', '+6h', '+8h', '+10h', '+12h'].map((t) => (
                 <span key={t} className="caption-mono text-[10px] text-[var(--text-dim)]">{t}</span>
               ))}
@@ -116,7 +135,7 @@ export default function PredictiveTimeline() {
           {/* Timeline rows */}
           <div className="flex-1 overflow-y-auto scrollbar-thin relative">
             {/* Background grid */}
-            <div className="absolute inset-0 left-48 timeline-grid opacity-30 pointer-events-none" />
+            <div className="absolute inset-0 left-[320px] timeline-grid opacity-30 pointer-events-none" />
 
             {rows.length === 0 && (
               <div className="p-8 text-center">
@@ -134,27 +153,35 @@ export default function PredictiveTimeline() {
 
               return (
                 <div key={pred.sensor_id}
-                  className="flex h-16 border-b border-[var(--border-subtle)]/30 hover:bg-[var(--bg-surface)]/50 transition-colors group relative">
+                  className="forecast-row flex border-b border-[var(--border-subtle)]/30 hover:bg-[var(--bg-surface)]/50 transition-colors group relative">
                   {/* Sensor label */}
-                  <div className="w-48 shrink-0 border-r border-[var(--border)] px-4 flex items-center bg-[var(--bg-low)] z-10">
-                    <div className="flex items-center gap-2">
+                  <div className="forecast-sensor-cell border-r border-[var(--border)] px-4 py-3 flex items-center bg-[var(--bg-low)] z-10">
+                    <div className="flex items-start gap-3 min-w-0 w-full">
                       <div className="status-pip" style={{ background: color }} />
-                      <div>
-                        <p className="font-data text-[14px] text-[var(--text)] group-hover:text-[var(--primary)] transition-colors">
-                          {pred.sensor_id}
-                        </p>
-                        <p className="caption-mono text-[10px] text-[var(--text-muted)]">
+                      <div className="forecast-sensor-copy flex-1">
+                        <div className="flex items-center justify-between gap-2 min-w-0">
+                          <p className="font-data text-[15px] text-[var(--text)] group-hover:text-[var(--primary)] transition-colors machine-token">
+                            {pred.sensor_id}
+                          </p>
+                          <ForecastStatusBadge pred={pred} />
+                        </div>
+                        <p className="caption-mono text-[var(--text-muted)] mt-1">
                           {forecastLabel(pred)}
                         </p>
-                        <p className="caption-mono text-[10px] text-[var(--text-dim)]">
+                        <p className="caption-mono text-[var(--text-dim)] mt-1">
                           {evidenceLabel(pred)}
                         </p>
+                        {forecastDetail(pred) && (
+                          <p className="caption-mono text-[var(--text-dim)] mt-1">
+                            {forecastDetail(pred)}
+                          </p>
+                        )}
                       </div>
                     </div>
                   </div>
 
                   {/* Track */}
-                  <div className="flex-1 relative py-3 px-2 flex items-center">
+                  <div className="forecast-track flex-1 relative py-3 px-2 flex items-center overflow-hidden">
                     <div className="absolute left-2 right-2 h-2 bg-[var(--bg-elevated)]/30 rounded-full top-1/2 -translate-y-1/2" />
                     {/* Forecast/status portion */}
                     <div className="absolute left-0 h-2 rounded-l-full top-1/2 -translate-y-1/2 transition-all"
