@@ -77,12 +77,20 @@ class ConfidenceResult:
     evidence: list[dict] = field(default_factory=list)
     recommended_action: str = "Continue normal monitoring."
     dominant_factor: str = "none"
+    # Uncertainty band: how wide the score estimate could be (±pct points).
+    # Low sample count or unknown calibration age increases uncertainty.
+    # This is NOT a probability — it reflects rubric input data quality.
+    score_uncertainty_pct: float = 10.0
 
     def to_dict(self) -> dict:
         return {
             "sensor_id": self.sensor_id,
             "confidence_pct": self.confidence_pct,
             "tier": self.tier,
+            # Uncertainty band: the true score could reasonably be within
+            # ±score_uncertainty_pct of the reported value. Not a probability.
+            "score_uncertainty_pct": self.score_uncertainty_pct,
+            "score_basis": "trust-rubric — governed heuristic, not a calibrated probability",
             "sub_scores": {
                 "calibration": round(self.sub_scores.calibration_score, 3),
                 "stability": round(self.sub_scores.stability_score, 3),
@@ -263,6 +271,8 @@ class ConfidenceEngine:
                 dominant_factor, sid, tier, namur_state
             )
 
+            uncertainty = self._score_uncertainty(sid, stype, sub)
+
             results.append(ConfidenceResult(
                 sensor_id=sid,
                 confidence_pct=pct,
@@ -273,6 +283,7 @@ class ConfidenceEngine:
                 evidence=evidence,
                 recommended_action=recommended_action,
                 dominant_factor=dominant_factor,
+                score_uncertainty_pct=uncertainty,
             ))
 
         return results
@@ -319,6 +330,41 @@ class ConfidenceEngine:
             "none": f"Review {sensor_id} evidence before using this value as a primary operating reference.",
         }
         return actions.get(dominant_factor, actions["none"])
+
+    def _score_uncertainty(self, sensor_id: str, sensor_type: str, sub: SubScores) -> float:
+        """
+        Estimate how uncertain the composite trust rubric score is, in ±pct points.
+
+        This is NOT a probability; it captures data-quality limitations:
+        - Too few history samples → cross-sensor and stability scores are coarse.
+        - Unknown calibration age → calibration score could be over- or under-stated.
+        - No independent cross-check available → cross-sensor evidence is absent.
+
+        Typical range: 5 (well-observed sensor, known cal) to 25 (new / uncalibrated).
+        """
+        uncertainty = 5.0  # minimum baseline
+
+        # Sample count uncertainty: stability and cross-sensor need at least 10+ readings
+        history = self._history.get(sensor_id)
+        n_samples = len(history) if history else 0
+        if n_samples < 5:
+            uncertainty += 15.0   # essentially no trend data
+        elif n_samples < 15:
+            uncertainty += 8.0
+        elif n_samples < 30:
+            uncertainty += 3.0
+
+        # Calibration age uncertainty: unknown age means cal score assumption unverified
+        cal_age = self.calibration_ages.get(sensor_id)
+        if cal_age is None:
+            uncertainty += 8.0    # assumed 0 days — may be wrong
+
+        # Cross-sensor uncertainty: if no adjacent sensors were available
+        if sub.cross_sensor_score >= 0.99:
+            # Perfect cross-sensor usually means no cross-check ran (defaulted to 1.0)
+            uncertainty += 4.0
+
+        return round(min(uncertainty, 30.0), 1)
 
     def _evidence_status(self, score: float) -> tuple[str, str]:
         if score >= 0.8:

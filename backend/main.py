@@ -155,6 +155,12 @@ INCIDENT_TIMELINE_MAX = 80
 SCENARIO_DIR = Path(__file__).parent
 ALLOWED_SCENARIOS = {"scenario.json", "scenario_b.json", "scenario_c.json"}
 
+# ─── Reliability telemetry ──────────────────────────────────────────────────
+_app_start_time: float = time.time()
+_request_counts: dict[str, int] = {}   # "METHOD /path" → total hits
+_error_counts: dict[str, int] = {}     # "METHOD /path" → 5xx count
+_tick_error_counts: dict[str, int] = {}  # plant_id → tick error count
+
 
 # ─── Pydantic models ────────────────────────────────────────────────────────
 
@@ -349,6 +355,16 @@ async def _api_key_middleware(request: Request, call_next):
     return await call_next(request)
 
 
+@app.middleware("http")
+async def _telemetry_middleware(request: Request, call_next):
+    key = f"{request.method} {request.url.path}"
+    _request_counts[key] = _request_counts.get(key, 0) + 1
+    response = await call_next(request)
+    if response.status_code >= 500:
+        _error_counts[key] = _error_counts.get(key, 0) + 1
+    return response
+
+
 # ─── Background plant tick loop ─────────────────────────────────────────────
 
 @app.exception_handler(UnknownPlantError)
@@ -403,6 +419,19 @@ async def _plant_tick_loop(plant_id: str, plant, start_delay: float = 0.0):
                 plant.latest_mb_state = _translate_mass_balance_state_for_active_model(mb_state.to_dict())
                 # Surface the (engineer-owned) residual-check parameters + honest assumptions.
                 plant.latest_mb_state["config"] = plant.mass_balance_engine.config_dict()
+                # Safety reviewers require that mass-balance divergence surfaces alternate
+                # explanations — not just "sensor lying". Add them whenever flags are active.
+                if plant.latest_mb_state and plant.latest_mb_state.get("flags"):
+                    plant.latest_mb_state["divergence_possible_explanations"] = [
+                        "Level transmitter reading is inaccurate (sensor fault or calibration drift).",
+                        "Flow meter(s) inaccurate — inflow or outflow measurement is drifted.",
+                        "Unmeasured stream present (drainage, vapour loss, sampling withdrawal).",
+                        "Process density or specific gravity changed — volumetric conversion is wrong.",
+                        "Transport delay between flow impulse and level response (large vessel).",
+                        "Operator-controlled addition/removal not yet reflected in DCS reading.",
+                    ]
+                else:
+                    plant.latest_mb_state.pop("divergence_possible_explanations", None)
                 bound_live_state = _apply_demo_asset_model_bindings({
                     "readings": raw_readings,
                     "confidence": confidence_data,
@@ -656,6 +685,7 @@ async def _plant_tick_loop(plant_id: str, plant, start_delay: float = 0.0):
                 if db:
                     db.rollback()
                 print(f"[PlantTick] Error in {plant_id}: {e}")
+                _tick_error_counts[plant_id] = _tick_error_counts.get(plant_id, 0) + 1
                 _plant_loop_status[plant_id] = {
                     "status": "error",
                     "last_tick": time.time(),
@@ -3153,4 +3183,71 @@ def health_check(response: Response):
             "verification_workflow": "SQLite-backed task lifecycle with immutable audit events; tasks never override confidence.",
             "industrial_integration": "Read-only trust-aware HMI layer beside existing DCS/HMI; OPC UA provider remains a planned read-only boundary.",
         },
+    }
+
+
+@app.get("/api/reliability")
+def reliability_dashboard():
+    """
+    Live reliability dashboard for SRE/ops monitoring.
+
+    Exposes per-plant tick health, HTTP request/error rates, WebSocket
+    connection count, OPC UA reconnect stats, and overall uptime.
+    All values are in-process accumulators — resets on server restart.
+    """
+    now_ts = time.time()
+    uptime = round(now_ts - _app_start_time, 1)
+
+    # ── Per-plant tick stats ─────────────────────────────────────────────────
+    per_plant: dict[str, dict] = {}
+    for pid, status in _plant_loop_status.items():
+        tick_count = status.get("tick_count", 0)
+        last_tick = status.get("last_tick", 0)
+        last_tick_age = round(now_ts - last_tick, 1) if last_tick else None
+        tick_rate = round(tick_count / uptime, 3) if uptime > 0 else 0.0
+        tick_errors = _tick_error_counts.get(pid, 0)
+        error_rate_pct = round(100.0 * tick_errors / tick_count, 2) if tick_count > 0 else 0.0
+
+        # OPC UA info if the tag provider supports it
+        plant = plant_manager.get(pid) if hasattr(plant_manager, "get") else None
+        opcua_info = None
+        if plant is not None:
+            provider = getattr(plant, "tag_provider", None)
+            if provider is not None and hasattr(provider, "connection_info"):
+                try:
+                    opcua_info = provider.connection_info()
+                except Exception:
+                    pass
+
+        per_plant[pid] = {
+            "loop_status": status.get("status"),
+            "tick_count": tick_count,
+            "tick_rate_hz": tick_rate,
+            "last_tick_age_seconds": last_tick_age,
+            "tick_errors_total": tick_errors,
+            "tick_error_rate_pct": error_rate_pct,
+            "persistence_status": status.get("persistence_status"),
+            "last_error": status.get("last_error"),
+            "opcua": opcua_info,
+        }
+
+    # ── HTTP request/error counts ────────────────────────────────────────────
+    total_requests = sum(_request_counts.values())
+    total_errors = sum(_error_counts.values())
+    overall_error_rate_pct = round(100.0 * total_errors / total_requests, 2) if total_requests > 0 else 0.0
+
+    # Top-5 busiest endpoints
+    top_endpoints = sorted(_request_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+
+    return {
+        "uptime_seconds": uptime,
+        "ws_connections": len(active_connections),
+        "plants": per_plant,
+        "http": {
+            "total_requests": total_requests,
+            "total_5xx_errors": total_errors,
+            "error_rate_pct": overall_error_rate_pct,
+            "top_endpoints": [{"endpoint": ep, "hits": hits} for ep, hits in top_endpoints],
+        },
+        "note": "Counters reset on server restart. No persistence across restarts.",
     }

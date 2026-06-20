@@ -10,6 +10,8 @@
  */
 
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import useStore from '../store';
 import SensorCard from '../components/SensorCard';
 import MassBalanceChart from '../components/MassBalanceChart';
 import PageIdentity from '../components/hmi/PageIdentity';
@@ -30,7 +32,15 @@ function replaySubScores(confidence = {}) {
 }
 
 export default function ForensicsReplay() {
+  const { role } = useStore();
+  const navigate = useNavigate();
   const [presets, setPresets]   = useState([]);
+
+  useEffect(() => {
+    if (!['Engineer', 'Manager', 'Auditor'].includes(role)) {
+      navigate('/runtime', { replace: true });
+    }
+  }, [role, navigate]);
   const [activePreset, setActivePreset] = useState(DEFAULT_PRESET);
   const [presetError, setPresetError] = useState('');
   const [data, setData]         = useState(null);

@@ -8,6 +8,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import useStore from '../store';
 import { chartColors, chartGrid, axisTick, axisLine, TRUST_COLOR } from '../lib/chartTheme';
@@ -45,7 +46,14 @@ function IndustrialTooltip({ active, payload, label }) {
 }
 
 export default function SandboxSimulator() {
-  const { plantId } = useStore();
+  const { plantId, role } = useStore();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (role !== 'Engineer') {
+      navigate('/runtime', { replace: true });
+    }
+  }, [role, navigate]);
   const [form, setForm] = useState({
     sensor_id:    'LT-5100',
     failure_mode: 'calibration_drift',

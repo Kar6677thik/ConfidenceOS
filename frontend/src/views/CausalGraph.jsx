@@ -9,7 +9,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide } from 'd3-force';
 import useStore from '../store';
 import TrustDependencyGraph from '../components/TrustDependencyGraph';
@@ -55,9 +55,16 @@ function computeForceLayout(nodes, edges, svgW, svgH) {
 }
 
 export default function CausalGraph() {
-  const { plantId } = useStore();
+  const { plantId, role } = useStore();
+  const navigate = useNavigate();
   const [graph, setGraph] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!['Engineer', 'Manager'].includes(role)) {
+      navigate('/runtime', { replace: true });
+    }
+  }, [role, navigate]);
 
   // Pan/zoom transform state, also mirrored in a ref for use inside event handlers.
   const [transform, _setTransformState] = useState({ tx: 0, ty: 0, k: 1 });

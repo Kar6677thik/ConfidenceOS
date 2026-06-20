@@ -339,6 +339,26 @@ class User(Base):
     last_login = Column(DateTime, nullable=True)
 
 
+class StudioState(Base):
+    """
+    Persistent Studio compiler state, scoped per asset model.
+
+    Replaces the file-backed studio_state.json so that model selection and
+    build history survive restarts and are not shared as global process state.
+    Each row represents one model's compiler workspace. Multiple models can
+    coexist without clobbering each other.
+    """
+    __tablename__ = "studio_state"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    model_key = Column(String(64), nullable=False, unique=True, index=True)
+    revision = Column(Integer, nullable=False, default=0)
+    published_revision = Column(Integer, nullable=False, default=0)
+    state_json = Column(Text, nullable=False, default="{}")
+    updated_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 def init_db():
     """Create all tables and apply incremental column migrations. Safe to call multiple times."""
     Base.metadata.create_all(bind=engine)

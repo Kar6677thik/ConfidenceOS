@@ -87,18 +87,217 @@ METHODS_BY_SENSOR_TYPE = {
 }
 DEFAULT_EVIDENCE_REQUIRED = ["local indication", "field note", "time-stamped confirmation"]
 
-# Procedure links: reference documents per verification method (ISA-S5.4 / site SOP pointers)
-PROCEDURE_LINKS: dict[str, str] = {
-    "field_check":                    "SOP-INST-001: General Instrument Field Check Procedure",
-    "local_field_check":              "SOP-INST-001: General Instrument Field Check Procedure",
-    "manual_level_verification":      "SOP-INST-010: Level Transmitter Verification (Sight Glass Method)",
-    "sight_glass":                    "SOP-INST-010: Level Transmitter Verification (Sight Glass Method)",
-    "manual_flow_verification":       "SOP-INST-020: Flow Meter Field Verification Procedure",
-    "manual_pressure_verification":   "SOP-INST-030: Pressure Transmitter Loop Check Procedure",
-    "manual_temperature_verification":"SOP-INST-040: Temperature Element Verification Procedure",
-    "position_check":                 "SOP-INST-050: Valve Position Indicator Check Procedure",
-    "vibration_check":                "SOP-INST-060: Vibration Sensor Field Check Procedure",
+# Procedure details: per-method procedure specifications for field technicians.
+# Each entry provides the SOP reference, step-by-step field actions, expected
+# evidence items, location hints, and clear closure criteria.
+# These replace generic "local indication / field note" prompts with procedure-grade guidance.
+PROCEDURE_DETAILS: dict[str, dict] = {
+    "field_check": {
+        "ref": "SOP-INST-001",
+        "title": "General Instrument Field Check Procedure",
+        "location_hint": "Locate instrument using tag ID on P&ID drawing. Check nameplate for equipment number and process connection point.",
+        "expected_duration_min": 15,
+        "steps": [
+            "1. Confirm tag identity: match nameplate tag ID against task sensor ID.",
+            "2. Observe local indicator/gauge and record value with engineering unit.",
+            "3. Compare with DCS/HMI reading — calculate and record discrepancy.",
+            "4. Inspect transmitter body for physical damage, corrosion, moisture, or loose connections.",
+            "5. Check impulse lines / process connections for leaks or blockage signs.",
+            "6. Record findings, sign, and timestamp. Note any follow-up actions required.",
+        ],
+        "evidence_items": [
+            {"label": "Local reading value", "type": "numeric", "required": True},
+            {"label": "Local reading unit", "type": "text", "required": True},
+            {"label": "DCS reading at same time", "type": "numeric", "required": True},
+            {"label": "Discrepancy (local − DCS)", "type": "numeric", "required": True},
+            {"label": "Physical condition note", "type": "text", "required": True},
+        ],
+        "closure_criteria": "Local reading within ±5% of DCS reading, OR discrepancy explained and documented with corrective action plan.",
+        "safety_note": "Do not isolate or interact with process connections unless a Permit to Work is in place.",
+    },
+    "local_field_check": {
+        "ref": "SOP-INST-001",
+        "title": "General Instrument Field Check Procedure",
+        "location_hint": "Locate instrument using tag ID on P&ID drawing. Check nameplate for equipment number.",
+        "expected_duration_min": 15,
+        "steps": [
+            "1. Confirm tag identity against nameplate.",
+            "2. Record local indicator reading with unit.",
+            "3. Compare with DCS reading; record discrepancy.",
+            "4. Inspect for physical damage, leaks, or corrosion.",
+            "5. Sign and timestamp findings.",
+        ],
+        "evidence_items": [
+            {"label": "Local reading value", "type": "numeric", "required": True},
+            {"label": "Local reading unit", "type": "text", "required": True},
+            {"label": "Discrepancy from DCS", "type": "numeric", "required": True},
+            {"label": "Physical condition note", "type": "text", "required": True},
+        ],
+        "closure_criteria": "Local reading within ±5% of DCS reading OR discrepancy explained.",
+        "safety_note": "Do not interact with process connections without a Permit to Work.",
+    },
+    "manual_level_verification": {
+        "ref": "SOP-INST-010",
+        "title": "Level Transmitter Verification — Sight Glass / Independent Reference Method",
+        "location_hint": "Locate the sight glass or independent level reference on the vessel. Confirm it is in service and its isolation valves are open.",
+        "expected_duration_min": 20,
+        "steps": [
+            "1. Confirm sight glass is in service: check isolation valves are fully open, drain valve closed.",
+            "2. Allow sight glass to stabilise (at least 60 seconds after opening).",
+            "3. Read sight glass level from the graduated scale; record value with unit.",
+            "4. Record DCS/HMI transmitter reading at the same time.",
+            "5. Calculate discrepancy: sight glass level − DCS reading.",
+            "6. If discrepancy > 5% of span, escalate to Engineer before accepting handover.",
+            "7. Sign and timestamp all readings.",
+        ],
+        "evidence_items": [
+            {"label": "Sight glass reading", "type": "numeric", "required": True},
+            {"label": "Sight glass unit", "type": "text", "required": True},
+            {"label": "DCS transmitter reading", "type": "numeric", "required": True},
+            {"label": "Discrepancy (sight glass − DCS)", "type": "numeric", "required": True},
+            {"label": "Sight glass condition", "type": "text", "required": True},
+        ],
+        "closure_criteria": "Sight glass reading within ±5% of DCS transmitter reading, or discrepancy documented with root cause and action plan.",
+        "safety_note": "Do not open sight glass isolation valves if process is above relief pressure or under thermal stress.",
+    },
+    "sight_glass": {
+        "ref": "SOP-INST-010",
+        "title": "Level Transmitter Verification — Sight Glass Method",
+        "location_hint": "Locate sight glass on vessel. Confirm isolation valves open and drain valve closed.",
+        "expected_duration_min": 20,
+        "steps": [
+            "1. Verify sight glass is in service (isolation valves open).",
+            "2. Stabilise 60 seconds, then read and record level with unit.",
+            "3. Record DCS reading at same time.",
+            "4. Calculate discrepancy.",
+            "5. Sign and timestamp.",
+        ],
+        "evidence_items": [
+            {"label": "Sight glass reading", "type": "numeric", "required": True},
+            {"label": "DCS reading", "type": "numeric", "required": True},
+            {"label": "Discrepancy", "type": "numeric", "required": True},
+            {"label": "Sight glass condition", "type": "text", "required": True},
+        ],
+        "closure_criteria": "Discrepancy within ±5% of span OR explained with action plan.",
+        "safety_note": "Obtain Permit to Work if sight glass connections require intervention.",
+    },
+    "manual_flow_verification": {
+        "ref": "SOP-INST-020",
+        "title": "Flow Meter Field Verification Procedure",
+        "location_hint": "Locate flow element and transmitter housing. Check upstream/downstream isolation valve positions.",
+        "expected_duration_min": 25,
+        "steps": [
+            "1. Check flow meter upstream and downstream condition (no isolation valves partially closed).",
+            "2. Record DCS flow reading and engineering unit.",
+            "3. Read any local flow indicator / totaliser if fitted; record value.",
+            "4. Cross-check against adjacent flow meters or mass-balance expectation.",
+            "5. Inspect impulse lines for leaks, freeze, or blockage.",
+            "6. Document findings and any anomalies.",
+        ],
+        "evidence_items": [
+            {"label": "DCS flow reading", "type": "numeric", "required": True},
+            {"label": "Flow reading unit", "type": "text", "required": True},
+            {"label": "Local indicator reading (if fitted)", "type": "numeric", "required": False},
+            {"label": "Cross-check method used", "type": "text", "required": True},
+            {"label": "Physical condition note", "type": "text", "required": True},
+        ],
+        "closure_criteria": "DCS reading consistent with cross-check within ±5%, OR discrepancy explained and action plan documented.",
+        "safety_note": "Do not touch impulse lines without Permit to Work. Record upstream/downstream valve positions.",
+    },
+    "manual_pressure_verification": {
+        "ref": "SOP-INST-030",
+        "title": "Pressure Transmitter Loop Check Procedure",
+        "location_hint": "Locate pressure transmitter and manifold valve. Identify the test point connection.",
+        "expected_duration_min": 20,
+        "steps": [
+            "1. Identify transmitter manifold valve position (equalising valve closed for 3-valve manifold).",
+            "2. If a local pressure gauge is fitted, read and record value.",
+            "3. Record DCS pressure reading at same time.",
+            "4. Calculate discrepancy: local gauge − DCS.",
+            "5. Inspect transmitter body and impulse lines for leaks or damage.",
+            "6. Document condition and any anomalies; sign and timestamp.",
+        ],
+        "evidence_items": [
+            {"label": "Local gauge reading", "type": "numeric", "required": False},
+            {"label": "DCS pressure reading", "type": "numeric", "required": True},
+            {"label": "Pressure reading unit", "type": "text", "required": True},
+            {"label": "Discrepancy (gauge − DCS)", "type": "numeric", "required": False},
+            {"label": "Physical condition note", "type": "text", "required": True},
+        ],
+        "closure_criteria": "Local gauge reading within ±2% of DCS reading, OR no local gauge fitted and DCS reading is within expected process range.",
+        "safety_note": "Do not open manifold valves without Permit to Work. High-pressure systems require two-person verification.",
+    },
+    "manual_temperature_verification": {
+        "ref": "SOP-INST-040",
+        "title": "Temperature Element Verification Procedure",
+        "location_hint": "Locate thermowell and temperature transmitter housing. Note process fluid type and expected temperature range.",
+        "expected_duration_min": 15,
+        "steps": [
+            "1. Record DCS temperature reading and engineering unit.",
+            "2. Read any local temperature indicator (thermometer, local display) if fitted.",
+            "3. Verify thermowell is correctly seated and connection head is closed.",
+            "4. Inspect transmitter housing for moisture ingress or damage.",
+            "5. Cross-check reading against adjacent temperature reference if available.",
+            "6. Document findings, sign, and timestamp.",
+        ],
+        "evidence_items": [
+            {"label": "DCS temperature reading", "type": "numeric", "required": True},
+            {"label": "Temperature reading unit", "type": "text", "required": True},
+            {"label": "Local indicator reading (if fitted)", "type": "numeric", "required": False},
+            {"label": "Physical condition note", "type": "text", "required": True},
+        ],
+        "closure_criteria": "DCS reading consistent with process expectation and any local reference within ±3°C/°F, OR anomaly documented with action plan.",
+        "safety_note": "High-temperature thermowells — do not remove from process without proper isolation and Permit to Work.",
+    },
+    "position_check": {
+        "ref": "SOP-INST-050",
+        "title": "Valve Position Indicator Check Procedure",
+        "location_hint": "Locate valve and position transmitter/indicator. Confirm valve tag ID on actuator nameplate.",
+        "expected_duration_min": 15,
+        "steps": [
+            "1. Confirm valve tag ID on actuator nameplate matches task sensor ID.",
+            "2. Observe physical valve position (open/closed indicator, stem travel).",
+            "3. Record DCS position indication (%) and physical observation.",
+            "4. Check position transmitter (ZT) reading against actual valve travel.",
+            "5. Inspect actuator for air supply, positioner feedback, and stem condition.",
+            "6. Document findings, sign, and timestamp.",
+        ],
+        "evidence_items": [
+            {"label": "DCS valve position (%)", "type": "numeric", "required": True},
+            {"label": "Physical position observation", "type": "text", "required": True},
+            {"label": "Actuator / positioner condition", "type": "text", "required": True},
+        ],
+        "closure_criteria": "Physical position consistent with DCS indication within ±5% open, OR discrepancy documented with action plan.",
+        "safety_note": "Do not operate valve manually unless authorised and coordinated with control room. Obtain Permit to Work for any physical adjustment.",
+    },
+    "vibration_check": {
+        "ref": "SOP-INST-060",
+        "title": "Vibration Sensor Field Check Procedure",
+        "location_hint": "Locate vibration sensor on rotating equipment. Check mounting base and cable connection.",
+        "expected_duration_min": 20,
+        "steps": [
+            "1. Confirm sensor tag ID on housing matches task sensor ID.",
+            "2. Check sensor mounting — confirm no loose bolts, cracks, or corrosion on base.",
+            "3. Inspect cable connection for damage or loose fittings.",
+            "4. Record DCS vibration reading and engineering unit.",
+            "5. If handheld vibration meter available, take comparative reading and record value.",
+            "6. Note any audible or tactile abnormality on the equipment.",
+            "7. Document findings, sign, and timestamp.",
+        ],
+        "evidence_items": [
+            {"label": "DCS vibration reading", "type": "numeric", "required": True},
+            {"label": "Vibration unit (mm/s or in/s)", "type": "text", "required": True},
+            {"label": "Handheld meter reading (if available)", "type": "numeric", "required": False},
+            {"label": "Mounting and cable condition", "type": "text", "required": True},
+            {"label": "Audible / tactile observation", "type": "text", "required": True},
+        ],
+        "closure_criteria": "Sensor reading consistent with handheld reference within ±10%, OR mounting integrity confirmed and reading anomaly explained.",
+        "safety_note": "Do not touch rotating parts. Maintain safe distance. Use PPE appropriate to rotating equipment work.",
+    },
 }
+
+# Backward-compatible simple reference string (used by existing callers that expect a string).
+PROCEDURE_LINKS: dict[str, str] = {k: f"{v['ref']}: {v['title']}" for k, v in PROCEDURE_DETAILS.items()}
 
 
 def create_task(
@@ -394,8 +593,10 @@ def task_to_dict(task: VerificationTask) -> dict:
         "asset_tag_number": task.asset_tag_number,
         "loop_number": task.loop_number,
         "field_location": task.field_location,
-        # Procedure link (ISA-S5.4 / site SOP reference)
+        # Procedure link (ISA-S5.4 / site SOP reference — backward-compatible string)
         "procedure_ref": PROCEDURE_LINKS.get(task.verification_method, PROCEDURE_LINKS["field_check"]),
+        # Full procedure detail: steps, evidence items, closure criteria, safety note
+        "procedure_detail": PROCEDURE_DETAILS.get(task.verification_method, PROCEDURE_DETAILS["field_check"]),
     }
 
 

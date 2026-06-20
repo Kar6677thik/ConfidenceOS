@@ -18,6 +18,7 @@ from template_library import get_template_catalog, validate_assignments
 from template_tests import run_template_tests
 from database import (
     SessionLocal,
+    StudioState,
     list_hmi_build_artifacts,
     list_import_batches,
     mark_hmi_build_published,
@@ -26,8 +27,8 @@ from database import (
 )
 import ai_mapping as _ai
 
-
-STATE_PATH = Path(__file__).with_name("studio_state.json")
+# Legacy file path — kept only for one-time migration of existing state.
+_LEGACY_STATE_PATH = Path(__file__).with_name("studio_state.json")
 
 
 DEFAULT_ASSIGNMENTS = [
@@ -53,22 +54,81 @@ MODEL_APPROVED_BINDINGS = {
 }
 
 
+def _active_model_key() -> str:
+    """Return the currently active asset model key (default: texas_city_vessel)."""
+    from asset_model import _active_asset_model_key  # imported lazily to avoid circular import
+    return _active_asset_model_key or "texas_city_vessel"
+
+
 def get_state() -> dict:
-    if not STATE_PATH.exists():
-        state = _default_state()
+    """Load studio state from the DB for the active model, falling back to defaults."""
+    model_key = _active_model_key()
+    db = SessionLocal()
+    try:
+        row = db.query(StudioState).filter(StudioState.model_key == model_key).one_or_none()
+        if row is None:
+            # First run for this model — check for legacy file migration
+            state = _load_legacy_or_default(model_key)
+            _persist_state(db, model_key, state)
+        else:
+            try:
+                state = _with_default_fields(json.loads(row.state_json))
+            except Exception:
+                state = _default_state()
+        state["_model_key"] = model_key
+        state["_revision"] = state.get("revision", 0)
         _activate_state_model(state)
         return state
-    with open(STATE_PATH, "r", encoding="utf-8") as f:
-        state = _with_default_fields(json.load(f))
-        _activate_state_model(state)
-        return state
+    finally:
+        db.close()
 
 
 def save_state(state: dict) -> dict:
+    """Persist studio state for the active model to the DB."""
     state["revision"] = int(state.get("revision", 0)) + 1
-    with open(STATE_PATH, "w", encoding="utf-8") as f:
-        json.dump(state, f, indent=2)
+    model_key = state.get("_model_key") or _active_model_key()
+    db = SessionLocal()
+    try:
+        _persist_state(db, model_key, state)
+    finally:
+        db.close()
     return state
+
+
+def _persist_state(db, model_key: str, state: dict) -> None:
+    """Upsert studio state for a given model key."""
+    from datetime import datetime
+    payload = {k: v for k, v in state.items() if not k.startswith("_")}
+    row = db.query(StudioState).filter(StudioState.model_key == model_key).one_or_none()
+    if row is None:
+        row = StudioState(
+            model_key=model_key,
+            revision=state.get("revision", 0),
+            published_revision=state.get("published_revision", 0),
+            state_json=json.dumps(payload),
+            updated_at=datetime.utcnow(),
+        )
+        db.add(row)
+    else:
+        row.revision = state.get("revision", row.revision)
+        row.published_revision = state.get("published_revision", row.published_revision)
+        row.state_json = json.dumps(payload)
+        row.updated_at = datetime.utcnow()
+    db.commit()
+
+
+def _load_legacy_or_default(model_key: str) -> dict:
+    """Return legacy file state (one-time migration) or a fresh default."""
+    if _LEGACY_STATE_PATH.exists():
+        try:
+            with open(_LEGACY_STATE_PATH, "r", encoding="utf-8") as f:
+                legacy = json.load(f)
+            # Only migrate if it matches the target model or no model is recorded
+            if legacy.get("selected_asset_model", model_key) == model_key:
+                return _with_default_fields(legacy)
+        except Exception:
+            pass
+    return _default_state()
 
 
 def imported_signals() -> dict:

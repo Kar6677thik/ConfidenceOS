@@ -525,6 +525,50 @@ def write_markdown():
         fh.write("\n".join(lines) + "\n")
 
 
+def test_reliability_soak(soak_seconds: int = 10):
+    """
+    Soak test: poll /api/health + /api/reliability for `soak_seconds` at ~1 Hz
+    and assert the tick loop stays alive and accumulates ticks at a plausible rate.
+    """
+    print(f"\n== Reliability soak ({soak_seconds}s) ==")
+    tick_counts_before = {}
+    r0 = get("/api/reliability")
+    if r0.status_code == 200:
+        data0 = r0.json()
+        for pid, stats in data0.get("plants", {}).items():
+            tick_counts_before[pid] = stats.get("tick_count", 0)
+
+    errors = 0
+    for _ in range(soak_seconds):
+        rh = get("/api/health")
+        if rh.status_code not in (200, 503):
+            errors += 1
+        time.sleep(1.0)
+
+    r1 = get("/api/reliability")
+    def f():
+        if r1.status_code != 200:
+            return False, f"reliability endpoint returned {r1.status_code}"
+        data1 = r1.json()
+        ok, msg = has_keys(data1, ["uptime_seconds", "plants", "ws_connections", "http"])
+        if not ok:
+            return False, msg
+        if errors > soak_seconds // 2:
+            return False, f"health endpoint errored {errors}/{soak_seconds} times during soak"
+        # Verify tick rate is at least 0.5 Hz for plant-a
+        plant_a = data1.get("plants", {}).get("plant-a", {})
+        ticks_now = plant_a.get("tick_count", 0)
+        ticks_before = tick_counts_before.get("plant-a", 0)
+        gained = ticks_now - ticks_before
+        if gained < soak_seconds // 2:
+            return False, f"plant-a gained only {gained} ticks over {soak_seconds}s (expected ≥{soak_seconds//2})"
+        rate = plant_a.get("tick_rate_hz", 0)
+        top = data1["http"].get("top_endpoints")
+        return True, f"rate={rate:.3f}Hz, ticks+{gained}, health_errs={errors}, top_ep={len(top or [])}"
+
+    check("Reliability", "soak", f"{soak_seconds}s health+tick liveness", f)
+
+
 def main():
     print("ConfidenceOS E2E backend smoke — target", BASE)
     test_health_and_readonly()
@@ -548,6 +592,7 @@ def main():
     test_verification_lifecycle("plant-a", sensors_a)
     test_scenario_and_errors()
 
+    test_reliability_soak(soak_seconds=10)
     asyncio.run(_ws_test())
 
     write_markdown()

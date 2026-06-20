@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import useStore from '../store';
 import PageIdentity from './hmi/PageIdentity';
 import { PanelSkeleton, LoadFailed } from './PanelSkeleton';
@@ -50,6 +51,7 @@ function selectBestMappingItem(items, currentRawTag) {
 
 export default function StudioWorkspace() {
   const { role, plantId, setRole } = useStore();
+  const navigate = useNavigate();
   const [overview, setOverview] = useState(null);
   const [imported, setImported] = useState(null);
   const [build, setBuild] = useState(null);
@@ -119,10 +121,11 @@ export default function StudioWorkspace() {
 
   useEffect(() => {
     if (!['Engineer', 'Manager'].includes(role)) {
-      // Route guard: Studio is an engineering workspace even if opened by URL.
-      setRole('Engineer');
+      // Operators and other roles must not access Studio — redirect to Runtime.
+      // Never silently promote the role; that bypasses access control.
+      navigate('/runtime', { replace: true });
     }
-  }, [role, setRole]);
+  }, [role, navigate]);
 
   const mappingItems = useMemo(
     () => court?.items || build?.imported_tags?.items || imported?.raw_tags || [],

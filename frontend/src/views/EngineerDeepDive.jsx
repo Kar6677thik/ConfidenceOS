@@ -8,6 +8,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, ResponsiveContainer } from 'recharts';
 import useStore from '../store';
 import { chartGrid, axisTick, axisLine } from '../lib/chartTheme';
@@ -56,8 +57,15 @@ function IndustrialTooltip({ active, payload, label }) {
 }
 
 export default function EngineerDeepDive() {
-  const { plantId, confidence, selectedSensorId, selectSensor, readings } = useStore();
+  const { plantId, confidence, selectedSensorId, selectSensor, readings, role } = useStore();
+  const navigate = useNavigate();
   const [adaptive, setAdaptive]   = useState(null);
+
+  useEffect(() => {
+    if (!['Engineer', 'Manager'].includes(role)) {
+      navigate('/runtime', { replace: true });
+    }
+  }, [role, navigate]);
 
   // Fetch adaptive thresholds
   useEffect(() => {
