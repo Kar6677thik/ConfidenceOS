@@ -26,3 +26,10 @@ plant_loop_status: dict[str, dict] = {}
 
 # Serialize all plant-loop DB writes through one in-process lock
 db_write_lock = asyncio.Lock()
+
+# Runtime helpers are registered by main.py after the application finishes
+# defining them. Routers read these callables at request time to avoid circular
+# imports and to keep /api/screens/generated working whether uvicorn is launched
+# as `main:app` or `backend.main:app`.
+runtime_live_state = None
+annotate_generated_preview = None

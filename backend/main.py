@@ -948,6 +948,43 @@ def _runtime_live_state(plant_id: str, plant) -> dict:
     return _apply_demo_asset_model_bindings(live_state)
 
 
+def _annotate_generated_preview(manifest: dict, live_state: dict) -> dict:
+    """Attach live-binding/provenance flags expected by RuntimePlatform.
+
+    The generated manifest is still deterministic output from the compiler; this
+    annotation only tells the frontend whether it is seeing a published build,
+    metadata preview, native live tags, or a transparent demo alias binding.
+    """
+    live_state = live_state or {}
+    runtime_source = manifest.get("runtime_source")
+    publish_state = str(manifest.get("runtime_publish_state") or manifest.get("validation_status") or "").upper()
+    preview = (
+        runtime_source in {"not_published_runtime_preview", "fallback_runtime_generation"}
+        or publish_state in {"NOT_PUBLISHED", "FAILED", "BLOCKED"}
+    )
+    notice = manifest.get("runtime_notice")
+    if not notice and preview:
+        notice = (
+            "Runtime is available as a generated metadata preview. Publish a passing Studio build "
+            "before treating it as the primary operator Runtime."
+        )
+    return {
+        **manifest,
+        "plant_id": live_state.get("plant_id", "plant-a"),
+        "runtime_preview": bool(preview),
+        "runtime_notice": notice,
+        "live_binding_status": live_state.get("live_binding_status", "metadata_only_no_live_tags"),
+        "demo_alias_bindings": live_state.get("demo_alias_bindings", []),
+        "unbound_tags": live_state.get("unbound_tags", []),
+        "demo_state": live_state.get("demo_state"),
+        "read_only_trust_layer": True,
+    }
+
+
+deps.runtime_live_state = _runtime_live_state
+deps.annotate_generated_preview = _annotate_generated_preview
+
+
 @app.websocket("/ws/sensors")
 async def sensor_stream(
     websocket: WebSocket,

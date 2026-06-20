@@ -8,11 +8,15 @@
  */
 import useStore from '../store';
 
-export default function apiFetch(path, options = {}) {
+function authHeaders() {
+  const headers = { ...(options.headers || {}) };
+}
+
+function buildHeaders(options = {}, forceDemoRole = false) {
   const headers = { ...(options.headers || {}) };
   try {
     const { authToken, role } = useStore.getState();
-    if (authToken) {
+    if (authToken && !forceDemoRole) {
       headers['Authorization'] = `Bearer ${authToken}`;
     } else if (role) {
       headers['X-Role'] = role;
@@ -22,5 +26,37 @@ export default function apiFetch(path, options = {}) {
   }
   const apiKey = import.meta.env.VITE_CONFIDENCEOS_API_KEY;
   if (apiKey) headers['X-API-Key'] = apiKey;
+  return headers;
+}
+
+function isJwtFailure(payload) {
+  const detail = String(payload?.detail || '').toLowerCase();
+  return detail.includes('token invalid')
+    || detail.includes('token expired')
+    || detail.includes('signature')
+    || detail.includes('not enough segments')
+    || detail.includes('jwt');
+}
+
+export default async function apiFetch(path, options = {}) {
+  const headers = buildHeaders(options);
+  const response = await fetch(path, { ...options, headers });
+  if (response.status !== 401) return response;
+
+  let payload = null;
+  try {
+    payload = await response.clone().json();
+  } catch {
+    payload = null;
+  }
+
+  const { authToken, logout } = useStore.getState();
+  if (!authToken || !isJwtFailure(payload)) return response;
+
+  // Backend JWT secrets can be ephemeral in demo deployments. If a token was
+  // minted before a restart, retry once through the explicit read-only demo
+  // role bridge instead of letting Runtime collapse to a blank error state.
+  logout();
+  const retryHeaders = buildHeaders(options, true);
   return fetch(path, { ...options, headers });
 }

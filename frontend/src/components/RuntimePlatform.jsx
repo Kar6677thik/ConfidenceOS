@@ -4,6 +4,7 @@ import useStore from '../store';
 import PriorityBand from './hmi/PriorityBand';
 import MassBalanceChart from './MassBalanceChart';
 import ComparisonPanel from './ComparisonPanel';
+import apiFetch from '../lib/apiFetch';
 
 function formatText(value) {
   if (value == null || value === '') return '';
@@ -1172,7 +1173,7 @@ export default function RuntimePlatform() {
       const controller = new AbortController();
       currentController = controller;
       const timeout = setTimeout(() => controller.abort(), 8000);
-      fetch(`/api/screens/generated?role=${role}&context=auto&plant_id=${plantId}`, { signal: controller.signal })
+      apiFetch(`/api/screens/generated?role=${role}&context=auto&plant_id=${plantId}`, { signal: controller.signal })
         .then(async (res) => {
           const payload = await res.json().catch(() => null);
           if (!res.ok) {

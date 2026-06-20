@@ -52,6 +52,52 @@ plant_manager = deps.plant_manager
 _plant_loop_status = deps.plant_loop_status
 
 
+def _fallback_runtime_live_state(plant_id: str, plant) -> dict:
+    """Minimal live-state fallback if main.py has not registered helpers yet."""
+    return {
+        "plant_id": plant_id,
+        "readings": getattr(plant, "latest_readings", []),
+        "confidence": list(getattr(plant, "latest_confidence", {}).values()),
+        "mass_balance": getattr(plant, "latest_mb_state", {}),
+        "mode": getattr(plant, "latest_mode_payload", {}),
+        "plant_context": getattr(plant, "latest_context", {}),
+        "incidents": getattr(plant, "latest_incidents", []),
+        "incident_timeline": getattr(plant, "latest_incident_timeline", []),
+        "verification_tokens": getattr(plant, "verification_tokens", []),
+        "verification_tasks": getattr(plant, "verification_tokens", []),
+        "handover_debt": getattr(plant, "latest_handover_debt", {}),
+        "confidence_debt": getattr(plant, "latest_confidence_debt", []),
+        "live_binding_status": "native_live_tags" if getattr(plant, "latest_readings", []) else "metadata_only_no_live_tags",
+        "demo_alias_bindings": [],
+        "unbound_tags": [],
+    }
+
+
+def _annotate_generated_preview(manifest: dict, live_state: dict) -> dict:
+    annotate = getattr(deps, "annotate_generated_preview", None)
+    if callable(annotate):
+        return annotate(manifest, live_state)
+    publish_state = str(manifest.get("runtime_publish_state") or manifest.get("validation_status") or "").upper()
+    preview = publish_state in {"NOT_PUBLISHED", "FAILED", "BLOCKED"}
+    return {
+        **manifest,
+        "plant_id": live_state.get("plant_id", "plant-a"),
+        "runtime_preview": preview,
+        "live_binding_status": live_state.get("live_binding_status", "metadata_only_no_live_tags"),
+        "demo_alias_bindings": live_state.get("demo_alias_bindings", []),
+        "unbound_tags": live_state.get("unbound_tags", []),
+        "demo_state": live_state.get("demo_state"),
+        "read_only_trust_layer": True,
+    }
+
+
+def _runtime_live_state(plant_id: str, plant) -> dict:
+    live_state = getattr(deps, "runtime_live_state", None)
+    if callable(live_state):
+        return live_state(plant_id, plant)
+    return _fallback_runtime_live_state(plant_id, plant)
+
+
 # ── Pydantic models ───────────────────────────────────────────────────────────
 
 class StudioTemplateAssignmentRequest(BaseModel):
@@ -119,13 +165,11 @@ def get_generated_screens(
     context: str = Query(default="auto"),
     plant_id: str = Query(default="plant-a"),
 ):
-    # Lazy import avoids circular import; main is fully loaded by request time.
-    import main as _main
     plant = plant_manager.get(plant_id)
-    live_state = _main._runtime_live_state(plant_id, plant)
+    live_state = _runtime_live_state(plant_id, plant)
     try:
         manifest = studio_runtime_manifest(role=role, context=context, live_state=live_state)
-        return _main._annotate_generated_preview(manifest, live_state)
+        return _annotate_generated_preview(manifest, live_state)
     except Exception as exc:
         assignments = studio_overview().get("state", {}).get("assignments", [])
         manifest = generate_screen_manifest(
@@ -144,8 +188,8 @@ def get_generated_screens(
                                "source": "api/screens/generated"}],
             },
         )
-        return _main._annotate_generated_preview({**manifest, "runtime_source": "fallback_runtime_generation",
-                                                   "runtime_warning": str(exc)}, live_state)
+        return _annotate_generated_preview({**manifest, "runtime_source": "fallback_runtime_generation",
+                                            "runtime_warning": str(exc)}, live_state)
 
 
 # ── Runtime navigation / situations ──────────────────────────────────────────
@@ -175,11 +219,10 @@ def get_runtime_equipment(
     role: str = Query(default="Operator"),
     plant_id: str = Query(default="plant-a"),
 ):
-    import main as _main
     plant = plant_manager.get(plant_id)
     faceplate = equipment_manifest(
         equipment_id, role,
-        live_state=_main._runtime_live_state(plant_id, plant),
+        live_state=_runtime_live_state(plant_id, plant),
         assignments=studio_overview()["state"].get("assignments", []),
     )
     if not faceplate:
