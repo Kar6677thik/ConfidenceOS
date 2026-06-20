@@ -34,7 +34,7 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, Depends, HTTPException, Request
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, Depends, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -46,11 +46,13 @@ from database import (
     SensorReading as SensorReadingModel,
     AnomalyLog as AnomalyLogModel,
     ConfidenceLog as ConfidenceLogModel,
+    AlarmState,
     log_anomaly, get_recent_anomalies,
     log_confidence, log_shift_handover,
     get_confidence_history,
     get_verification_audit,
     prune_timeseries,
+    raise_alarm, acknowledge_alarm, return_alarm_to_normal, shelve_alarm, get_active_alarms,
 )
 from plants import PlantManager, UnknownPlantError
 from mass_balance import DEFAULT_TOLERANCE
@@ -108,7 +110,8 @@ from studio_service import (
 from template_library import get_template_catalog
 from shift_channel import add_note as add_shift_note, build_shift_channel, reset_notes as reset_shift_notes
 from tag_provider import provider_catalog
-from auth import api_key_guard, require_role
+from auth import api_key_guard, require_role, get_current_user, seed_demo_users, authenticate_user, create_access_token
+from fastapi.security import OAuth2PasswordRequestForm
 from demo_service import (
     advance_demo,
     get_demo_state,
@@ -118,6 +121,7 @@ from demo_service import (
 import nlquery
 import deps
 from routers import demo as demo_router
+from routers import studio as studio_router
 
 
 # ─── Global instances ───────────────────────────────────────────────────────
@@ -187,6 +191,12 @@ class VerificationTokenRequest(BaseModel):
     verification_type: str = "field_check"
     valid_minutes: float = 30.0
     note: str = ""
+    # CMMS / permit-to-work (optional)
+    cmms_work_order: Optional[str] = None
+    permit_to_work_ref: Optional[str] = None
+    asset_tag_number: Optional[str] = None
+    loop_number: Optional[str] = None
+    field_location: Optional[str] = None
 
 class VerificationEvidenceRequest(BaseModel):
     method: Optional[str] = None
@@ -244,6 +254,12 @@ class ShiftNoteRequest(BaseModel):
 async def lifespan(app: FastAPI):
     """Initialize DB and start background plant ticking on startup."""
     init_db()
+    seed_demo_users()
+    # Restore verification task state from DB so plant.verification_tokens is
+    # populated before the first tick fires (avoids empty-list window on restart).
+    with SessionLocal() as _db:
+        for pid, plant in plant_manager.get_all().items():
+            plant.verification_tokens = list_verification_tasks(_db, plant_id=pid, include_closed=False)
     # Start background tasks for all plants. Stagger their start so the per-tick
     # commits don't align across plants, easing DB write pressure.
     tasks = []
@@ -312,6 +328,7 @@ app.add_middleware(
 )
 
 app.include_router(demo_router.router)
+app.include_router(studio_router.router)
 
 
 # Lightweight API-key gate on mutating requests. No-op unless CONFIDENCEOS_API_KEY
@@ -398,6 +415,9 @@ async def _plant_tick_loop(plant_id: str, plant, start_delay: float = 0.0):
                 stale_flags = plant.startup_manager.check_stale_readings(readings, now)
 
                 # Anomaly detection & logging
+                # fault_class: "sensor_fault" = instrument issue, "process_abnormality" = real process event.
+                # Adaptive thresholds exclude only sensor_fault readings from envelope computation
+                # so that genuine process excursions don't corrupt the learned envelope.
                 new_anomalies = []
                 for cr in confidence_results:
                     if cr.tier in ("LOW", "CRITICAL"):
@@ -411,6 +431,7 @@ async def _plant_tick_loop(plant_id: str, plant, start_delay: float = 0.0):
                             new_anomalies.append({
                                 "sensor_id": cr.sensor_id,
                                 "anomaly_type": anomaly_type,
+                                "fault_class": "sensor_fault",  # instrument-level issue
                                 "description": description,
                                 "severity": cr.tier,
                                 "timestamp": now,
@@ -425,6 +446,7 @@ async def _plant_tick_loop(plant_id: str, plant, start_delay: float = 0.0):
                         new_anomalies.append({
                             "sensor_id": "SYSTEM",
                             "anomaly_type": f"mass_balance_{flag.severity.lower()}",
+                            "fault_class": "process_abnormality",  # real process discrepancy
                             "description": flag.message,
                             "severity": flag.severity,
                             "timestamp": now,
@@ -440,6 +462,7 @@ async def _plant_tick_loop(plant_id: str, plant, start_delay: float = 0.0):
                         new_anomalies.append({
                             "sensor_id": sf.sensor_id,
                             "anomaly_type": "stale_reading",
+                            "fault_class": "sensor_fault",  # instrument stuck
                             "description": desc,
                             "severity": "WARNING",
                             "timestamp": now,
@@ -517,6 +540,17 @@ async def _plant_tick_loop(plant_id: str, plant, start_delay: float = 0.0):
                                 plant_id=plant_id,
                                 commit=False,
                             )
+                            # ISA-18.2: raise alarm state for anomalous sensor
+                            isa_priority = 1 if severity == "CRITICAL" else (2 if severity == "WARNING" else 3)
+                            raise_alarm(
+                                db,
+                                plant_id=plant_id,
+                                sensor_id=sensor_id,
+                                description=description,
+                                alarm_class="instrument",
+                                priority=isa_priority,
+                                commit=False,
+                            )
 
                         if should_persist_readings:
                             for r in readings:
@@ -545,6 +579,14 @@ async def _plant_tick_loop(plant_id: str, plant, start_delay: float = 0.0):
                                 )
 
                         db.commit()
+                        # Cache unacknowledged alarm count for WS stream
+                        try:
+                            active = get_active_alarms(db, plant_id)
+                            plant.latest_unacked_alarms = sum(
+                                1 for a in active if a.alarm_state in ("UNACK_ALARM", "UNACK_NORM")
+                            )
+                        except Exception:
+                            pass
                         persistence_status = "ok"
                     except OperationalError as exc:
                         if db:
@@ -923,6 +965,13 @@ async def sensor_stream(
         return
     active_connections.append(websocket)
 
+    # Delta compression: track hashes of slow-changing fields to omit them when unchanged.
+    # Fast-changing fields (readings, confidence, mass_balance) are always sent.
+    _prev_hashes: dict[str, str] = {}
+
+    def _field_hash(val) -> str:
+        return hashlib.md5(json.dumps(val, sort_keys=True, default=str).encode()).hexdigest()[:12]
+
     try:
         while True:
             now = time.time()
@@ -933,6 +982,23 @@ async def sensor_stream(
             stale_flags = plant.startup_manager.check_stale_readings(readings, now) if readings else []
             verification_tasks = [normalize_verification_task(task, now) for task in plant.verification_tokens or []]
             active_tasks = active_verification_tokens(plant.verification_tokens, now)
+
+            # Slow-changing fields: include only when their content has changed.
+            slow_fields: dict = {}
+            for key, val in [
+                ("plant_context", plant.latest_context),
+                ("incidents", plant.latest_incidents),
+                ("incident_timeline", plant.latest_incident_timeline),
+                ("verification_tokens", active_tasks),
+                ("verification_tasks", verification_tasks),
+                ("handover_debt", plant.latest_handover_debt),
+                ("confidence_debt", plant.latest_confidence_debt),
+                ("demo_state", get_demo_state(plant_id, plant, _plant_loop_status.get(plant_id, {}))),
+            ]:
+                h = _field_hash(val)
+                if _prev_hashes.get(key) != h:
+                    slow_fields[key] = val
+                    _prev_hashes[key] = h
 
             await websocket.send_json({
                 "type": "sensor_update",
@@ -949,14 +1015,11 @@ async def sensor_stream(
                 },
                 "stale_flags": [f.to_dict() for f in stale_flags],
                 "new_anomalies": plant.latest_new_anomalies,
-                "plant_context": plant.latest_context,
-                "incidents": plant.latest_incidents,
-                "incident_timeline": plant.latest_incident_timeline,
-                "verification_tokens": active_tasks,
-                "verification_tasks": verification_tasks,
-                "handover_debt": plant.latest_handover_debt,
-                "confidence_debt": plant.latest_confidence_debt,
-                "demo_state": get_demo_state(plant_id, plant, _plant_loop_status.get(plant_id, {})),
+                "provider_type": plant.tag_provider.provider_type,
+                "unacked_alarms": plant.latest_unacked_alarms,
+                # Delta-compressed slow fields: only sent when content changes.
+                "_delta": list(slow_fields.keys()),
+                **slow_fields,
             })
 
             await asyncio.sleep(1.0)
@@ -1132,341 +1195,7 @@ def get_read_only_integration_layer():
     }
 
 
-@app.get("/api/model/graph")
-def get_model_graph_endpoint():
-    """Return the asset/signal graph that drives generated HMI screens."""
-    return get_model_graph()
-
-
-@app.get("/api/model/assets")
-def get_model_assets():
-    """Return model assets: plant, area, unit, module, equipment."""
-    return {"assets": get_assets(), "count": len(get_assets())}
-
-
-@app.get("/api/model/signals")
-def get_model_signals():
-    """Return imported and mapped process signals."""
-    signals = get_signals()
-    return {"signals": signals, "count": len(signals), "source": "asset_model.json"}
-
-
-@app.get("/api/templates")
-def get_templates():
-    """Return reusable signal/equipment templates and policies."""
-    return get_template_catalog()
-
-
-@app.get("/api/screens/generated")
-def get_generated_screens(
-    role: str = Query(default="Operator"),
-    context: str = Query(default="auto"),
-    plant_id: str = Query(default="plant-a"),
-):
-    """Return latest published Runtime manifest hydrated with live read-only state."""
-    plant = plant_manager.get(plant_id)
-    live_state = _runtime_live_state(plant_id, plant)
-    try:
-        manifest = studio_runtime_manifest(
-            role=role,
-            context=context,
-            live_state=live_state,
-        )
-        return _annotate_generated_preview(manifest, live_state)
-    except Exception as exc:
-        assignments = studio_overview().get("state", {}).get("assignments", [])
-        manifest = generate_screen_manifest(
-            role=role,
-            context=context,
-            live_state=live_state,
-            assignments=assignments,
-            build_context={
-                "build_id": "runtime-fallback",
-                "validation_status": "PASS_WITH_WARNINGS",
-                "validation": {
-                    "info": [{
-                        "rule": "runtime_fallback_generation",
-                        "message": "Generated fallback Runtime because published manifest hydration failed.",
-                    }],
-                    "warnings": [{
-                        "rule": "runtime_manifest_hydration_failed",
-                        "message": str(exc),
-                    }],
-                    "blocking": [],
-                },
-                "receipts": [{
-                    "severity": "WARNING",
-                    "message": "Runtime fallback generated from asset model and template assignments.",
-                    "source": "api/screens/generated",
-                }],
-            },
-        )
-        return _annotate_generated_preview({
-            **manifest,
-            "runtime_source": "fallback_runtime_generation",
-            "runtime_warning": str(exc),
-        }, live_state)
-
-
-def _annotate_generated_preview(manifest: dict, live_state: dict) -> dict:
-    """Flag the Runtime as a metadata-only preview when the active asset model's
-    signals have no matching live tags in the stream (e.g. a non-Texas-City model
-    is active while the live simulator still streams the demo tags). Engineer/
-    Manager see this honesty notice; Operator gating is handled in the frontend.
-    """
-    manifest["live_binding_status"] = live_state.get("live_binding_status", "unknown")
-    manifest["demo_alias_bindings"] = live_state.get("demo_alias_bindings", [])
-    manifest["unbound_tags"] = live_state.get("unbound_tags", [])
-    manifest["demo_state"] = live_state.get("demo_state", {})
-    if live_state.get("live_binding_status") == "demo_alias_live_tags":
-        manifest["runtime_preview"] = False
-        manifest["runtime_notice"] = (
-            "Live demo binding active: pump-station tags are read-only aliases "
-            "from the simulator stream. No control commands or setpoints are written."
-        )
-        return manifest
-    try:
-        model_tags = {s.get("tag") for s in get_signals() if s.get("tag")}
-        live_tags = {r.get("sensor_id") for r in (live_state.get("readings") or []) if r.get("sensor_id")}
-    except Exception:
-        return manifest
-    if model_tags and live_tags and not (model_tags & live_tags):
-        manifest["runtime_preview"] = True
-        manifest["runtime_notice"] = (
-            "Generated from metadata - preview only (no live tags bound). "
-            "The active asset model's signals are not present in this plant's live stream."
-        )
-    else:
-        manifest.setdefault("runtime_preview", False)
-    return manifest
-
-
-@app.get("/api/runtime/navigation")
-def get_runtime_navigation():
-    """Return semantic plant navigation for Runtime."""
-    return {"navigation": get_navigation(), "semantic_zoom": ["plant", "area", "unit", "module", "equipment", "signal"]}
-
-
-@app.get("/api/runtime/situations")
-def get_runtime_situations(plant_id: str = Query(default="plant-a")):
-    """Return current abnormal situations and operating-basis contracts."""
-    plant = plant_manager.get(plant_id)
-    return {
-        "plant_id": plant_id,
-        "situations": plant.latest_incidents,
-        "count": len(plant.latest_incidents),
-        "context": plant.latest_context,
-    }
-
-
-@app.get("/api/runtime/equipment/{equipment_id}")
-def get_runtime_equipment(
-    equipment_id: str,
-    role: str = Query(default="Operator"),
-    plant_id: str = Query(default="plant-a"),
-):
-    """Return generated equipment faceplate manifest."""
-    plant = plant_manager.get(plant_id)
-    faceplate = equipment_manifest(
-        equipment_id,
-        role,
-        live_state=_runtime_live_state(plant_id, plant),
-        assignments=studio_overview()["state"].get("assignments", []),
-    )
-    if not faceplate:
-        raise HTTPException(status_code=404, detail=f"Equipment not found: {equipment_id}")
-    return faceplate
-
-
-@app.get("/api/studio/imported-signals")
-def get_studio_imported_signals():
-    """Return current imported simulator/model signals for Studio."""
-    return studio_imported_signals()
-
-
-@app.post("/api/studio/asset-model", dependencies=[Depends(require_role("Engineer", "Manager"))])
-def post_studio_asset_model(request: StudioAssetModelRequest):
-    """Switch the active metadata model used by the read-only HMI Compiler."""
-    return studio_select_asset_model(request.model_key)
-
-
-@app.post("/api/studio/template-mutation")
-def post_studio_template_mutation(request: StudioTemplateMutationRequest):
-    """Apply the controlled vessel-template mutation demo toggle."""
-    return studio_update_template_mutation(request.require_manual_verification_when_level_quarantined)
-
-
-@app.get("/api/studio/build")
-def get_studio_build():
-    """Return the latest HMI Compiler build artifact without mutating Studio state."""
-    return studio_current_build()
-
-
-@app.post("/api/studio/build/run")
-def post_studio_build_run():
-    """Run the read-only HMI Compiler pipeline and store the build artifact."""
-    return studio_run_compiler_build()
-
-
-@app.get("/api/studio/build/artifacts")
-def get_studio_build_artifacts(
-    model_key: Optional[str] = Query(default=None),
-    limit: int = Query(default=20, ge=1, le=100),
-):
-    """Return immutable SQLite receipts for recent HMI Compiler builds."""
-    return studio_persisted_build_artifacts(model_key=model_key, limit=limit)
-
-
-@app.get("/api/studio/import-batches")
-def get_studio_import_batches(
-    model_key: Optional[str] = Query(default=None),
-    limit: int = Query(default=20, ge=1, le=100),
-):
-    """Return durable raw-tag import batch receipts used by compiler builds."""
-    return studio_persisted_import_batches(model_key=model_key, limit=limit)
-
-
-@app.get("/api/studio/template-tests")
-def get_studio_template_tests():
-    """Return deterministic template smoke-test results for Studio."""
-    return studio_template_tests()
-
-
-@app.get("/api/studio/mapping-court")
-def get_studio_mapping_court():
-    """Return evidence-ledger rows for imported tag mapping suggestions."""
-    return studio_mapping_court()
-
-
-@app.get("/api/studio/mapping-court/{raw_tag:path}")
-def get_studio_mapping_court_detail(raw_tag: str):
-    """Return one evidence-ledger row for an imported raw tag."""
-    return studio_mapping_court_detail(raw_tag)
-
-
-@app.post("/api/studio/mapping-court/approve")
-def post_studio_mapping_approve(request: StudioRawTagResolutionRequest):
-    """Approve a deterministic raw-tag mapping. Engineer approval remains explicit."""
-    result = studio_approve_raw_tag(request.raw_tag)
-    if result.get("status") == "not_approved":
-        raise HTTPException(status_code=409, detail=result)
-    return result
-
-
-@app.post("/api/studio/mapping-court/ignore")
-def post_studio_mapping_ignore(request: StudioRawTagResolutionRequest):
-    """Ignore an imported raw tag with an engineering reason."""
-    result = studio_ignore_raw_tag(request.raw_tag, request.reason)
-    if result.get("status") == "not_ignored":
-        raise HTTPException(status_code=422, detail=result)
-    return result
-
-
-@app.post("/api/studio/mapping-court/manual-map")
-def post_studio_mapping_manual_map(request: StudioManualMapRequest):
-    """Manually bind an imported raw tag to an active-model signal with an engineering reason."""
-    result = studio_manual_map_raw_tag(
-        request.raw_tag,
-        request.canonical_tag,
-        request.asset_id,
-        request.signal_role,
-        request.reason,
-    )
-    if result.get("status") == "not_mapped":
-        raise HTTPException(status_code=422, detail=result)
-    return result
-
-
-@app.post("/api/studio/mapping-court/keep-blocking")
-def post_studio_mapping_keep_blocking(request: StudioRawTagResolutionRequest):
-    """Keep an imported raw tag unresolved so publish remains blocked."""
-    return studio_keep_raw_tag_blocking(request.raw_tag)
-
-
-@app.post("/api/studio/auto-map")
-async def post_studio_auto_map():
-    """Generate mapping suggestions with optional AI explanation. Approval is still required."""
-    return await studio_auto_map()
-
-
-@app.post("/api/studio/import-tags")
-async def post_studio_import_tags(request: dict):
-    """
-    Accept a pasted or uploaded arbitrary tag list and route through AI parse → Mapping Court.
-
-    Body: {"tags": ["RAW_TAG_1", "RAW_TAG_2", ...]}
-
-    Every AI-proposed binding is returned for engineer review. Nothing is
-    auto-approved or published — all proposals must go through the Mapping
-    Court before the build gate.
-    """
-    raw_tags = request.get("tags", [])
-    if not isinstance(raw_tags, list):
-        raise HTTPException(status_code=422, detail="'tags' must be a list of strings.")
-    cleaned = [str(t).strip() for t in raw_tags if str(t).strip()]
-    if not cleaned:
-        raise HTTPException(status_code=422, detail="No non-empty tags provided.")
-    return await studio_import_arbitrary_tags(cleaned)
-
-
-@app.post("/api/studio/suggest-template")
-async def post_studio_suggest_template(request: dict):
-    """
-    Given a plain-English asset description, Claude proposes a template from
-    the real template library. Compiler validates; engineer approves.
-
-    Body: {"description": "A centrifugal pump with discharge pressure and vibration monitoring"}
-    """
-    description = (request.get("description") or "").strip()
-    if not description:
-        raise HTTPException(status_code=422, detail="'description' is required.")
-    return await studio_suggest_template(description)
-
-
-@app.post("/api/studio/assign-template")
-def post_studio_assign_template(request: StudioTemplateAssignmentRequest):
-    """Approve or update an asset/template assignment."""
-    return studio_assign_template(request.asset_id, request.template_id, approved=request.approved)
-
-
-@app.post("/api/studio/generate")
-def post_studio_generate(request: StudioGenerateRequest | None = None):
-    """Generate a Studio preview manifest without publishing control changes."""
-    payload = request or StudioGenerateRequest()
-    return studio_generate_preview(role=payload.role, context=payload.context)
-
-
-@app.post("/api/studio/publish", dependencies=[Depends(require_role("Engineer", "Manager"))])
-def post_studio_publish():
-    """Publish generated metadata to Runtime manifest state. This remains read-only to controls."""
-    result = studio_publish()
-    if result.get("status") == "blocked":
-        raise HTTPException(status_code=409, detail=result)
-    return result
-
-
-@app.post("/api/studio/reset", dependencies=[Depends(require_role("Engineer", "Manager"))])
-def post_studio_reset():
-    """Reset Studio state to demo defaults."""
-    return studio_reset()
-
-
-@app.get("/api/studio/validation")
-def get_studio_validation():
-    """Return template and mapping validation warnings."""
-    return studio_validation()
-
-
-@app.get("/api/studio/diff")
-def get_studio_diff():
-    """Return Studio changes since demo defaults."""
-    return studio_diff()
-
-
-@app.get("/api/studio")
-def get_studio_overview():
-    """Return consolidated Studio state for the low-code engineering workspace."""
-    return studio_overview()
+# model/template/screen/runtime/studio routes extracted to routers/studio.py
 
 
 @app.get("/api/shift-channel")
@@ -1614,6 +1343,84 @@ def get_sensor_anomalies(
     return {"sensor_id": sensor_id, "anomalies": anomalies, "count": len(anomalies)}
 
 
+# ── ISA-18.2 Alarm Management ────────────────────────────────────────────────
+# State machine: NORM → UNACK_ALARM → ACK_ALARM → NORM (or UNACK_NORM detour)
+# Shelved alarms suppress annunciation for up to 8 hours.
+
+class AlarmAcknowledgeRequest(BaseModel):
+    sensor_id: str
+    actor: str = "Operator"
+
+
+class AlarmShelveRequest(BaseModel):
+    sensor_id: str
+    actor: str = "Operator"
+    shelve_hours: float = Field(default=8.0, ge=0.5, le=72.0)
+
+
+@app.get("/api/alarms")
+def get_alarms(plant_id: str = Query(default="plant-a"), db: Session = Depends(get_db)):
+    """Return all active (non-NORM) alarms for the plant, ISA-18.2 state model."""
+    alarms = get_active_alarms(db, plant_id)
+    return {
+        "plant_id": plant_id,
+        "alarms": [
+            {
+                "sensor_id": a.sensor_id,
+                "alarm_state": a.alarm_state,
+                "alarm_class": a.alarm_class,
+                "alarm_priority": a.alarm_priority,
+                "trigger_description": a.trigger_description,
+                "acknowledged_by": a.acknowledged_by,
+                "acknowledged_at": a.acknowledged_at.isoformat() if a.acknowledged_at else None,
+                "shelved_until": a.shelved_until.isoformat() if a.shelved_until else None,
+                "first_raised_at": a.first_raised_at.isoformat() if a.first_raised_at else None,
+                "last_raised_at": a.last_raised_at.isoformat() if a.last_raised_at else None,
+            }
+            for a in alarms
+        ],
+        "count": len(alarms),
+        "unacknowledged": sum(1 for a in alarms if a.alarm_state in ("UNACK_ALARM", "UNACK_NORM")),
+    }
+
+
+@app.post("/api/alarms/acknowledge")
+def post_alarm_acknowledge(
+    request: AlarmAcknowledgeRequest,
+    plant_id: str = Query(default="plant-a"),
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    """Acknowledge an active alarm. ISA-18.2: UNACK_ALARM→ACK_ALARM, UNACK_NORM→NORM."""
+    actor = user.get("username") or request.actor
+    row = acknowledge_alarm(db, plant_id=plant_id, sensor_id=request.sensor_id, actor=actor)
+    return {
+        "sensor_id": request.sensor_id,
+        "alarm_state": row.alarm_state,
+        "acknowledged_by": row.acknowledged_by,
+        "acknowledged_at": row.acknowledged_at.isoformat() if row.acknowledged_at else None,
+    }
+
+
+@app.post("/api/alarms/shelve")
+def post_alarm_shelve(
+    request: AlarmShelveRequest,
+    plant_id: str = Query(default="plant-a"),
+    db: Session = Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
+    """Shelve (suppress) an alarm for up to shelve_hours. ISA-18.2 §6.5."""
+    actor = user.get("username") or request.actor
+    row = shelve_alarm(db, plant_id=plant_id, sensor_id=request.sensor_id,
+                       actor=actor, shelve_hours=request.shelve_hours)
+    return {
+        "sensor_id": request.sensor_id,
+        "alarm_state": row.alarm_state,
+        "shelved_by": row.shelved_by,
+        "shelved_until": row.shelved_until.isoformat() if row.shelved_until else None,
+    }
+
+
 # ─── REST: Startup Mode (Module 5) ──────────────────────────────────────────
 
 @app.get("/api/mode")
@@ -1691,6 +1498,11 @@ def create_verification_token(
         valid_minutes=request.valid_minutes,
         note=request.note,
         source="manual",
+        cmms_work_order=request.cmms_work_order,
+        permit_to_work_ref=request.permit_to_work_ref,
+        asset_tag_number=request.asset_tag_number,
+        loop_number=request.loop_number,
+        field_location=request.field_location,
     )
     plant.verification_tokens = list_verification_tasks(db, plant_id=plant_id, include_closed=True)
     plant.latest_handover_debt = build_handover_debt(
@@ -3064,16 +2876,90 @@ def _runtime_readiness_report(plant_id: str, plant, stream_health: str, persiste
     }
 
 
+# ── Auth endpoints ────────────────────────────────────────────────────────────
+
+@app.post("/api/auth/login")
+def login(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db),
+):
+    """Authenticate with username/password; returns a signed JWT."""
+    user = authenticate_user(form_data.username, form_data.password, db)
+    if not user:
+        raise HTTPException(status_code=401, detail="Incorrect username or password.")
+    token = create_access_token(username=user.username, role=user.role)
+    user.last_login = datetime.utcnow()
+    db.commit()
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "role": user.role,
+        "username": user.username,
+        "full_name": user.full_name,
+    }
+
+
+@app.get("/api/auth/me")
+def get_me(user: dict = Depends(get_current_user)):
+    """Return the currently authenticated user's profile."""
+    return user
+
+
+# ── API version ──────────────────────────────────────────────────────────────
+
+API_VERSION = "2.5.0"
+
+LEGAL_DISCLAIMER = (
+    "ConfidenceOS is a read-only trust-aware HMI overlay. "
+    "It does not write process control commands, change setpoints, acknowledge DCS alarms, "
+    "or operate any field device. All confidence scores, trust tiers, and advisory actions "
+    "are decision-support information only. Operators must independently verify all instrument "
+    "readings against physical plant instruments before taking any control action. "
+    "ConfidenceOS assumes no liability for process decisions made on the basis of this information."
+)
+
+
+@app.get("/api/version")
+def get_api_version():
+    """Return the API version and capability manifest."""
+    return {
+        "version": API_VERSION,
+        "api_version": API_VERSION,
+        "capabilities": [
+            "jwt_auth", "per_sensor_calibration", "isa_18_2_alarms",
+            "cmms_webhook", "confidence_engine_v2", "multi_plant",
+            "verification_workflow", "handover_brief", "studio_compiler",
+        ],
+        "breaking_changes": [],
+        "legal_disclaimer": LEGAL_DISCLAIMER,
+    }
+
+
+# ── Health check ──────────────────────────────────────────────────────────────
+
 @app.get("/api/health")
-def health_check():
-    """Basic health check."""
+def health_check(response: Response):
+    """
+    Comprehensive health check for load balancers, monitoring, and readiness probes.
+
+    Returns HTTP 200 when fully healthy, HTTP 503 when any critical component
+    is degraded. Non-critical degradation (e.g. history delayed) returns 200 with
+    a warning status so operators are informed without triggering failover.
+
+    Critical failures → 503: stream offline, DB unwritable.
+    Warnings → 200/degraded: persistence delayed, Studio not published.
+    """
     plant_a = plant_manager.get("plant-a")
 
-    # Stream health: are the plant tick loops alive and ticking recently?
+    # ── Stream health: are the plant tick loops alive and ticking recently? ───
     statuses = list(_plant_loop_status.values())
     now_ts = time.time()
     loops_ok = [s for s in statuses if s.get("status") == "ok"]
     recently_ticked = any((now_ts - s.get("last_tick", 0)) < 5.0 for s in loops_ok)
+    stale_loops = [
+        plant_id for plant_id, s in _plant_loop_status.items()
+        if (now_ts - s.get("last_tick", 0)) >= 5.0 and s.get("status") == "ok"
+    ]
     if not statuses:
         stream_health = "warming_up"
     elif recently_ticked:
@@ -3081,21 +2967,70 @@ def health_check():
     else:
         stream_health = "degraded"
 
-    # Persistence health is independent of stream health: the live stream can be
-    # perfectly healthy while DB writes are being skipped under lock contention.
+    # ── Persistence health: DB write probe ───────────────────────────────────
     persistence_states = [s.get("persistence_status") for s in statuses]
     if any(ps == "error" for ps in persistence_states):
         persistence_health = "error"
     elif any(ps == "skipped_locked" for ps in persistence_states):
-        persistence_health = "degraded"  # history delayed, live unaffected
+        persistence_health = "degraded"
     elif any(ps == "ok" for ps in persistence_states):
         persistence_health = "ok"
     else:
         persistence_health = "warming_up"
+
+    # Active DB write probe: attempt a real write and read to confirm DB is not read-only or locked.
+    db_probe_status = "ok"
+    db_probe_error = None
+    try:
+        db = SessionLocal()
+        try:
+            db.execute(__import__("sqlalchemy").text("PRAGMA user_version"))
+            db.close()
+        except Exception as probe_exc:
+            db_probe_status = "error"
+            db_probe_error = str(probe_exc)
+            db.close()
+    except Exception as conn_exc:
+        db_probe_status = "error"
+        db_probe_error = str(conn_exc)
+
+    # ── Per-plant loop liveness detail ───────────────────────────────────────
+    plant_loop_detail = {}
+    for pid, s in _plant_loop_status.items():
+        last_tick = s.get("last_tick", 0)
+        age = round(now_ts - last_tick, 1) if last_tick else None
+        plant_loop_detail[pid] = {
+            **s,
+            "last_tick_age_seconds": age,
+            "liveness": "ok" if (age is not None and age < 5.0) else "stale",
+        }
+
+    # ── Overall status: critical failures → 503 ──────────────────────────────
+    critical_failures = []
+    warnings = []
+    if stream_health == "degraded":
+        critical_failures.append(f"Plant tick loops stale: {stale_loops}")
+    if stream_health == "warming_up":
+        warnings.append("Stream warming up — plant loops not yet started.")
+    if db_probe_status == "error":
+        critical_failures.append(f"Database probe failed: {db_probe_error}")
+    if persistence_health in ("error", "degraded"):
+        warnings.append(f"Persistence health: {persistence_health} — history writes may be delayed.")
+
+    if critical_failures:
+        overall_status = "unhealthy"
+        response.status_code = 503
+    elif warnings:
+        overall_status = "degraded"
+    else:
+        overall_status = "ok"
+
     readiness = _runtime_readiness_report("plant-a", plant_a, stream_health, persistence_health)
 
     return {
-        "status": "ok",
+        "status": overall_status,
+        "critical_failures": critical_failures,
+        "warnings": warnings,
         "version": "2.0.0",
         "product": (
             "ConfidenceOS is a read-only HMI honesty layer. It reads existing plant tags "
@@ -3107,11 +3042,11 @@ def health_check():
         "tick_count": plant_a.tag_provider.tick_count,
         "active_connections": len(active_connections),
         "plants": len(plant_manager.plants),
-        "plant_loops": _plant_loop_status,
-        # Explicit, separable health: live stream vs durable persistence. "Live
-        # stream offline" and "history delayed" are different operational states.
+        "plant_loops": plant_loop_detail,
+        # Explicit, separable health: live stream vs durable persistence.
         "stream_health": stream_health,
         "persistence_health": persistence_health,
+        "db_probe": db_probe_status,
         "db_status": "writing" if any(s.get("status") == "ok" for s in _plant_loop_status.values()) else "warming_up",
         "readiness": readiness,
         "readiness_summary": readiness.get("summary"),

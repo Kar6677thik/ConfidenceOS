@@ -158,6 +158,24 @@ function VerificationTaskCard({ task, role, plantId, onChanged }) {
       <p className="caption-mono text-[var(--text)]">
         {(task.evidence_required || []).length ? task.evidence_required.join(' / ') : 'local indication / field note / timestamp'}
       </p>
+      {!!task.procedure_ref && (
+        <div className="mt-2 flex items-center gap-2">
+          <p className="label-caps text-[var(--text-dim)]">Procedure</p>
+          <p className="caption-mono text-[var(--data-mono)] truncate">{task.procedure_ref}</p>
+        </div>
+      )}
+      {!!task.field_location && (
+        <div className="mt-1 flex items-center gap-2">
+          <p className="label-caps text-[var(--text-dim)]">Location</p>
+          <p className="caption-mono">{task.field_location}</p>
+        </div>
+      )}
+      {!!task.cmms_work_order && (
+        <div className="mt-1 flex items-center gap-2">
+          <p className="label-caps text-[var(--text-dim)]">WO</p>
+          <p className="caption-mono">{task.cmms_work_order}</p>
+        </div>
+      )}
       {!!task.last_evidence_summary && (
         <p className="caption-mono text-[var(--data-mono)] mt-2">Latest evidence: {task.last_evidence_summary}</p>
       )}

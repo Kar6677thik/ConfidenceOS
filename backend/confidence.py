@@ -127,12 +127,20 @@ class ConfidenceEngine:
         self,
         weights: ConfidenceWeights | None = None,
         calibration_interval_days: float = DEFAULT_CALIBRATION_INTERVAL_DAYS,
+        per_sensor_type_calibration_intervals: dict[str, float] | None = None,
+        per_sensor_type_confidence_weights: dict[str, "ConfidenceWeights"] | None = None,
     ):
         self.weights = weights or ConfidenceWeights()
         self.calibration_interval_days = calibration_interval_days
+        # Per-sensor-type overrides — lookup key is sensor_type (e.g. "level", "pressure").
+        # When present, these take precedence over the global defaults.
+        self._per_sensor_type_calibration_intervals: dict[str, float] = per_sensor_type_calibration_intervals or {}
+        self._per_sensor_type_confidence_weights: dict[str, ConfidenceWeights] = per_sensor_type_confidence_weights or {}
 
         # Per-sensor calibration age in days (simulated — starts at 0, can be overridden)
         self.calibration_ages: dict[str, float] = {}
+        # Per-sensor type mapping (sensor_id → sensor_type) populated during score()
+        self._sensor_type_map: dict[str, str] = {}
 
         # Per-sensor reading history (deque of (timestamp, value) tuples)
         self._history: dict[str, deque] = {}
@@ -207,6 +215,9 @@ class ConfidenceEngine:
             value = r["value"]
             ts = r["timestamp"]
 
+            # Track sensor type for per-type calibration interval lookup
+            self._sensor_type_map[sid] = stype
+
             # Update history
             if sid not in self._history:
                 self._history[sid] = deque(maxlen=HISTORY_WINDOW)
@@ -227,7 +238,8 @@ class ConfidenceEngine:
                 physical_plausibility_score=phys_score,
             )
 
-            w = self.weights
+            # Resolve sensor-type-specific weights (fall back to global default)
+            w = self._per_sensor_type_confidence_weights.get(stype, self.weights)
             composite = (
                 w.calibration * cal_score
                 + w.stability * stab_score
@@ -332,13 +344,21 @@ class ConfidenceEngine:
         if envelope:
             envelope_text = f"{envelope['normal_min']:.0f}-{envelope['normal_max']:.0f} {envelope.get('unit', unit)}"
 
+        # Resolve the effective calibration interval for this sensor's type
+        _eff_interval = self._per_sensor_type_calibration_intervals.get(
+            sensor_type, self.calibration_interval_days
+        )
         rows = [
             {
                 "category": "calibration",
                 "score": sub_scores.calibration_score,
-                "message": f"Calibration age {age_days:.0f} days against {self.calibration_interval_days:.0f}-day interval.",
+                "message": (
+                    f"Calibration age {age_days:.0f} days against "
+                    f"{_eff_interval:.0f}-day interval (sensor type: {sensor_type})."
+                ),
                 "value": round(age_days, 1),
-                "threshold": self.calibration_interval_days,
+                "threshold": _eff_interval,
+                "sensor_type_interval": _eff_interval,
                 "action": f"Verify calibration record for {sensor_id}.",
             },
             {
@@ -397,11 +417,19 @@ class ConfidenceEngine:
 
     def _calibration_score(self, sensor_id: str, reasons: list[str]) -> float:
         """
-        Starts at 1.0, decays linearly to 0.0 over calibration_interval_days.
-        At 47 days with 90-day interval: score = 1 - 47/90 = 0.478
+        Starts at 1.0, decays linearly to 0.0 over the applicable calibration interval.
+        Interval is resolved per sensor type (from per_sensor_type_calibration_intervals),
+        falling back to the global calibration_interval_days default.
+
+        Example: level sensor at 47 days with 180-day interval → score = 1 - 47/180 = 0.739
         """
         age_days = self.calibration_ages.get(sensor_id, 0.0)
-        interval = self.calibration_interval_days
+        # Resolve interval: per-sensor-type override → global default
+        stype = self._sensor_type_map.get(sensor_id)
+        if stype and stype in self._per_sensor_type_calibration_intervals:
+            interval = self._per_sensor_type_calibration_intervals[stype]
+        else:
+            interval = self.calibration_interval_days
 
         if age_days <= 0:
             return 1.0
@@ -410,7 +438,10 @@ class ConfidenceEngine:
 
         if score < 1.0:
             reasons.append(
-                f"Calibration: {age_days:.0f} days elapsed (interval: {interval:.0f} days)."
+                f"Calibration: {age_days:.0f} days elapsed "
+                f"(interval: {interval:.0f} days"
+                + (f", type: {stype}" if stype else "")
+                + ")."
             )
 
         return score

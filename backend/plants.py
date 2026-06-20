@@ -87,6 +87,8 @@ class PlantInstance:
         self.confidence_engine = ConfidenceEngine(
             weights=_confidence_cfg["weights"],
             calibration_interval_days=_confidence_cfg["calibration_interval_days"],
+            per_sensor_type_calibration_intervals=_confidence_cfg.get("per_sensor_type_calibration_intervals", {}),
+            per_sensor_type_confidence_weights=_confidence_cfg.get("per_sensor_type_confidence_weights", {}),
         )
         self.confidence_engine.set_adaptive_envelopes(_confidence_cfg["operating_envelopes"])
         _mb_cfg = mass_balance_engine_config()
@@ -121,6 +123,7 @@ class PlantInstance:
         self.confidence_debt_state: dict = {}
         self.latest_confidence_debt: list = []
         self.latest_handover_debt: dict = {}
+        self.latest_unacked_alarms: int = 0  # ISA-18.2 unacknowledged alarm count
 
     def info(self) -> dict:
         """Return plant metadata."""

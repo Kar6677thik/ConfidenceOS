@@ -13,6 +13,7 @@ import useKeyboardShortcuts from './lib/useKeyboardShortcuts';
 // Navigation
 import NavBar from './components/NavBar';
 import ErrorBoundary from './components/ErrorBoundary';
+import LoginModal from './components/LoginModal';
 import AbnormalityLab from './components/AbnormalityLab';
 import RuntimePlatform from './components/RuntimePlatform';
 import StudioWorkspace from './components/StudioWorkspace';
@@ -56,7 +57,9 @@ function BottomStatus({ labOpen, setLabOpen }) {
 
   return (
     <footer className="bottom-status">
-      <span>ConfidenceOS read-only trust-aware HMI layer</span>
+      <span title="ConfidenceOS is a read-only trust-aware HMI overlay. It does not write process control commands, change setpoints, or operate any field device. All outputs are decision-support information only.">
+        ConfidenceOS — read-only HMI overlay
+      </span>
       <div className="flex items-center gap-6">
         <span className="hidden md:block">System Logs</span>
         <span>UTC: {clock.toLocaleTimeString()}</span>
@@ -109,6 +112,7 @@ export default function App() {
   const [labOpen, setLabOpen] = useState(false);
   const connect = useStore((s) => s.connect);
   const fetchSystemHealth = useStore((s) => s.fetchSystemHealth);
+  const authToken = useStore((s) => s.authToken);
 
   // Establish WS at app mount so every view gets live data, not just Runtime.
   // connect() is idempotent (store guards on _ws), so RuntimePlatform calling
@@ -138,6 +142,7 @@ export default function App() {
 
   return (
     <div className="industrial-app">
+      {!authToken && <LoginModal />}
       <NavBar />
       <main className="industrial-main">
         <ErrorBoundary>

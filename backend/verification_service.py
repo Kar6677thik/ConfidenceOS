@@ -9,6 +9,8 @@ writes process controls.
 from __future__ import annotations
 
 import json
+import logging
+import os
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -19,6 +21,42 @@ from sqlalchemy.orm import Session
 
 from asset_model import sensor_by_tag
 from database import VerificationEvidence, VerificationTask, log_verification_event
+
+logger = logging.getLogger(__name__)
+
+# ── CMMS webhook stub ─────────────────────────────────────────────────────────
+# Set CONFIDENCEOS_CMMS_WEBHOOK_URL to fire a POST on every verification state
+# change. The payload matches the task_to_dict schema so CMMS can create or
+# close work orders from the event stream.
+
+_CMMS_WEBHOOK_URL: str | None = os.getenv("CONFIDENCEOS_CMMS_WEBHOOK_URL")
+
+
+def _fire_cmms_webhook(task_dict: dict, event: str) -> None:
+    """
+    POST verification task state to the configured CMMS webhook.
+    Non-blocking: logs failures but never raises — a CMMS outage must not
+    block the verification workflow.
+    """
+    if not _CMMS_WEBHOOK_URL:
+        return
+    try:
+        import urllib.request
+        payload = json.dumps({
+            "event": event,
+            "task": task_dict,
+            "fired_at": datetime.now(timezone.utc).isoformat(),
+        }).encode()
+        req = urllib.request.Request(
+            _CMMS_WEBHOOK_URL,
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            logger.info("CMMS webhook fired: event=%s status=%s", event, resp.status)
+    except Exception as exc:
+        logger.warning("CMMS webhook failed (non-fatal): %s", exc)
 
 
 TERMINAL_STATES = {"ACCEPTED", "EXPIRED"}
@@ -49,6 +87,19 @@ METHODS_BY_SENSOR_TYPE = {
 }
 DEFAULT_EVIDENCE_REQUIRED = ["local indication", "field note", "time-stamped confirmation"]
 
+# Procedure links: reference documents per verification method (ISA-S5.4 / site SOP pointers)
+PROCEDURE_LINKS: dict[str, str] = {
+    "field_check":                    "SOP-INST-001: General Instrument Field Check Procedure",
+    "local_field_check":              "SOP-INST-001: General Instrument Field Check Procedure",
+    "manual_level_verification":      "SOP-INST-010: Level Transmitter Verification (Sight Glass Method)",
+    "sight_glass":                    "SOP-INST-010: Level Transmitter Verification (Sight Glass Method)",
+    "manual_flow_verification":       "SOP-INST-020: Flow Meter Field Verification Procedure",
+    "manual_pressure_verification":   "SOP-INST-030: Pressure Transmitter Loop Check Procedure",
+    "manual_temperature_verification":"SOP-INST-040: Temperature Element Verification Procedure",
+    "position_check":                 "SOP-INST-050: Valve Position Indicator Check Procedure",
+    "vibration_check":                "SOP-INST-060: Vibration Sensor Field Check Procedure",
+}
+
 
 def create_task(
     db: Session,
@@ -63,6 +114,12 @@ def create_task(
     actor_role: str | None = None,
     task_id: str | None = None,
     commit: bool = True,
+    # CMMS / permit-to-work fields (optional)
+    cmms_work_order: str | None = None,
+    permit_to_work_ref: str | None = None,
+    asset_tag_number: str | None = None,
+    loop_number: str | None = None,
+    field_location: str | None = None,
 ) -> dict:
     """Create a durable verification task and REQUESTED audit event."""
     sensor = _validate_sensor(sensor_id)
@@ -100,6 +157,11 @@ def create_task(
         closeout_status="open",
         confidence_override=0,
         usable_as_reference=0,
+        cmms_work_order=cmms_work_order,
+        permit_to_work_ref=permit_to_work_ref,
+        asset_tag_number=asset_tag_number,
+        loop_number=loop_number,
+        field_location=field_location,
     )
     try:
         db.add(task)
@@ -120,7 +182,9 @@ def create_task(
     except Exception:
         db.rollback()
         raise
-    return task_to_dict(task)
+    result = task_to_dict(task)
+    _fire_cmms_webhook(result, event="verification_task.requested")
+    return result
 
 
 def sync_auto_tasks(
@@ -222,7 +286,9 @@ def transition_task(
     except Exception:
         db.rollback()
         raise
-    return task_to_dict(task)
+    result = task_to_dict(task)
+    _fire_cmms_webhook(result, event=f"verification_task.{state.lower()}")
+    return result
 
 
 def expire_due_tasks(db: Session, *, plant_id: str, current: datetime | None = None, commit: bool = True) -> list[dict]:
@@ -322,6 +388,14 @@ def task_to_dict(task: VerificationTask) -> dict:
         "closeout_status": task.closeout_status,
         "confidence_override": False,
         "usable_as_reference": bool(task.usable_as_reference),
+        # CMMS / permit-to-work integration
+        "cmms_work_order": task.cmms_work_order,
+        "permit_to_work_ref": task.permit_to_work_ref,
+        "asset_tag_number": task.asset_tag_number,
+        "loop_number": task.loop_number,
+        "field_location": task.field_location,
+        # Procedure link (ISA-S5.4 / site SOP reference)
+        "procedure_ref": PROCEDURE_LINKS.get(task.verification_method, PROCEDURE_LINKS["field_check"]),
     }
 
 

@@ -515,17 +515,27 @@ function ValueList({ values, empty = 'No active item.', status = 'text-[var(--da
   );
 }
 
-function SimulationControlStrip({ demoState, busy, onReset, onStart }) {
+function SimulationControlStrip({ demoState, busy, onReset, onStart, role }) {
   const phase = demoState?.phase || 'NORMAL_BASELINE';
   const failures = asList(demoState?.active_failures).map((item) => item.operator_label || displayText(item));
   const story = asList(demoState?.operator_story);
   const lifecycle = demoState?.lifecycle || {};
   const workflowEffects = asList(demoState?.workflow_effects);
   const activeIndex = Math.max(0, Number(demoState?.phase_index ?? 0));
+  // Simulation control buttons (reset/inject) are restricted to Engineer and Manager roles.
+  // Operators see the scenario status (so they know data is simulated) but cannot trigger scenario transitions.
+  const canControl = role === 'Engineer' || role === 'Manager';
   return (
     <section className="hmi-demo-strip">
       <div className="min-w-0">
-        <p className="label-caps text-[var(--text-muted)]">Simulator Scenario State</p>
+        <p className="label-caps text-[var(--text-muted)]">
+          Training Source — Simulator Scenario State
+          {!canControl && (
+            <span className="ml-2 text-[var(--text-dim)] normal-case font-normal">
+              (read-only view — scenario control available to Engineers)
+            </span>
+          )}
+        </p>
         <p className="caption-mono font-semibold truncate">
           {formatText(phase)} / {demoState?.stream_status || 'stream pending'} / tick {demoState?.tick_count ?? '--'}
         </p>
@@ -559,10 +569,12 @@ function SimulationControlStrip({ demoState, busy, onReset, onStart }) {
           </div>
         )}
       </div>
-      <div className="flex items-center gap-2 shrink-0">
-        <button type="button" disabled={busy} onClick={onReset} className="industrial-control">Reset Simulator</button>
-        <button type="button" disabled={busy} onClick={onStart} className="industrial-control status-warning">Inject Abnormal Situation</button>
-      </div>
+      {canControl && (
+        <div className="flex items-center gap-2 shrink-0">
+          <button type="button" disabled={busy} onClick={onReset} className="industrial-control">Reset Simulator</button>
+          <button type="button" disabled={busy} onClick={onStart} className="industrial-control status-warning">Inject Abnormal Situation</button>
+        </div>
+      )}
     </section>
   );
 }
@@ -969,6 +981,8 @@ function PressureModeRuntime({
   demoBusy,
   onDemoReset,
   onDemoStart,
+  isSimulation,
+  role,
 }) {
   const lead = situations?.[0] || {};
   const basis = manifest?.operating_basis || {};
@@ -994,7 +1008,9 @@ function PressureModeRuntime({
             <span className="caption-mono status-warning">Grounded explanation disabled during active decision freeze.</span>
           </div>
           <div className="hmi-process-canvas p-5 flex flex-col gap-3 overflow-y-auto scrollbar-thin">
-            <SimulationControlStrip demoState={demoState || manifest?.demo_state} busy={demoBusy} onReset={onDemoReset} onStart={onDemoStart} />
+            {isSimulation && (
+              <SimulationControlStrip demoState={demoState || manifest?.demo_state} busy={demoBusy} onReset={onDemoReset} onStart={onDemoStart} role={role} />
+            )}
             {flagMessages.length > 0 && (
               <div className="hmi-alert-ribbon">
                 <p className="label-caps status-critical">Mass-balance evidence</p>
@@ -1131,7 +1147,9 @@ export default function RuntimePlatform() {
     demoState,
     chartHistory,
     massBalance,
+    providerType,
   } = storeState;
+  const isSimulation = providerType === 'simulator';
   const [manifest, setManifest] = useState(null);
   const [loading, setLoading] = useState(true);
   const [manifestError, setManifestError] = useState('');
@@ -1270,6 +1288,8 @@ export default function RuntimePlatform() {
         demoBusy={demoBusy}
         onDemoReset={() => runDemoAction('/api/simulation/reset-source')}
         onDemoStart={() => runDemoAction('/api/simulation/start-abnormal-situation')}
+        isSimulation={isSimulation}
+        role={role}
       />
     );
   }
@@ -1297,14 +1317,17 @@ export default function RuntimePlatform() {
             onSelect={setSelected}
           />
           <aside className="hmi-dock">
-            <DockSection title="Simulation Controls" eyebrow="Training Source">
-              <SimulationControlStrip
-                demoState={activeDemoState}
-                busy={demoBusy}
-                onReset={() => runDemoAction('/api/simulation/reset-source')}
-                onStart={() => runDemoAction('/api/simulation/start-abnormal-situation')}
-              />
-            </DockSection>
+            {isSimulation && (
+              <DockSection title="Simulation Controls" eyebrow="Training Source">
+                <SimulationControlStrip
+                  demoState={activeDemoState}
+                  busy={demoBusy}
+                  onReset={() => runDemoAction('/api/simulation/reset-source')}
+                  onStart={() => runDemoAction('/api/simulation/start-abnormal-situation')}
+                  role={role}
+                />
+              </DockSection>
+            )}
             {manifest.runtime_notice && (
               <DockSection
                 title={manifest.runtime_preview ? 'Generated Preview' : 'Runtime Live Binding'}

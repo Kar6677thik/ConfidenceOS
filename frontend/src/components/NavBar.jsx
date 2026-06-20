@@ -35,6 +35,10 @@ export default function NavBar() {
     staleFlags,
     systemHealth,
     healthError,
+    authUser,
+    authToken,
+    logout,
+    unackedAlarms,
   } = useStore();
   const location = useLocation();
   const navigate = useNavigate();
@@ -122,6 +126,11 @@ export default function NavBar() {
         <div className={`caption-mono ${alerts > 0 ? 'status-critical' : trustException.status}`}>
           {alerts > 0 ? `${alerts} Trust Alert${alerts > 1 ? 's' : ''}` : trustException.label}
         </div>
+        {unackedAlarms > 0 && (
+          <div className="caption-mono status-critical" title="ISA-18.2 unacknowledged alarms — use /api/alarms to acknowledge">
+            {unackedAlarms} Unack Alarm{unackedAlarms > 1 ? 's' : ''}
+          </div>
+        )}
 
         {!runtimeReady && (
           <div
@@ -153,6 +162,21 @@ export default function NavBar() {
           <span className={`led-square ${connected ? 'status-safe dot-blink' : 'status-critical'}`} />
           <span>{connected ? 'LIVE' : 'OFFLINE'}</span>
         </div>
+
+        {authToken && authUser && (
+          <div className="flex items-center gap-2 caption-mono" title={`Signed in as ${authUser.username}`}>
+            <span className="text-[var(--text-muted)]">{authUser.username}</span>
+            <button
+              onClick={logout}
+              className="industrial-control shrink-0 px-2"
+              title="Sign out"
+              aria-label="Sign out"
+              style={{ fontSize: 11 }}
+            >
+              Sign out
+            </button>
+          </div>
+        )}
       </div>
     </header>
   );

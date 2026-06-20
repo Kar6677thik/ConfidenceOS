@@ -18,10 +18,19 @@ def compute_adaptive_envelopes(db, plant_id: str, hours: float = 72.0) -> dict:
     """Compute and persist learned envelopes for a plant."""
     cutoff = datetime.utcnow() - timedelta(hours=hours)
 
+    # Exclude only sensor_fault anomalies from envelope computation.
+    # process_abnormality events (mass-balance flags) are real process data and
+    # should NOT be excluded — they are valid operating points for envelope learning.
+    # Excluding them would allow the envelope to drift toward abnormal conditions.
+    sensor_fault_types = {"confidence_low", "confidence_critical", "stale_reading"}
     anomaly_sensor_ids = {
         row.sensor_id
         for row in db.query(AnomalyLog)
-        .filter(AnomalyLog.plant_id == plant_id, AnomalyLog.timestamp >= cutoff)
+        .filter(
+            AnomalyLog.plant_id == plant_id,
+            AnomalyLog.timestamp >= cutoff,
+            AnomalyLog.anomaly_type.in_(list(sensor_fault_types)),
+        )
         .all()
     }
 

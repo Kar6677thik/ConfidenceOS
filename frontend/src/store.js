@@ -29,6 +29,12 @@ const useStore = create((set, get) => ({
   healthError: '',
   lastHealthAt: null,
 
+  // -- Auth (JWT) --------------------------------------------------------
+  authToken: null,       // Bearer token from /api/auth/login
+  authUser: null,        // { username, role, full_name }
+  authLoading: false,
+  authError: null,
+
   // -- V2: Plant & Role --------------------------------------------------
   plantId: 'plant-a',
   role: 'Operator',  // Operator | Maintenance | Engineer | Manager | Auditor
@@ -61,6 +67,8 @@ const useStore = create((set, get) => ({
   handoverDebt: null,      // unresolved operational debt ledger
   confidenceDebt: [],      // confidence-hours maintenance priority data
   demoState: null,         // simulator scenario phase and source state
+  providerType: null,      // "simulator" | "opcua" | "csv_replay" | "read_only"
+  unackedAlarms: 0,        // ISA-18.2 unacknowledged alarm count
   timestamp: null,        // last update timestamp
 
   // -- Derived / computed ------------------------------------------------
@@ -105,6 +113,36 @@ const useStore = create((set, get) => ({
   },
 
   setRole: (role) => set({ role }),
+
+  login: async (username, password) => {
+    set({ authLoading: true, authError: null });
+    try {
+      const resp = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ username, password }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        set({ authLoading: false, authError: err.detail || 'Login failed.' });
+        return false;
+      }
+      const data = await resp.json();
+      set({
+        authToken: data.access_token,
+        authUser: { username: data.username, role: data.role, full_name: data.full_name },
+        role: data.role,
+        authLoading: false,
+        authError: null,
+      });
+      return true;
+    } catch (e) {
+      set({ authLoading: false, authError: 'Network error.' });
+      return false;
+    }
+  },
+
+  logout: () => set({ authToken: null, authUser: null, role: 'Operator' }),
 
   connect: () => {
     const state = get();
@@ -159,6 +197,11 @@ const useStore = create((set, get) => ({
           discrepancy: mb.discrepancy,
         } : null;
 
+        // Delta-compressed update: only override slow-changing fields when the
+        // server signals they changed (via _delta key list).
+        const delta = data._delta || null;
+        const hasDelta = (key) => !delta || delta.includes(key);
+
         set((prev) => {
           const newHistory = chartPoint
             ? [...prev.chartHistory, chartPoint].slice(-CHART_HISTORY_MAX)
@@ -171,17 +214,20 @@ const useStore = create((set, get) => ({
             mode: data.mode || null,
             staleFlags: data.stale_flags || [],
             newAnomalies: data.new_anomalies || [],
-            plantContext: data.plant_context || null,
-            incidents: data.incidents || [],
-            incidentTimeline: data.incident_timeline || [],
-            verificationTokens: data.verification_tokens || [],
-            verificationTasks: data.verification_tasks || data.verification_tokens || [],
-            handoverDebt: data.handover_debt || null,
-            confidenceDebt: data.confidence_debt || [],
-            demoState: data.demo_state || null,
+            providerType: data.provider_type || null,
+            unackedAlarms: data.unacked_alarms ?? prev.unackedAlarms,
             timestamp: data.timestamp,
             averageConfidence: avgConf,
             chartHistory: newHistory,
+            // Delta-compressed slow fields:
+            plantContext: hasDelta('plant_context') ? (data.plant_context || null) : prev.plantContext,
+            incidents: hasDelta('incidents') ? (data.incidents || []) : prev.incidents,
+            incidentTimeline: hasDelta('incident_timeline') ? (data.incident_timeline || []) : prev.incidentTimeline,
+            verificationTokens: hasDelta('verification_tokens') ? (data.verification_tokens || []) : prev.verificationTokens,
+            verificationTasks: hasDelta('verification_tasks') ? (data.verification_tasks || data.verification_tokens || []) : prev.verificationTasks,
+            handoverDebt: hasDelta('handover_debt') ? (data.handover_debt || null) : prev.handoverDebt,
+            confidenceDebt: hasDelta('confidence_debt') ? (data.confidence_debt || []) : prev.confidenceDebt,
+            demoState: hasDelta('demo_state') ? (data.demo_state || null) : prev.demoState,
           };
         });
       } catch (err) {

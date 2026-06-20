@@ -98,10 +98,26 @@ def confidence_engine_config(assumptions: dict | None = None) -> dict:
             physical_plausibility=float(weights.get("physical_plausibility", 0.20)),
         ),
         "calibration_interval_days": float(register["calibration_interval"]["value"]),
+        "per_sensor_type_calibration_intervals": register.get(
+            "per_sensor_type_calibration_intervals", {}
+        ).get("value", {}),
+        "per_sensor_type_confidence_weights": {
+            sensor_type: ConfidenceWeights(
+                calibration=float(w.get("calibration", 0.30)),
+                stability=float(w.get("stability", 0.20)),
+                cross_sensor=float(w.get("cross_sensor", 0.30)),
+                physical_plausibility=float(w.get("physical_plausibility", 0.20)),
+            )
+            for sensor_type, w in register.get(
+                "per_sensor_type_confidence_weights", {}
+            ).get("value", {}).items()
+        },
         "operating_envelopes": register["operating_envelopes"]["value"],
         "assumption_ids": [
             "confidence_weights",
             "calibration_interval",
+            "per_sensor_type_calibration_intervals",
+            "per_sensor_type_confidence_weights",
             "operating_envelopes",
         ],
     }

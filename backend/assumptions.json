@@ -15,8 +15,69 @@
   "calibration_interval": {
     "value": 90.0,
     "unit": "days",
-    "source": "confidence.py DEFAULT_CALIBRATION_INTERVAL_DAYS",
+    "source": "confidence.py DEFAULT_CALIBRATION_INTERVAL_DAYS — global fallback when no per-sensor-type interval applies",
     "owner_role": "Instrumentation Engineer",
+    "confidence_impact": "high",
+    "review_required": true
+  },
+  "per_sensor_type_calibration_intervals": {
+    "value": {
+      "level":       180,
+      "flow_in":     365,
+      "flow_out":    365,
+      "pressure":    365,
+      "temperature": 365,
+      "valve":       180
+    },
+    "unit": "days",
+    "source": "Site calibration schedule — typical ISA-5.1 instrument types. Override per site per instrument data sheet.",
+    "owner_role": "Instrumentation Engineer",
+    "confidence_impact": "high",
+    "review_required": true,
+    "notes": "Level and valve transmitters calibrated every 6 months; differential-pressure flow meters and thermowell-mounted TEs annually. These are site-typical values, not universal. Update from plant calibration management system records."
+  },
+  "per_sensor_type_confidence_weights": {
+    "value": {
+      "level": {
+        "calibration": 0.30,
+        "stability": 0.20,
+        "cross_sensor": 0.35,
+        "physical_plausibility": 0.15
+      },
+      "flow_in": {
+        "calibration": 0.35,
+        "stability": 0.25,
+        "cross_sensor": 0.25,
+        "physical_plausibility": 0.15
+      },
+      "flow_out": {
+        "calibration": 0.35,
+        "stability": 0.25,
+        "cross_sensor": 0.25,
+        "physical_plausibility": 0.15
+      },
+      "pressure": {
+        "calibration": 0.40,
+        "stability": 0.25,
+        "cross_sensor": 0.20,
+        "physical_plausibility": 0.15
+      },
+      "temperature": {
+        "calibration": 0.35,
+        "stability": 0.30,
+        "cross_sensor": 0.20,
+        "physical_plausibility": 0.15
+      },
+      "valve": {
+        "calibration": 0.25,
+        "stability": 0.30,
+        "cross_sensor": 0.30,
+        "physical_plausibility": 0.15
+      }
+    },
+    "unit": "fraction",
+    "source": "Engineering judgment by sensor type. Safety-critical pressure loops weight calibration score more heavily. Cross-sensor weight elevated for level (physics-driven). All weights must sum to 1.0 per sensor type.",
+    "owner_role": "Controls Engineer",
     "confidence_impact": "high",
     "review_required": true
   },

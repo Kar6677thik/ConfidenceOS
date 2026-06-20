@@ -11,7 +11,7 @@ import json
 import os
 from datetime import datetime, timedelta
 
-from sqlalchemy import create_engine, Column, Integer, Float, String, DateTime, Text, Index, event
+from sqlalchemy import create_engine, Column, Integer, Float, String, DateTime, Text, Index, event, text
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./confidenceos.db")
@@ -69,6 +69,43 @@ class AnomalyLog(Base):
     description = Column(Text, nullable=True)
     severity = Column(String(20), nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+
+
+class AlarmState(Base):
+    """
+    ISA-18.2 alarm state machine per sensor per plant.
+
+    States (ISA-18.2 §5):
+      NORM          — no alarm condition, acknowledged
+      UNACK_ALARM   — alarm active, operator not yet acknowledged
+      ACK_ALARM     — alarm active, acknowledged
+      UNACK_NORM    — alarm returned to normal, not yet acknowledged
+      SHELVED       — alarm suppressed (time-limited)
+
+    One row per (plant_id, sensor_id) pair; updated in place on each transition.
+    """
+    __tablename__ = "alarm_state"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    plant_id = Column(String(20), index=True, nullable=False)
+    sensor_id = Column(String(20), index=True, nullable=False)
+    alarm_state = Column(String(20), nullable=False, default="NORM")
+    alarm_class = Column(String(20), nullable=True)       # e.g. "process", "instrument"
+    alarm_priority = Column(Integer, nullable=False, default=3)  # 1=critical…4=low (ISA-18.2)
+    trigger_description = Column(Text, nullable=True)
+    acknowledged_by = Column(String(80), nullable=True)
+    acknowledged_at = Column(DateTime, nullable=True)
+    shelved_until = Column(DateTime, nullable=True)
+    shelved_by = Column(String(80), nullable=True)
+    first_raised_at = Column(DateTime, nullable=True)
+    last_raised_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    returned_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index('ix_alarm_state_plant_sensor', 'plant_id', 'sensor_id', unique=True),
+    )
 
 
 # ── V2 Tables ───────────────────────────────────────────────────────────────
@@ -201,6 +238,13 @@ class VerificationTask(Base):
     confidence_override = Column(Integer, nullable=False, default=0)
     usable_as_reference = Column(Integer, nullable=False, default=0)
 
+    # CMMS / permit-to-work integration fields
+    cmms_work_order = Column(String(64), nullable=True)       # e.g. "WO-2025-04871"
+    permit_to_work_ref = Column(String(64), nullable=True)    # e.g. "PTW-0512"
+    asset_tag_number = Column(String(64), nullable=True)      # ISA 5.1 asset tag
+    loop_number = Column(String(32), nullable=True)           # e.g. "FIC-200"
+    field_location = Column(String(128), nullable=True)       # e.g. "Unit 4 / Rack 7 / Bay 2"
+
     __table_args__ = (
         Index('ix_verification_tasks_plant_state', 'plant_id', 'state'),
     )
@@ -276,9 +320,158 @@ class HmiBuildArtifact(Base):
     )
 
 
+class User(Base):
+    """
+    Application user with role assignment and bcrypt-hashed password.
+
+    Roles: Operator, Maintenance, Engineer, Manager, Auditor.
+    Passwords are bcrypt-hashed; never stored in plaintext.
+    """
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    username = Column(String(64), unique=True, nullable=False, index=True)
+    hashed_password = Column(String(128), nullable=False)
+    role = Column(String(32), nullable=False)
+    full_name = Column(String(128), nullable=True)
+    is_active = Column(Integer, nullable=False, default=1)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    last_login = Column(DateTime, nullable=True)
+
+
 def init_db():
-    """Create all tables. Safe to call multiple times."""
+    """Create all tables and apply incremental column migrations. Safe to call multiple times."""
     Base.metadata.create_all(bind=engine)
+    _migrate_add_columns()
+
+
+# ── Alarm state helpers (ISA-18.2) ───────────────────────────────────────────
+
+def get_or_create_alarm(db, plant_id: str, sensor_id: str) -> "AlarmState":
+    """Return the current alarm state row, creating NORM if not present."""
+    row = db.query(AlarmState).filter(
+        AlarmState.plant_id == plant_id,
+        AlarmState.sensor_id == sensor_id,
+    ).one_or_none()
+    if row is None:
+        row = AlarmState(plant_id=plant_id, sensor_id=sensor_id, alarm_state="NORM")
+        db.add(row)
+        db.flush()
+    return row
+
+
+def raise_alarm(db, plant_id: str, sensor_id: str, description: str,
+                alarm_class: str = "instrument", priority: int = 3,
+                commit: bool = True) -> "AlarmState":
+    """Transition sensor alarm to UNACK_ALARM (or update if already raised)."""
+    now = datetime.utcnow()
+    row = get_or_create_alarm(db, plant_id, sensor_id)
+    if row.alarm_state == "NORM":
+        row.first_raised_at = now
+    row.alarm_state = "UNACK_ALARM"
+    row.alarm_class = alarm_class
+    row.alarm_priority = priority
+    row.trigger_description = description
+    row.last_raised_at = now
+    row.returned_at = None
+    row.updated_at = now
+    if commit:
+        db.commit()
+    return row
+
+
+def acknowledge_alarm(db, plant_id: str, sensor_id: str,
+                      actor: str, commit: bool = True) -> "AlarmState":
+    """
+    ISA-18.2 acknowledge transitions:
+      UNACK_ALARM → ACK_ALARM
+      UNACK_NORM  → NORM
+    """
+    now = datetime.utcnow()
+    row = get_or_create_alarm(db, plant_id, sensor_id)
+    if row.alarm_state == "UNACK_ALARM":
+        row.alarm_state = "ACK_ALARM"
+    elif row.alarm_state == "UNACK_NORM":
+        row.alarm_state = "NORM"
+    row.acknowledged_by = actor
+    row.acknowledged_at = now
+    row.updated_at = now
+    if commit:
+        db.commit()
+    return row
+
+
+def return_alarm_to_normal(db, plant_id: str, sensor_id: str,
+                           commit: bool = True) -> "AlarmState":
+    """
+    ISA-18.2 return-to-normal transitions:
+      UNACK_ALARM → UNACK_NORM
+      ACK_ALARM   → NORM
+    """
+    now = datetime.utcnow()
+    row = get_or_create_alarm(db, plant_id, sensor_id)
+    if row.alarm_state == "UNACK_ALARM":
+        row.alarm_state = "UNACK_NORM"
+    elif row.alarm_state == "ACK_ALARM":
+        row.alarm_state = "NORM"
+    row.returned_at = now
+    row.updated_at = now
+    if commit:
+        db.commit()
+    return row
+
+
+def shelve_alarm(db, plant_id: str, sensor_id: str, actor: str,
+                 shelve_hours: float = 8.0, commit: bool = True) -> "AlarmState":
+    """Shelve (suppress) an alarm for up to shelve_hours. ISA-18.2 §6.5."""
+    now = datetime.utcnow()
+    row = get_or_create_alarm(db, plant_id, sensor_id)
+    row.alarm_state = "SHELVED"
+    row.shelved_by = actor
+    row.shelved_until = now + timedelta(hours=shelve_hours)
+    row.updated_at = now
+    if commit:
+        db.commit()
+    return row
+
+
+def get_active_alarms(db, plant_id: str) -> list:
+    """Return all non-NORM alarm rows for a plant, excluding expired shelves."""
+    now = datetime.utcnow()
+    rows = db.query(AlarmState).filter(
+        AlarmState.plant_id == plant_id,
+        AlarmState.alarm_state != "NORM",
+    ).all()
+    result = []
+    for row in rows:
+        if row.alarm_state == "SHELVED" and row.shelved_until and row.shelved_until <= now:
+            row.alarm_state = "UNACK_ALARM"  # shelve expired — re-raise
+            row.updated_at = now
+        result.append(row)
+    if any(r.alarm_state == "UNACK_ALARM" for r in result):
+        db.commit()
+    return result
+
+
+def _migrate_add_columns():
+    """Add new columns to existing tables using safe ALTER TABLE IF NOT EXISTS pattern."""
+    migrations = [
+        # CMMS / permit-to-work fields added to verification_tasks
+        ("verification_tasks", "cmms_work_order",   "TEXT"),
+        ("verification_tasks", "permit_to_work_ref", "TEXT"),
+        ("verification_tasks", "asset_tag_number",   "TEXT"),
+        ("verification_tasks", "loop_number",        "TEXT"),
+        ("verification_tasks", "field_location",     "TEXT"),
+        # User table fields (added with User model introduction)
+    ]
+    with engine.connect() as conn:
+        for table, column, col_type in migrations:
+            try:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}"))
+                conn.commit()
+            except Exception:
+                # Column already exists — expected on subsequent startups
+                conn.rollback()
 
 
 def get_db():
