@@ -31,7 +31,14 @@ import os
 import secrets
 import logging
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Optional
+
+from dotenv import load_dotenv
+
+# Load .env from the backend directory (or project root) before reading any env vars.
+load_dotenv(Path(__file__).parent / ".env")
+load_dotenv(Path(__file__).parent.parent / ".env")
 
 from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm

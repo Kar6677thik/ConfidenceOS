@@ -34,6 +34,11 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Optional
 
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).parent / ".env")
+load_dotenv(Path(__file__).parent.parent / ".env")
+
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, Depends, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
