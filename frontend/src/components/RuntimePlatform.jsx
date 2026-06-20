@@ -74,7 +74,7 @@ function signalSourceNote(signal) {
   const trust = signalTrustState(signal);
   if (trust.tier === 'UNAVAILABLE') return 'Live provider reported unavailable.';
   if (trust.tier === 'NO_LIVE_SAMPLE') return 'Awaiting the next live provider sample.';
-  if (trust.tier === 'METADATA_ONLY') return 'Generated from asset model; no live provider sample is bound yet.';
+  if (trust.tier === 'METADATA_ONLY') return 'Configured from asset model; no live provider sample is bound yet.';
   if (trust.tier === 'NO_CONFIDENCE_RESULT') return 'Live value present; confidence calculation is pending.';
   return trust.pct != null ? `${formatText(trust.tier)} trust / ${trust.pct}%` : `${formatText(trust.tier)} trust`;
 }
@@ -103,6 +103,31 @@ function runtimeStatusLabel(value) {
   if (status === 'PASS') return 'Build passed';
   if (status === 'FAILED') return 'Build blocked';
   return formatText(value || 'Runtime live');
+}
+
+function normalizeRole(role) {
+  return String(role || 'Operator').trim().toLowerCase();
+}
+
+function isOperatorRole(role) {
+  return normalizeRole(role) === 'operator';
+}
+
+function showEngineeringInternals(role) {
+  return !isOperatorRole(role);
+}
+
+function operatorRuntimeLabel(manifest, connected) {
+  if (!connected) return 'Offline';
+  const publishState = String(manifest?.runtime_publish_state || manifest?.validation_status || '').toUpperCase();
+  const bindingState = String(manifest?.live_binding_status || '').toUpperCase();
+  if (manifest?.runtime_preview || ['METADATA_ONLY', 'NO_LIVE_SAMPLE', 'NOT_BOUND', 'RUNTIME_FALLBACK'].includes(bindingState)) {
+    return 'Live sample unavailable';
+  }
+  if (['FAILED', 'BLOCKING', 'NOT_PUBLISHED'].includes(publishState)) {
+    return 'Configuration review required';
+  }
+  return 'Live read-only';
 }
 
 function priorityTier(value) {
@@ -290,9 +315,8 @@ function HmiAlarmBand({ manifest, role, connected, plantId, plantContext, situat
   const isCritical = ['CRITICAL', 'QUARANTINED', 'LOW', 'FAILED'].includes(String(trust.trust_state || lead.severity || '').toUpperCase());
   const runtimeStatus = manifest?.runtime_publish_state || manifest?.validation_status || 'LIVE';
   const buildLabel = manifest?.published_build_id || manifest?.build_id || 'unpublished';
-  // Operators run the plant, not the compiler: publish state and build ids are
-  // engineering internals and must never leak into the operator screen.
-  const showBuildInternals = role !== 'Operator';
+  const operatorView = isOperatorRole(role);
+  const showBuildInternals = showEngineeringInternals(role);
 
   return (
     <div className="hmi-alarm-band">
@@ -306,10 +330,15 @@ function HmiAlarmBand({ manifest, role, connected, plantId, plantContext, situat
         </div>
       </div>
       <div className="hmi-band-cell">
-        <span className="label-caps">Runtime</span>
+        <span className="label-caps">{operatorView ? 'Operating Context' : 'Runtime'}</span>
         <span className="caption-mono text-[var(--text-muted)] truncate">
           {manifest?.navigation?.name || plantId} / {formatText(manifest?.context || plantContext?.status || 'live')}
         </span>
+        {operatorView && (
+          <span className={`caption-mono ${connected ? 'status-safe' : 'status-critical'}`}>
+            {operatorRuntimeLabel(manifest, connected)}
+          </span>
+        )}
         {showBuildInternals && (
           <>
             <span className={`caption-mono ${statusClass(runtimeStatus)}`}>{runtimeStatusLabel(runtimeStatus)}</span>
@@ -351,7 +380,7 @@ function TrustMapEdgeNav({ navigation, faceplates, selectedId, onSelect, situati
   );
 }
 
-function ProcessCanvas({ manifest, faceplates, readings, confidence, situations, onSelect }) {
+function ProcessCanvas({ manifest, faceplates, readings, confidence, situations, onSelect, role, connected }) {
   const vessel = faceplates.find((item) => /vessel|tank/i.test(`${item.template_id} ${item.template_label} ${item.title}`)) || faceplates[0];
   const pump = faceplates.find((item) => /pump/i.test(`${item.template_id} ${item.template_label} ${item.title}`));
   const valve = faceplates.find((item) => /valve/i.test(`${item.template_id} ${item.template_label} ${item.title}`));
@@ -362,32 +391,38 @@ function ProcessCanvas({ manifest, faceplates, readings, confidence, situations,
   const basis = manifest?.operating_basis || {};
   const levelTrust = signalTrustState(level);
   const levelHeight = Number.isFinite(Number(level.value)) ? Math.max(8, Math.min(86, Number(level.value))) : 42;
-  const title = manifest?.process_mimic?.relationship_label || manifest?.navigation?.name || 'Generated process mimic';
   const basisStatement = primaryBasisStatement(manifest, situations);
   const publishState = manifest?.runtime_publish_state || manifest?.validation_status || 'LIVE';
   const previewLike = manifest?.runtime_preview || String(publishState).toUpperCase() === 'NOT_PUBLISHED';
+  const operatorView = isOperatorRole(role);
+  const title = manifest?.process_mimic?.relationship_label || manifest?.navigation?.name || (operatorView ? 'Process mimic' : 'Generated process mimic');
+  const runtimeBadge = operatorView ? operatorRuntimeLabel(manifest, connected) : runtimeModeLabel(manifest);
+  const runtimeBadgeTitle = operatorView ? 'Read-only operating display state.' : (manifest?.runtime_notice || runtimeModeLabel(manifest));
+  const runtimeNeedsAttention = previewLike || !connected || ['FAILED', 'BLOCKING', 'NOT_PUBLISHED'].includes(String(publishState).toUpperCase());
+  const processEyebrow = operatorView ? 'Level 2 Unit Overview / Process Graphic' : 'Level 2 Unit Overview / Generated Process Graphic';
+  const assetFooter = operatorView ? formatText(vessel?.template_label || vessel?.template_id || 'equipment') : `${vessel?.template_id || 'template'} / generated from asset model`;
 
   return (
     <section className="hmi-process-area">
       <div className="hmi-process-header">
         <div className="min-w-0">
-          <p className="label-caps text-[var(--text-muted)]">Level 2 Unit Overview / Generated Process Graphic</p>
+          <p className="label-caps text-[var(--text-muted)]">{processEyebrow}</p>
           <h1 className="m-0 text-[16px] leading-[18px] font-bold truncate">{title}</h1>
         </div>
         <div className="hmi-runtime-basis">
           <div className="min-w-0">
             <p className="label-caps text-[var(--text-muted)]">Operating Basis</p>
-            <p className={`caption-mono font-semibold truncate ${previewLike ? 'status-warning' : 'text-[var(--text)]'}`} title={basisStatement}>
+            <p className={`caption-mono font-semibold truncate ${runtimeNeedsAttention ? 'status-warning' : 'text-[var(--text)]'}`} title={basisStatement}>
               {basisStatement}
             </p>
           </div>
-          <span className={`industrial-badge ${previewLike ? 'status-warning' : 'status-safe'}`} title={manifest?.runtime_notice || runtimeModeLabel(manifest)}>
-            {runtimeModeLabel(manifest)}
+          <span className={`industrial-badge ${runtimeNeedsAttention ? 'status-warning' : 'status-safe'}`} title={runtimeBadgeTitle}>
+            {runtimeBadge}
           </span>
         </div>
       </div>
       <div className="hmi-process-canvas">
-        <svg viewBox="0 0 1000 520" role="img" aria-label="Generated process mimic" className="w-full h-full">
+        <svg viewBox="0 0 1000 520" role="img" aria-label={operatorView ? 'Process mimic' : 'Generated process mimic'} className="w-full h-full">
           <defs>
             <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto" markerUnits="strokeWidth">
               <path d="M0,0 L0,6 L9,3 z" fill="#4d4d4d" />
@@ -429,8 +464,8 @@ function ProcessCanvas({ manifest, faceplates, readings, confidence, situations,
             <rect x="350" y="110" width="300" height="300" rx="14" fill="#d7d7d7" stroke="#6f6f6f" strokeWidth="4" />
             <rect x="370" y={390 - levelHeight * 2.7} width="260" height={levelHeight * 2.7} fill={levelTrust.tier === 'QUARANTINED' ? 'url(#quarantineHatch)' : '#9fb7c8'} opacity="0.72" />
             <line x1="370" y1="260" x2="630" y2="260" stroke="#777" strokeWidth="2" strokeDasharray="5 5" />
-            <text x="374" y="92" fill="#3a3a3a" fontSize="17" fontWeight="700">{vessel?.equipment_id || 'Generated Asset'}</text>
-            <text x="374" y="430" fill="#4d4d4d" fontSize="13">{vessel?.template_id || 'template'} / generated from asset model</text>
+            <text x="374" y="92" fill="#3a3a3a" fontSize="17" fontWeight="700">{vessel?.equipment_id || (operatorView ? 'Equipment' : 'Generated Asset')}</text>
+            <text x="374" y="430" fill="#4d4d4d" fontSize="13">{assetFooter}</text>
           </g>
 
           <foreignObject x="455" y="172" width="260" height="90">
@@ -525,7 +560,8 @@ function SimulationControlStrip({ demoState, busy, onReset, onStart, role }) {
   const activeIndex = Math.max(0, Number(demoState?.phase_index ?? 0));
   // Simulation control buttons (reset/inject) are restricted to Engineer and Manager roles.
   // Operators see the scenario status (so they know data is simulated) but cannot trigger scenario transitions.
-  const canControl = role === 'Engineer' || role === 'Manager';
+  const roleKey = normalizeRole(role);
+  const canControl = roleKey === 'engineer' || roleKey === 'manager';
   return (
     <section className="hmi-demo-strip">
       <div className="min-w-0">
@@ -648,7 +684,7 @@ function GeneratedFaceplate({ faceplate, readings, confidence, compact = false, 
   const signals = (faceplate?.signals || []).map((signal) => liveSignal(signal, readings, confidence));
   // Template provenance and generation receipts are engineering detail — the
   // operator faceplate shows only the equipment and its live trusted signals.
-  const showTemplateInternals = role !== 'Operator';
+  const showTemplateInternals = showEngineeringInternals(role);
   return (
     <div className="bg-[var(--surface-highest)] border border-[var(--border-strong)] p-3">
       <div className="flex items-start justify-between gap-3">
@@ -785,11 +821,12 @@ function VerificationTaskControls({ tasks, role, plantId }) {
 
 function RoleDock({ manifest, selectedFaceplate, confidenceDebt, handoverDebt, verificationTasks, plantId }) {
   const role = manifest?.role || 'Operator';
+  const roleKey = normalizeRole(role);
   const basis = manifest?.operating_basis || {};
   const sections = manifest?.role_sections || [];
   const sectionItems = (name) => sections.filter((item) => item.section === name).flatMap((item) => item.items || []);
 
-  if (role === 'Maintenance') {
+  if (roleKey === 'maintenance') {
     return (
       <>
         <DockSection title="Verification Task" eyebrow="Maintenance Workspace">
@@ -805,7 +842,7 @@ function RoleDock({ manifest, selectedFaceplate, confidenceDebt, handoverDebt, v
     );
   }
 
-  if (role === 'Engineer') {
+  if (roleKey === 'engineer') {
     const receipt = selectedFaceplate?.receipt || {};
     return (
       <>
@@ -827,7 +864,7 @@ function RoleDock({ manifest, selectedFaceplate, confidenceDebt, handoverDebt, v
     );
   }
 
-  if (role === 'Manager' || role === 'Auditor') {
+  if (roleKey === 'manager' || roleKey === 'auditor') {
     return (
       <>
         <DockSection title="Unresolved Handover Debt" eyebrow={`${role} Workspace`}>
@@ -1056,12 +1093,18 @@ function PressureModeRuntime({
 }
 
 function RuntimeUnavailable({ error, plantId, role, connected, onRetry }) {
+  const operatorView = isOperatorRole(role);
   const manifest = {
-    navigation: { name: 'Runtime manifest unavailable' },
+    navigation: { name: operatorView ? 'Runtime operating view unavailable' : 'Runtime manifest unavailable' },
     context: 'runtime_unavailable',
     validation_status: 'FAILED',
-    worst_trust_exception: { label: 'Runtime manifest unavailable', trust_state: 'CRITICAL' },
+    worst_trust_exception: { label: operatorView ? 'Runtime operating view unavailable' : 'Runtime manifest unavailable', trust_state: 'CRITICAL' },
   };
+  const title = operatorView ? 'Runtime operating view unavailable' : 'Generated Runtime manifest did not load';
+  const recovery = operatorView
+    ? 'Retry Runtime data. If this remains active, continue from the existing HMI/DCS and notify Engineering.'
+    : 'Retry Runtime manifest, then verify backend health if this remains active.';
+  const detail = operatorView ? 'The read-only operating display cannot load current Runtime data.' : (error || 'No response from /api/screens/generated.');
   return (
     <div className="industrial-page hmi-workplace hmi-pressure">
       <HmiAlarmBand manifest={manifest} role={role} connected={connected} plantId={plantId} plantContext={{ status: 'runtime_unavailable' }} />
@@ -1069,33 +1112,47 @@ function RuntimeUnavailable({ error, plantId, role, connected, onRetry }) {
         <section className="hmi-process-area">
           <div className="hmi-process-header">
             <div>
-              <p className="label-caps text-[var(--text-muted)]">Runtime Fault State</p>
-              <h1 className="m-0 text-[17px] leading-[20px] font-bold">Generated Runtime manifest did not load</h1>
+              <p className="label-caps text-[var(--text-muted)]">{operatorView ? 'Runtime Data State' : 'Runtime Fault State'}</p>
+              <h1 className="m-0 text-[17px] leading-[20px] font-bold">{title}</h1>
             </div>
             <span className="caption-mono status-critical">operator display degraded</span>
           </div>
           <div className="hmi-process-canvas p-6">
             <div className="hmi-operation-note max-w-[760px]">
               <p className="label-caps status-critical">Required Recovery</p>
-              <p className="text-[22px] leading-[28px] font-bold mt-2">Retry Runtime manifest, then verify backend health if this remains active.</p>
-              <p className="caption-mono text-[var(--text-muted)] mt-3">{error || 'No response from /api/screens/generated.'}</p>
+              <p className="text-[22px] leading-[28px] font-bold mt-2">{recovery}</p>
+              <p className="caption-mono text-[var(--text-muted)] mt-3">{detail}</p>
               <div className="flex flex-wrap gap-2 mt-4">
                 <button type="button" onClick={onRetry} className="industrial-control status-warning">Retry Runtime</button>
-                <Link to="/studio" className="industrial-control inline-flex">Open Studio</Link>
+                {!operatorView && <Link to="/studio" className="industrial-control inline-flex">Open Studio</Link>}
               </div>
             </div>
           </div>
         </section>
         <aside className="hmi-dock">
-          <DockSection title="Likely Causes" eyebrow="Runtime Support">
-            <ValueList values={[
-              'Backend API unavailable or restarting.',
-              'SQLite persistence lock is delaying API response.',
-              'Generated manifest hydration raised an exception.',
-            ]} />
-          </DockSection>
+          {operatorView ? (
+            <DockSection title="Operator Continuity" eyebrow="Runtime Support">
+              <ValueList values={[
+                'Use existing HMI/DCS indications until this display recovers.',
+                'Do not change blocked decisions from ConfidenceOS during this state.',
+                'Notify Engineering if retry does not restore the operating view.',
+              ]} />
+            </DockSection>
+          ) : (
+            <DockSection title="Likely Causes" eyebrow="Runtime Support">
+              <ValueList values={[
+                'Backend API unavailable or restarting.',
+                'SQLite persistence lock is delaying API response.',
+                'Generated manifest hydration raised an exception.',
+              ]} />
+            </DockSection>
+          )}
           <DockSection title="Read-Only Boundary">
-            <p className="caption-mono text-[var(--text-muted)]">ConfidenceOS has not written any control command. This state only means the generated display cannot be loaded.</p>
+            <p className="caption-mono text-[var(--text-muted)]">
+              {operatorView
+                ? 'ConfidenceOS has not written any control command. This state only means the operating view cannot be loaded.'
+                : 'ConfidenceOS has not written any control command. This state only means the generated display cannot be loaded.'}
+            </p>
           </DockSection>
         </aside>
       </div>
@@ -1204,7 +1261,8 @@ export default function RuntimePlatform() {
   const pressureContext = manifest?.stress_mode
     || ['WARNING', 'CRITICAL'].includes(String(plantContext?.severity || '').toUpperCase())
     || ['WARNING', 'CRITICAL', 'MASS_BALANCE_DIVERGENCE', 'MANUAL_VERIFICATION_REQUIRED'].includes(String(manifest?.context || '').toUpperCase());
-  const stressMode = role === 'Operator' && pressureContext;
+  const operatorView = isOperatorRole(role);
+  const stressMode = operatorView && pressureContext;
   const activeDemoState = localDemoState || demoState || manifest?.demo_state;
 
   const runDemoAction = async (path) => {
@@ -1288,6 +1346,8 @@ export default function RuntimePlatform() {
             confidence={confidence}
             situations={situations}
             onSelect={setSelected}
+            role={role}
+            connected={connected}
           />
           <aside className="hmi-dock">
             {isSimulation && (
@@ -1301,13 +1361,13 @@ export default function RuntimePlatform() {
                 />
               </DockSection>
             )}
-            {manifest.runtime_notice && (
+            {manifest.runtime_notice && showEngineeringInternals(role) && (
               <DockSection
                 title={manifest.runtime_preview ? 'Generated Preview' : 'Runtime Live Binding'}
                 eyebrow={manifest.runtime_preview ? 'Metadata Only - No Live Tags' : 'Compiler Boundary'}
               >
                 <p className="caption-mono status-warning">{manifest.runtime_notice}</p>
-                {manifest.demo_alias_bindings?.length > 0 && role !== 'Operator' && (
+                {manifest.demo_alias_bindings?.length > 0 && showEngineeringInternals(role) && (
                   <ValueList
                     values={manifest.demo_alias_bindings.map((item) => `${item.target_tag} bound from ${item.source_tag}`)}
                     status="text-[var(--data-mono)]"
@@ -1331,7 +1391,7 @@ export default function RuntimePlatform() {
               verificationTasks={verificationTasks}
               plantId={plantId}
             />
-            {role !== 'Operator' && (
+            {showEngineeringInternals(role) && (
               <DockSection title="Support Level" eyebrow="Level 4 Details">
                 <p className="caption-mono text-[var(--text-muted)]">Screen receipts, assumptions, sensitivity, and audit views are support-level information.</p>
                 <Link to="/studio" className="industrial-control inline-flex mt-2">Open Studio</Link>
