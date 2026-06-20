@@ -19,8 +19,12 @@ export function asList(value) {
   return [value];
 }
 
+import apiFetch from '../../lib/apiFetch';
+
 export async function fetchJson(url, options) {
-  const res = await fetch(url, options);
+  // Route through apiFetch so role-gated studio writes (publish/asset-model/
+  // reset) carry the X-Role header (and X-API-Key when configured).
+  const res = await apiFetch(url, options);
   const payload = await res.json().catch(() => null);
   if (!res.ok) {
     const err = new Error(`Request failed: ${res.status}`);

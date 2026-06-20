@@ -30,10 +30,9 @@ import SandboxSimulator   from './views/SandboxSimulator';
 import EngineerDeepDive   from './views/EngineerDeepDive';
 
 // Bottom status bar
-function BottomStatus() {
+function BottomStatus({ labOpen, setLabOpen }) {
   const { connected, timestamp, systemHealth, healthError, lastHealthAt } = useStore();
   const [clock, setClock] = useState(() => new Date());
-  const [labOpen, setLabOpen] = useState(false);
   const readiness = systemHealth?.readiness_summary || (healthError ? 'api_unreachable' : 'unknown');
   const readinessLabel = readiness === 'ready'
     ? 'Runtime ready'
@@ -100,12 +99,14 @@ const SHORTCUTS = [
   ['3', 'Navigate to Studio (Engineer / Manager only)'],
   ['4', 'Open Verification Work Queue support view'],
   ['M', 'Toggle alarm mute'],
+  ['L', 'Toggle Simulation Lab'],
   ['?', 'Toggle this help overlay'],
 ];
 
 // App root
 export default function App() {
   const [showHelp, setShowHelp] = useState(false);
+  const [labOpen, setLabOpen] = useState(false);
   const connect = useStore((s) => s.connect);
   const fetchSystemHealth = useStore((s) => s.fetchSystemHealth);
 
@@ -122,7 +123,10 @@ export default function App() {
     return () => clearInterval(timer);
   }, [fetchSystemHealth]);
 
-  useKeyboardShortcuts({ onHelpToggle: () => setShowHelp((v) => !v) });
+  useKeyboardShortcuts({
+    onHelpToggle: () => setShowHelp((v) => !v),
+    onLabToggle: () => setLabOpen((v) => !v),
+  });
 
   // Close help overlay on Escape
   useEffect(() => {
@@ -157,7 +161,7 @@ export default function App() {
         </Routes>
         </ErrorBoundary>
       </main>
-      <BottomStatus />
+      <BottomStatus labOpen={labOpen} setLabOpen={setLabOpen} />
 
       {/* Keyboard shortcuts help overlay */}
       {showHelp && (

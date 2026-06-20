@@ -5,14 +5,15 @@ import { setMuted, isMuted } from './alarmSound';
 
 const STUDIO_ROLES = new Set(['Engineer', 'Manager']);
 
-export default function useKeyboardShortcuts({ onHelpToggle } = {}) {
+export default function useKeyboardShortcuts({ onHelpToggle, onLabToggle } = {}) {
   const navigate = useNavigate();
   const role = useStore((s) => s.role);
 
-  // Keep a stable ref so the keydown closure always sees the latest callback
+  // Keep stable refs so the keydown closure always sees the latest callbacks
   // without requiring the effect to re-run on every parent render.
   const helpRef = useRef(onHelpToggle);
-  useEffect(() => { helpRef.current = onHelpToggle; });
+  const labRef = useRef(onLabToggle);
+  useEffect(() => { helpRef.current = onHelpToggle; labRef.current = onLabToggle; });
 
   useEffect(() => {
     function handler(e) {
@@ -46,6 +47,11 @@ export default function useKeyboardShortcuts({ onHelpToggle } = {}) {
         case 'M':
           e.preventDefault();
           setMuted(!isMuted());
+          break;
+        case 'l':
+        case 'L':
+          e.preventDefault();
+          labRef.current?.();
           break;
         case '?':
           e.preventDefault();

@@ -37,7 +37,7 @@ from typing import Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import OperationalError
 
@@ -108,6 +108,7 @@ from studio_service import (
 from template_library import get_template_catalog
 from shift_channel import add_note as add_shift_note, build_shift_channel, reset_notes as reset_shift_notes
 from tag_provider import provider_catalog
+from auth import api_key_guard, require_role
 from demo_service import (
     advance_demo,
     get_demo_state,
@@ -149,7 +150,7 @@ class StartupModeRequest(BaseModel):
     active: bool
 
 class QueryRequest(BaseModel):
-    question: str
+    question: str = Field(..., max_length=2000)  # hard payload cap; nlquery trims to 600
     plant_id: str = "plant-a"
 
 class ComplianceRequest(BaseModel):
@@ -304,8 +305,21 @@ app.add_middleware(
     allow_origins=_configured_cors_origins(),
     allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type", "Accept", "Authorization"],
+    allow_headers=["Content-Type", "Accept", "Authorization", "X-API-Key", "X-Role"],
 )
+
+
+# Lightweight API-key gate on mutating requests. No-op unless CONFIDENCEOS_API_KEY
+# is set (so the demo runs open by default); when set, every POST/PUT/PATCH/DELETE
+# must carry a matching X-API-Key header. This gates *who may mutate*; it does not
+# enable any plant-control write (the read-only-to-plant contract is unchanged).
+@app.middleware("http")
+async def _api_key_middleware(request: Request, call_next):
+    configured = os.getenv("CONFIDENCEOS_API_KEY")
+    if configured and request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        if request.headers.get("x-api-key") != configured:
+            return JSONResponse(status_code=401, content={"detail": "Missing or invalid X-API-Key."})
+    return await call_next(request)
 
 
 # ─── Background plant tick loop ─────────────────────────────────────────────
@@ -1037,9 +1051,15 @@ def get_score_sensitivity(
     sensor_id: str,
     plant_id: str = Query(default="plant-a"),
     role: str = Query(default="Engineer"),
+    header_role: str | None = Depends(require_role("Engineer")),
 ):
-    """Engineer-only deterministic score sensitivity view data."""
-    if role != "Engineer":
+    """Engineer-only deterministic score sensitivity view data.
+
+    Role is enforced server-side: via the X-Role header when present (require_role),
+    falling back to the legacy `role` query param for older clients.
+    """
+    effective_role = header_role or role
+    if effective_role != "Engineer":
         raise HTTPException(status_code=403, detail="Score sensitivity requires Engineer role.")
     plant = plant_manager.get(plant_id)
     result = plant.latest_confidence.get(sensor_id)
@@ -1259,7 +1279,7 @@ def get_studio_imported_signals():
     return studio_imported_signals()
 
 
-@app.post("/api/studio/asset-model")
+@app.post("/api/studio/asset-model", dependencies=[Depends(require_role("Engineer", "Manager"))])
 def post_studio_asset_model(request: StudioAssetModelRequest):
     """Switch the active metadata model used by the read-only HMI Compiler."""
     return studio_select_asset_model(request.model_key)
@@ -1411,7 +1431,7 @@ def post_studio_generate(request: StudioGenerateRequest | None = None):
     return studio_generate_preview(role=payload.role, context=payload.context)
 
 
-@app.post("/api/studio/publish")
+@app.post("/api/studio/publish", dependencies=[Depends(require_role("Engineer", "Manager"))])
 def post_studio_publish():
     """Publish generated metadata to Runtime manifest state. This remains read-only to controls."""
     result = studio_publish()
@@ -1420,7 +1440,7 @@ def post_studio_publish():
     return result
 
 
-@app.post("/api/studio/reset")
+@app.post("/api/studio/reset", dependencies=[Depends(require_role("Engineer", "Manager"))])
 def post_studio_reset():
     """Reset Studio state to demo defaults."""
     return studio_reset()

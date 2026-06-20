@@ -8,8 +8,9 @@
  * highlight its propagation chain (click again or "Reset view" to clear).
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { forceSimulation, forceLink, forceManyBody, forceCenter, forceCollide } from 'd3-force';
 import useStore from '../store';
 import TrustDependencyGraph from '../components/TrustDependencyGraph';
 import { trustColor, chartColors } from '../lib/chartTheme';
@@ -22,47 +23,33 @@ const NODE_HH = 38;
 const SVG_W = 760;
 const SVG_H = 460;
 
-function computeHierarchicalLayout(nodes, edges, svgW, svgH) {
+// Force-directed layout (d3-force), settled synchronously so the result is
+// deterministic (d3's default seeding is reproducible) and we render a static,
+// settled graph rather than animating. The existing pan/zoom/focus layer renders
+// on top of the positions this returns, unchanged.
+function computeForceLayout(nodes, edges, svgW, svgH) {
   if (!nodes.length) return {};
-  const nodeSet = new Set(nodes.map((n) => n.id));
-  const inDeg = Object.fromEntries(nodes.map((n) => [n.id, 0]));
-  const adj   = Object.fromEntries(nodes.map((n) => [n.id, []]));
-  (edges || []).forEach(({ source, target }) => {
-    if (nodeSet.has(source) && nodeSet.has(target)) {
-      adj[source].push(target);
-      inDeg[target] = (inDeg[target] || 0) + 1;
-    }
-  });
-  const level = {};
-  const queue = nodes.filter((n) => !inDeg[n.id]).map((n) => n.id);
-  queue.forEach((id) => { level[id] = 0; });
-  let head = 0;
-  while (head < queue.length) {
-    const cur = queue[head++];
-    (adj[cur] || []).forEach((tgt) => {
-      const next = (level[cur] ?? 0) + 1;
-      if (level[tgt] == null || level[tgt] < next) { level[tgt] = next; queue.push(tgt); }
-    });
-  }
-  nodes.forEach((n) => { if (level[n.id] == null) level[n.id] = 0; });
-  const byLevel = {};
-  nodes.forEach((n) => { (byLevel[level[n.id]] ??= []).push(n.id); });
-  Object.values(byLevel).forEach((ids) => ids.sort());
-  const levels = Object.keys(byLevel).map(Number).sort((a, b) => a - b);
-  const maxL = levels[levels.length - 1] ?? 0;
-  const PAD_X = 80, PAD_Y = 56;
-  const usableW = svgW - PAD_X * 2;
-  const usableH = svgH - PAD_Y * 2;
+  const ids = new Set(nodes.map((n) => n.id));
+  const simNodes = nodes.map((n) => ({ id: n.id }));
+  const simLinks = (edges || [])
+    .filter((e) => ids.has(e.source) && ids.has(e.target))
+    .map((e) => ({ source: e.source, target: e.target }));
+
+  const sim = forceSimulation(simNodes)
+    .force('link', forceLink(simLinks).id((d) => d.id).distance(130).strength(0.6))
+    .force('charge', forceManyBody().strength(-360))
+    .force('center', forceCenter(svgW / 2, svgH / 2))
+    .force('collide', forceCollide(NODE_HW + 14))
+    .stop();
+  for (let i = 0; i < 320; i++) sim.tick();
+
+  const PAD = 70;
   const positions = {};
-  levels.forEach((l) => {
-    const cx = maxL === 0 ? PAD_X + usableW / 2 : PAD_X + (l / maxL) * usableW;
-    const rows = byLevel[l];
-    rows.forEach((id, i) => {
-      const cy = rows.length === 1
-        ? PAD_Y + usableH / 2
-        : PAD_Y + (i / (rows.length - 1)) * usableH;
-      positions[id] = { x: Math.round(cx), y: Math.round(cy) };
-    });
+  simNodes.forEach((n) => {
+    positions[n.id] = {
+      x: Math.round(Math.max(PAD, Math.min(svgW - PAD, n.x))),
+      y: Math.round(Math.max(PAD, Math.min(svgH - PAD, n.y))),
+    };
   });
   return positions;
 }
@@ -170,7 +157,13 @@ export default function CausalGraph() {
   }
 
   const nodes = graph?.nodes || [];
-  const positions = computeHierarchicalLayout(nodes, graph?.edges || [], SVG_W, SVG_H);
+  // Settle the force layout only when the topology actually changes (the sim
+  // runs 320 ticks), not on every pan/zoom/focus re-render.
+  const graphSig = `${nodes.map((n) => n.id).join(',')}|${(graph?.edges || []).map((e) => `${e.source}>${e.target}`).join(',')}`;
+  const positions = useMemo(
+    () => computeForceLayout(nodes, graph?.edges || [], SVG_W, SVG_H),
+    [graphSig], // eslint-disable-line react-hooks/exhaustive-deps
+  );
 
   // Pre-compute neighbors of the focused node for opacity rules.
   const neighborIds = focusedNodeId ? new Set() : null;

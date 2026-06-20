@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import useStore from '../store';
 import PriorityBand from './hmi/PriorityBand';
 import MassBalanceChart from './MassBalanceChart';
+import ComparisonPanel from './ComparisonPanel';
 
 function formatText(value) {
   if (value == null || value === '') return '';
@@ -1013,7 +1014,7 @@ function PressureModeRuntime({
                 {formatText(basis.operator_single_safe_move || contract.first_safe_action || 'Verify locally before changing operation.')}
               </p>
             </div>
-            <WhatChangedPanel demoState={demoState || manifest?.demo_state} basis={basis} situation={lead} />
+            <ComparisonPanel confidence={confidence} massBalance={massBalance} basis={basis} situation={lead} />
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
               <div className="bg-[var(--surface-highest)] border border-[var(--border-strong)] p-4">
                 <p className="label-caps status-critical">Do Not Trust</p>

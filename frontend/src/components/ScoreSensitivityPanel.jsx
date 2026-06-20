@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import useStore from '../store';
+import apiFetch from '../lib/apiFetch';
 
 function tierClass(tier) {
   if (tier === 'CRITICAL') return 'status-critical';
@@ -28,7 +29,7 @@ export default function ScoreSensitivityPanel({ selectedSensorId }) {
     }
 
     let active = true;
-    fetch(`/api/confidence/sensitivity/${selectedSensorId}?plant_id=${plantId}&role=${role}`)
+    apiFetch(`/api/confidence/sensitivity/${selectedSensorId}?plant_id=${plantId}&role=${role}`)
       .then((res) => {
         if (!res.ok) throw new Error(`Server responded ${res.status}`);
         return res.json();
