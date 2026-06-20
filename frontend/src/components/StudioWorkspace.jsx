@@ -172,7 +172,7 @@ export default function StudioWorkspace() {
     setActionMessage(
       payload.ai_assisted
         ? 'Optional AI explanations attached. Deterministic mapping remains authoritative; review and approve each tag.'
-        : 'Deterministic mapping complete. AI explanation unavailable; review and approve each tag.',
+        : 'Deterministic mapping derived from raw tags and active asset model. Review and approve each tag.',
     );
   });
 
@@ -222,7 +222,7 @@ export default function StudioWorkspace() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ raw_tag: selectedItem.raw_tag }),
     });
-    setActionMessage(`${payload.mapping?.raw_tag || selectedItem.raw_tag} approved. Run build again.`);
+    setActionMessage(`${payload.mapping?.raw_tag || selectedItem.raw_tag} approved as a deterministic suggestion. Run build again.`);
   });
 
   const ignoreSelected = () => runAction(async () => {
@@ -232,7 +232,7 @@ export default function StudioWorkspace() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ raw_tag: selectedItem.raw_tag, reason: ignoreReason }),
     });
-    setActionMessage(`${payload.mapping?.raw_tag || selectedItem.raw_tag} ignored. Run build again.`);
+    setActionMessage(`${payload.mapping?.raw_tag || selectedItem.raw_tag} ignored with engineering reason. Run build again.`);
   });
 
   const keepBlocking = () => runAction(async () => {
@@ -258,7 +258,7 @@ export default function StudioWorkspace() {
         reason: manualReason,
       }),
     });
-    setActionMessage(`${payload.mapping?.raw_tag || selectedItem.raw_tag} manually mapped. Run build again.`);
+    setActionMessage(`${payload.mapping?.raw_tag || selectedItem.raw_tag} stored as an engineer-approved manual binding. Run build again.`);
   });
 
   const switchAssetModel = (modelKey) => runAction(async () => {

@@ -45,23 +45,11 @@ MODEL_ASSIGNMENTS = {
     ],
 }
 
-DEFAULT_APPROVED_BINDINGS = [
-    {"raw_tag": "U15_LT_5100.PV", "source": "demo_default_engineer_approval"},
-    {"raw_tag": "15-FI-2010", "source": "demo_default_engineer_approval"},
-    {"raw_tag": "FO2020_RATE", "source": "demo_default_engineer_approval"},
-    {"raw_tag": "ZT6100.POS", "source": "demo_default_engineer_approval"},
-    {"raw_tag": "PT_3100_PROCESS", "source": "demo_default_engineer_approval"},
-    {"raw_tag": "TEMP4100", "source": "demo_default_engineer_approval"},
-]
+DEFAULT_APPROVED_BINDINGS: list[dict] = []
 
 MODEL_APPROVED_BINDINGS = {
-    "texas_city_vessel": DEFAULT_APPROVED_BINDINGS,
-    "pump_station": [
-        {"raw_tag": "TK100_LIT.PV", "source": "demo_default_engineer_approval"},
-        {"raw_tag": "FIT101_FLOW", "source": "demo_default_engineer_approval"},
-        {"raw_tag": "FIT102_RATE", "source": "demo_default_engineer_approval"},
-        {"raw_tag": "P101_VIB", "source": "demo_default_engineer_approval"},
-    ],
+    "texas_city_vessel": [],
+    "pump_station": [],
 }
 
 
@@ -412,8 +400,9 @@ def select_asset_model(model_key: str) -> dict:
     selected = set_active_asset_model(model_key)
     state["selected_asset_model"] = selected
     state["assignments"] = _default_assignments_for_model(selected)
-    state["approved_bindings"] = _default_approved_bindings_for_model(selected)
+    state["approved_bindings"] = []
     state["ignored_raw_tags"] = {}
+    state["manual_raw_tags"] = []
     state["last_build"] = None
     state["last_build_id"] = None
     state["published_manifest"] = {}
@@ -543,6 +532,11 @@ async def import_arbitrary_tags(raw_tag_list: list[str]) -> dict:
         source="studio_manual_import",
     )
     state["last_import_batch_id"] = import_batch_id
+    state["manual_raw_tags"] = list(raw_tag_list)
+    state["approved_bindings"] = []
+    state["ignored_raw_tags"] = {}
+    state["last_build"] = None
+    state["last_build_id"] = None
     save_state(state)
 
     result = await _ai.parse_arbitrary_tags(raw_tag_list, model_context)
@@ -733,9 +727,15 @@ def _looks_like_command(tag: str) -> bool:
 
 def _record_current_import_batch(state: dict, build_id: str) -> str:
     model_key = state.get("selected_asset_model", "texas_city_vessel")
-    raw_tags = [item.get("raw_tag") for item in load_imported_tags(model_key).get("tags", []) if item.get("raw_tag")]
+    manual_raw_tags = state.get("manual_raw_tags")
+    if isinstance(manual_raw_tags, list) and manual_raw_tags:
+        raw_tags = [str(item).strip() for item in manual_raw_tags if str(item).strip()]
+        source = "studio_manual_import"
+    else:
+        raw_tags = [item.get("raw_tag") for item in load_imported_tags(model_key).get("tags", []) if item.get("raw_tag")]
+        source = "imported_tags_demo.json"
     import_batch_id = f"import-{model_key}-{build_id}"
-    return _record_import_batch(import_batch_id, model_key, raw_tags, source="imported_tags_demo.json")
+    return _record_import_batch(import_batch_id, model_key, raw_tags, source=source)
 
 
 def _record_import_batch(import_batch_id: str, model_key: str | None, raw_tags: list[str], source: str) -> str:
@@ -792,8 +792,9 @@ def _default_state() -> dict:
             "require_manual_verification_when_level_quarantined": False,
         },
         "suggestions": [],
-        "approved_bindings": DEFAULT_APPROVED_BINDINGS,
+        "approved_bindings": [],
         "ignored_raw_tags": {},
+        "manual_raw_tags": [],
         "notes": [],
     }
 
@@ -804,8 +805,14 @@ def _with_default_fields(state: dict) -> dict:
     for key in ("assignments", "suggestions", "notes", "approved_bindings"):
         if not isinstance(merged.get(key), list):
             merged[key] = default[key]
+    merged["approved_bindings"] = [
+        item for item in merged.get("approved_bindings", [])
+        if item.get("source") != "demo_default_engineer_approval"
+    ]
     if not isinstance(merged.get("ignored_raw_tags"), dict):
         merged["ignored_raw_tags"] = {}
+    if not isinstance(merged.get("manual_raw_tags"), list):
+        merged["manual_raw_tags"] = []
     if merged.get("selected_asset_model") not in MODEL_ASSIGNMENTS:
         merged["selected_asset_model"] = "texas_city_vessel"
     if not isinstance(merged.get("template_mutations"), dict):

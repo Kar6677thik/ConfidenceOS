@@ -7,6 +7,13 @@ export default function DirtyTagGauntlet({ court, selectedRawTag, onSelect }) {
   const buckets = ['mapped', 'ambiguous', 'unmapped', 'ignored', 'blocking'];
   return (
     <Panel eyebrow="Dirty Tag Import Gauntlet" title="Imported Raw Tags" className="mb-[1px]">
+      <div className="industrial-panel-subtle p-3 mb-4">
+        <p className="caption-mono text-[var(--text)]">
+          {court?.raw_import_only
+            ? 'Raw import only: canonical mappings are derived by Mapping Court from the active asset model.'
+            : 'Legacy import shape detected: Mapping Court still re-derives suggestions before approval.'}
+        </p>
+      </div>
       <div className="overflow-x-auto overflow-y-hidden scrollbar-thin mb-4">
       <div className="grid min-w-[520px] grid-cols-5 gap-[1px] bg-[var(--border-strong)]">
         {buckets.map((bucket) => (
@@ -26,11 +33,11 @@ export default function DirtyTagGauntlet({ court, selectedRawTag, onSelect }) {
           >
             <div className="bg-[var(--surface-panel)] p-3">
               <p className="caption-mono text-[var(--text)] machine-token">{row.raw_tag}</p>
-              <p className="label-caps text-[var(--text-muted)] mt-1">raw tag</p>
+              <p className="label-caps text-[var(--text-muted)] mt-1">raw import row</p>
             </div>
             <div className="bg-[var(--surface-panel)] p-3">
               <p className="caption-mono text-[var(--data-mono)] machine-token">{row.proposed_canonical_tag || 'unresolved'}</p>
-              <p className="label-caps text-[var(--text-muted)] mt-1">canonical mapping</p>
+              <p className="label-caps text-[var(--text-muted)] mt-1">derived suggestion</p>
             </div>
             <div className="bg-[var(--surface-panel)] p-3">
               <p className={`caption-mono ${row.blocking ? 'status-critical' : statusClass(row.bucket)}`}>{formatText(row.bucket)}</p>

@@ -4,16 +4,41 @@ Focused checks for the read-only HMI Compiler pipeline.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 import unittest
 
 from asset_model import active_asset_model_key, set_active_asset_model
 from hmi_compiler import mapping_court_for_tag, run_build
 from main import _derive_trust_states
-from studio_service import DEFAULT_ASSIGNMENTS, MODEL_APPROVED_BINDINGS, MODEL_ASSIGNMENTS
+from studio_service import DEFAULT_ASSIGNMENTS, MODEL_ASSIGNMENTS
 from template_tests import run_template_tests
 
 
 class HmiCompilerTests(unittest.TestCase):
+    def test_import_fixture_contains_raw_tags_not_mapping_answers(self):
+        path = Path(__file__).with_name("imported_tags_demo.json")
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        self.assertTrue(payload.get("raw_import_only"))
+        forbidden = {
+            "status",
+            "proposed_canonical_tag",
+            "proposed_asset_id",
+            "proposed_role",
+            "sensor_type",
+            "unit",
+            "template_id",
+            "confidence",
+            "evidence",
+            "counter_evidence",
+            "verdict",
+        }
+        for batch in payload.get("batches", {}).values():
+            for item in batch:
+                self.assertIsInstance(item, str)
+                if isinstance(item, dict):
+                    self.assertFalse(forbidden & set(item))
+
     def test_default_build_blocks_bad_tag(self):
         build = run_build({"assignments": DEFAULT_ASSIGNMENTS}, build_id="hmi-build-test")
         self.assertEqual(build["status"], "FAILED")
@@ -38,9 +63,23 @@ class HmiCompilerTests(unittest.TestCase):
         row = mapping_court_for_tag("U15_LT_5100.PV")
         for key in ("evidence", "counter_evidence", "verdict", "approval_required", "suggestion_type"):
             self.assertIn(key, row)
+        self.assertEqual(row["proposed_canonical_tag"], "LT-5100")
+        self.assertEqual(row["suggestion_origin"], "derived_from_active_asset_model")
         self.assertEqual(row["suggestion_label"], "deterministic rule active")
         self.assertEqual(row["ai_suggestion"], "AI suggestion optional")
         self.assertEqual(row["approval_label"], "engineer approval required")
+
+    def test_default_state_contract_does_not_preapprove_raw_tag_bindings(self):
+        state = {
+            "assignments": DEFAULT_ASSIGNMENTS,
+            "approved_bindings": [],
+            "ignored_raw_tags": {},
+            "selected_asset_model": "texas_city_vessel",
+        }
+        self.assertEqual(state.get("approved_bindings"), [])
+        build = run_build(state, build_id="hmi-build-test")
+        rules = {item.get("rule") for item in build["validation"]["blocking"]}
+        self.assertIn("dirty_critical_mapping_requires_engineer_approval", rules)
 
     def test_build_can_pass_when_bad_tag_is_ignored_with_reason(self):
         build = run_build(
@@ -107,7 +146,7 @@ class HmiCompilerTests(unittest.TestCase):
                 {
                     "selected_asset_model": "pump_station",
                     "assignments": MODEL_ASSIGNMENTS["pump_station"],
-                    "approved_bindings": MODEL_APPROVED_BINDINGS["pump_station"],
+                    "approved_bindings": _approved_pump_bindings(),
                     "ignored_raw_tags": {
                         "BAD_TAG_123": "Confirmed spare import artifact during Studio validation.",
                     },
@@ -135,6 +174,15 @@ def _approved_dirty_bindings():
         {"raw_tag": "ZT6100.POS"},
         {"raw_tag": "PT_3100_PROCESS"},
         {"raw_tag": "TEMP4100"},
+    ]
+
+
+def _approved_pump_bindings():
+    return [
+        {"raw_tag": "TK100_LIT.PV"},
+        {"raw_tag": "FIT101_FLOW"},
+        {"raw_tag": "FIT102_RATE"},
+        {"raw_tag": "P101_VIB"},
     ]
 
 

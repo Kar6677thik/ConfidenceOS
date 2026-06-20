@@ -43,19 +43,65 @@ SUGGESTION_LABELS = {
 def load_imported_tags(model_key: str | None = None) -> dict:
     with open(IMPORTED_TAGS_PATH, "r", encoding="utf-8") as f:
         payload = json.load(f)
-    if not model_key:
-        return payload
+    if payload.get("raw_import_only") or "batches" in payload:
+        return _normalize_raw_import_payload(payload, model_key)
     tags = []
     for tag in payload.get("tags", []):
         model_keys = tag.get("model_keys")
         if not model_keys or model_key in model_keys or "all" in model_keys:
             tags.append(tag)
-    return {**payload, "tags": tags}
+    return {**payload, "raw_import_only": False, "tags": tags}
+
+
+def _normalize_raw_import_payload(payload: dict, model_key: str | None = None) -> dict:
+    batches = payload.get("batches", {})
+    selected = model_key or active_asset_model_key()
+    raw_tags: list[str] = []
+    if isinstance(batches, dict):
+        for key in (selected, "all", "shared_noise"):
+            values = batches.get(key, [])
+            if isinstance(values, list):
+                raw_tags.extend(str(item) for item in values if str(item).strip())
+    elif isinstance(payload.get("tags"), list):
+        raw_tags.extend(
+            str(item.get("raw_tag") if isinstance(item, dict) else item)
+            for item in payload.get("tags", [])
+            if str(item.get("raw_tag") if isinstance(item, dict) else item).strip()
+        )
+    seen: set[str] = set()
+    tags = []
+    for index, raw_tag in enumerate(raw_tags, start=1):
+        cleaned = raw_tag.strip()
+        if not cleaned or cleaned in seen:
+            continue
+        seen.add(cleaned)
+        tags.append({
+            "raw_tag": cleaned,
+            "import_source": payload.get("source", "raw_tag_import"),
+            "line_no": index,
+        })
+    return {
+        **payload,
+        "raw_import_only": True,
+        "tags": tags,
+    }
 
 
 def imported_tag_buckets(state: dict | None = None) -> dict:
+    state = state or {}
     model_key = _active_model_key(state)
-    imported = load_imported_tags(model_key)
+    manual_raw_tags = state.get("manual_raw_tags")
+    if isinstance(manual_raw_tags, list) and any(str(item).strip() for item in manual_raw_tags):
+        imported = _normalize_raw_import_payload({
+            "source": "studio_manual_import",
+            "description": "Engineer-pasted raw tag import list.",
+            "raw_import_only": True,
+            "batches": {
+                model_key: manual_raw_tags,
+            },
+        }, model_key)
+    else:
+        imported = load_imported_tags(model_key)
     rows = [mapping_court_for_tag(tag["raw_tag"], state=state) for tag in imported.get("tags", [])]
     buckets = {
         "mapped": [],
@@ -72,6 +118,7 @@ def imported_tag_buckets(state: dict | None = None) -> dict:
 
     return {
         "source": imported.get("source"),
+        "raw_import_only": bool(imported.get("raw_import_only")),
         "suggestion_labels": dict(SUGGESTION_LABELS),
         "raw_tags": rows,
         "buckets": buckets,
@@ -83,6 +130,7 @@ def mapping_court(state: dict | None = None) -> dict:
     payload = imported_tag_buckets(state)
     return {
         "source": payload["source"],
+        "raw_import_only": payload.get("raw_import_only", True),
         "suggestion_labels": payload["suggestion_labels"],
         "items": payload["raw_tags"],
         "counts": payload["counts"],
@@ -122,6 +170,17 @@ def mapping_court_for_tag(raw_tag: str, state: dict | None = None) -> dict:
     derived = _derive_mapping(raw_tag, fallback=tag)
     if derived and not approved and tag.get("status") != "ignored":
         tag = {**tag, **derived}
+    elif not derived and not approved and tag:
+        tag = {
+            **tag,
+            "status": "unmapped",
+            "blocking": True,
+            "confidence": 0.0,
+            "confidence_band": "LOW_MAPPING_COVERAGE",
+            "evidence": [],
+            "counter_evidence": ["No active-model signal matched the raw import tag."],
+            "verdict": "REQUIRES_ENGINEER_MAPPING_OR_IGNORE_REASON",
+        }
     ignored_reason = _ignored_reason(raw_tag, state)
     effective = deepcopy(tag)
     if approved:
@@ -148,6 +207,7 @@ def mapping_court_for_tag(raw_tag: str, state: dict | None = None) -> dict:
         "confidence": effective.get("confidence", 0.0),
         "confidence_band": effective.get("confidence_band") or _confidence_band(float(effective.get("confidence", 0.0))),
         "suggestion_type": "deterministic_rule",
+        "suggestion_origin": effective.get("suggestion_origin", "derived_from_active_asset_model"),
         "suggestion_label": SUGGESTION_LABELS["suggestion_type"],
         "ai_suggestion": SUGGESTION_LABELS["ai_assist"],
         "approval_required": status != "ignored",
@@ -375,6 +435,16 @@ def _source_tags(mapping_payload: dict) -> list[str]:
 
 
 def _tag_by_raw(raw_tag: str, state: dict | None = None) -> dict | None:
+    state = state or {}
+    manual_raw_tags = state.get("manual_raw_tags")
+    if isinstance(manual_raw_tags, list):
+        for index, item in enumerate(manual_raw_tags, start=1):
+            if str(item).strip() == raw_tag:
+                return {
+                    "raw_tag": raw_tag,
+                    "import_source": "studio_manual_import",
+                    "line_no": index,
+                }
     for tag in load_imported_tags(_active_model_key(state)).get("tags", []):
         if tag.get("raw_tag") == raw_tag:
             return tag
@@ -416,13 +486,41 @@ PREFIX_TO_TYPE = {
 
 
 def _derive_mapping(raw_tag: str, fallback: dict | None = None) -> dict | None:
-    if raw_tag == "BAD_TAG_123":
-        return None
+    raw_norm = _normalize_tag(raw_tag)
+    if raw_norm == "BADTAG123":
+        return {
+            "raw_tag": raw_tag,
+            "status": "unmapped",
+            "blocking": True,
+            "proposed_canonical_tag": None,
+            "proposed_asset_id": None,
+            "proposed_role": None,
+            "confidence": 0.0,
+            "confidence_band": "LOW_MAPPING_COVERAGE",
+            "suggestion_origin": "deterministic_no_match",
+            "evidence": ["Raw tag pattern does not match active asset-model naming rules."],
+            "counter_evidence": ["No asset, equipment, unit, or signal suffix can be inferred."],
+            "verdict": "REQUIRES_ENGINEER_MAPPING_OR_IGNORE_REASON",
+        }
+    if "SPARE" in raw_norm and "AI" in raw_norm:
+        return {
+            "raw_tag": raw_tag,
+            "status": "ignored",
+            "proposed_canonical_tag": None,
+            "proposed_asset_id": None,
+            "proposed_role": "spare_analog_input",
+            "confidence": 1.0,
+            "confidence_band": "DETERMINISTIC_IGNORE",
+            "suggestion_origin": "deterministic_spare_tag_rule",
+            "ignore_reason": "Spare analog input is not bound to the demo Runtime.",
+            "evidence": ["Raw tag contains SPARE and AI, indicating an unused analog input."],
+            "counter_evidence": [],
+            "verdict": "IGNORE_WITH_INFO_RECEIPT",
+        }
     if fallback and fallback.get("status") == "ignored":
         return fallback
     signals = get_signals()
     assets = {asset.get("asset_id"): asset for asset in get_assets()}
-    raw_norm = _normalize_tag(raw_tag)
     raw_numbers = set(re.findall(r"\d+", raw_norm))
     raw_type = _type_from_raw(raw_norm)
     best = None
@@ -479,6 +577,7 @@ def _derive_mapping(raw_tag: str, fallback: dict | None = None) -> dict | None:
             "proposed_role": None,
             "confidence": round(max(best_score, 0.0), 2),
             "confidence_band": "LOW_MAPPING_COVERAGE",
+            "suggestion_origin": "derived_from_active_asset_model",
             "evidence": best_evidence,
             "counter_evidence": best_counter or ["No active-model signal matched the dirty tag strongly enough."],
             "verdict": "REQUIRES_ENGINEER_MAPPING_OR_IGNORE_REASON",
@@ -497,6 +596,7 @@ def _derive_mapping(raw_tag: str, fallback: dict | None = None) -> dict | None:
         "template_id": asset.get("template_id"),
         "confidence": round(min(best_score, 0.99), 2),
         "confidence_band": _confidence_band(min(best_score, 0.99)),
+        "suggestion_origin": "derived_from_active_asset_model",
         "evidence": best_evidence,
         "counter_evidence": best_counter,
         "verdict": "APPROVE_WITH_REVIEW" if status == "ambiguous" else "APPROVE_DETERMINISTIC_MAPPING",

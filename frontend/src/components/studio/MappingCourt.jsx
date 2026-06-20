@@ -45,6 +45,9 @@ export default function MappingCourt({
     >
       <div className={`industrial-panel-subtle p-3 mb-4 ${item?.ai_assisted ? 'border-l-2 border-[var(--status-safe)]' : ''}`}>
         <p className="caption-mono text-[var(--text)]">{displayLabel}</p>
+        <p className="caption-mono text-[var(--text-muted)] mt-2">
+          No canonical mapping is stored in the import file. This suggestion is computed from naming pattern, numeric suffix, signal role, and active asset-model relationship.
+        </p>
       </div>
 
       {hasAiNarrative && (
@@ -80,6 +83,7 @@ export default function MappingCourt({
           ['Proposed Asset', item?.proposed_asset_id || 'none'],
           ['Proposed Signal Role', item?.proposed_role || 'none'],
           ['Suggestion Type', item?.suggestion_label || item?.suggestion_type || 'none'],
+          ['Suggestion Origin', item?.suggestion_origin || 'derived_from_active_asset_model'],
           ['Approval Required', item ? String(item.approval_required) : 'none'],
           ['Verdict', item?.verdict || 'none'],
         ].map(([label, value]) => (
