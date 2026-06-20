@@ -8,7 +8,7 @@
  */
 
 import { useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import useStore from '../store';
 import ConfidenceDebtPanel from '../components/ConfidenceDebtPanel';
 import PageIdentity from '../components/hmi/PageIdentity';
@@ -47,8 +47,14 @@ function evidenceLabel(pred) {
 }
 
 export default function PredictiveTimeline() {
-  const { plantId, predictions, predictionsMeta, predictionsLoading, fetchPredictions } = useStore();
+  const navigate = useNavigate();
+  const { plantId, predictions, predictionsMeta, predictionsLoading, fetchPredictions, role } = useStore();
 
+  useEffect(() => {
+    if (!['Operator', 'Maintenance', 'Engineer', 'Manager'].includes(role)) {
+      navigate('/runtime', { replace: true });
+    }
+  }, [role, navigate]);
   useEffect(() => { fetchPredictions(plantId); }, [fetchPredictions, plantId]);
 
   const rows = Object.values(predictions || {});

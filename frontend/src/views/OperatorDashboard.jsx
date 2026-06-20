@@ -326,6 +326,11 @@ export default function OperatorDashboard() {
 
   useEffect(() => { connect(); }, [connect]);
   useEffect(() => { fetchPredictions(plantId); }, [fetchPredictions, plantId]);
+  useEffect(() => {
+    if (!['Operator', 'Maintenance', 'Engineer', 'Manager'].includes(role)) {
+      navigate('/runtime', { replace: true });
+    }
+  }, [role, navigate]);
 
   const selectedPrediction = predictions?.[selectedSensorId];
   const isStressMode = ['WARNING', 'CRITICAL'].includes(String(plantContext?.severity || '').toUpperCase());

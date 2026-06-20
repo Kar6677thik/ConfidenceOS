@@ -5,7 +5,8 @@
  * from ConfidenceOS logs, not a regulatory certification.
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import useStore from '../store';
 import PageIdentity from '../components/hmi/PageIdentity';
 
@@ -153,7 +154,15 @@ function EvidenceRows({ value, depth = 0 }) {
 }
 
 export default function CompliancePortal() {
-  const { plantId } = useStore();
+  const navigate = useNavigate();
+  const { plantId, role } = useStore();
+
+  useEffect(() => {
+    if (!['Manager', 'Auditor'].includes(role)) {
+      navigate('/runtime', { replace: true });
+    }
+  }, [role, navigate]);
+
   const [hours, setHours] = useState(24);
   const [reportType, setReportType] = useState('full');
   const [report, setReport] = useState(null);

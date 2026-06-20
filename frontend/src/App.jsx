@@ -5,15 +5,15 @@
  * Shared utility components remain in frontend/src/components/.
  */
 
-import { useEffect, useState } from 'react';
-import { Routes, Route } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { Routes, Route, useNavigate } from 'react-router-dom';
 import useStore from './store';
 import useKeyboardShortcuts from './lib/useKeyboardShortcuts';
 
 // Navigation
 import NavBar from './components/NavBar';
 import ErrorBoundary from './components/ErrorBoundary';
-import LoginModal from './components/LoginModal';
+import LoginPage from './components/LoginPage';
 import AbnormalityLab from './components/AbnormalityLab';
 import RuntimePlatform from './components/RuntimePlatform';
 import StudioWorkspace from './components/StudioWorkspace';
@@ -106,27 +106,41 @@ const SHORTCUTS = [
   ['?', 'Toggle this help overlay'],
 ];
 
+const ROLE_HOME = {
+  Operator:    '/runtime',
+  Maintenance: '/runtime',
+  Engineer:    '/studio',
+  Manager:     '/runtime',
+  Auditor:     '/forensics',
+};
+
 // App root
 export default function App() {
   const [showHelp, setShowHelp] = useState(false);
   const [labOpen, setLabOpen] = useState(false);
-  const [showLogin, setShowLogin] = useState(false);
   const connect = useStore((s) => s.connect);
   const fetchSystemHealth = useStore((s) => s.fetchSystemHealth);
   const authToken = useStore((s) => s.authToken);
+  const authUser = useStore((s) => s.authUser);
+  const navigate = useNavigate();
 
-  // Establish WS at app mount so every view gets live data, not just Runtime.
-  // connect() is idempotent (store guards on _ws), so RuntimePlatform calling
-  // it again on mount is harmless.
+  // Redirect to role home screen on login (null → value transition)
+  const prevAuthRef = useRef(null);
   useEffect(() => {
+    if (authUser && !prevAuthRef.current) {
+      navigate(ROLE_HOME[authUser.role] ?? '/runtime');
+    }
+    prevAuthRef.current = authUser;
+  }, [authUser, navigate]);
+
+  // Start WS and health polling only after authentication
+  useEffect(() => {
+    if (!authToken) return;
     connect();
-  }, [connect]);
-
-  useEffect(() => {
     fetchSystemHealth();
     const timer = setInterval(fetchSystemHealth, 10000);
     return () => clearInterval(timer);
-  }, [fetchSystemHealth]);
+  }, [authToken, connect, fetchSystemHealth]);
 
   useKeyboardShortcuts({
     onHelpToggle: () => setShowHelp((v) => !v),
@@ -141,10 +155,14 @@ export default function App() {
     return () => window.removeEventListener('keydown', onEsc);
   }, [showHelp]);
 
+  // Full-page login gate — ALL hooks above this line, nothing renders behind it
+  if (!authToken) {
+    return <LoginPage />;
+  }
+
   return (
     <div className="industrial-app">
-      {showLogin && !authToken && <LoginModal onDismiss={() => setShowLogin(false)} />}
-      <NavBar onLoginClick={() => setShowLogin(true)} />
+      <NavBar />
       <main className="industrial-main">
         <ErrorBoundary>
         <Routes>

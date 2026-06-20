@@ -6,6 +6,21 @@ import { countActiveAlerts, worstTrustException } from './navBarUtils';
 
 const ROLES = ['Operator', 'Maintenance', 'Engineer', 'Manager', 'Auditor'];
 
+const ROLE_COLOR = {
+  Operator:    '#22c55e',
+  Maintenance: '#f97316',
+  Engineer:    '#0a84ff',
+  Manager:     '#a855f7',
+  Auditor:     '#6b7280',
+};
+const ROLE_BORDER = {
+  Operator:    '#16a34a',
+  Maintenance: '#ea580c',
+  Engineer:    '#0071e3',
+  Manager:     '#9333ea',
+  Auditor:     '#4b5563',
+};
+
 const NAV_ITEMS = [
   { path: '/runtime',    label: 'Runtime',       roles: ['Operator', 'Maintenance', 'Engineer', 'Manager', 'Auditor'] },
   { path: '/studio',     label: 'Studio',        roles: ['Engineer', 'Manager'] },
@@ -24,7 +39,7 @@ const SUPPORT_ITEMS = [
   { path: '/sandbox',    label: 'Simulation Sandbox',     roles: ['Engineer'] },
 ];
 
-export default function NavBar({ onLoginClick }) {
+export default function NavBar() {
   const {
     connected,
     averageConfidence,
@@ -112,16 +127,36 @@ export default function NavBar({ onLoginClick }) {
       </div>
 
       <div className="flex items-center gap-5 shrink-0">
-        <select
-          value={role}
-          onChange={(event) => setRole(event.target.value)}
-          className="industrial-control bg-transparent"
-          aria-label="Role switcher"
-        >
-          {ROLES.map((item) => (
-            <option key={item} value={item}>{item}</option>
-          ))}
-        </select>
+        {authToken && authUser ? (
+          <span
+            className="caption-mono"
+            style={{
+              padding: '3px 9px',
+              borderRadius: 4,
+              fontWeight: 600,
+              fontSize: 11,
+              letterSpacing: '0.04em',
+              border: `1px solid ${ROLE_BORDER[authUser.role] ?? '#555'}`,
+              color: ROLE_COLOR[authUser.role] ?? 'var(--text-muted)',
+              background: 'transparent',
+              userSelect: 'none',
+            }}
+            title={`Signed in as ${authUser.username} (${authUser.role})`}
+          >
+            {authUser.role}
+          </span>
+        ) : (
+          <select
+            value={role}
+            onChange={(event) => setRole(event.target.value)}
+            className="industrial-control bg-transparent"
+            aria-label="Role switcher"
+          >
+            {ROLES.map((item) => (
+              <option key={item} value={item}>{item}</option>
+            ))}
+          </select>
+        )}
 
         <div className={`caption-mono ${alerts > 0 ? 'status-critical' : trustException.status}`}>
           {alerts > 0 ? `${alerts} Trust Alert${alerts > 1 ? 's' : ''}` : trustException.label}
@@ -163,30 +198,18 @@ export default function NavBar({ onLoginClick }) {
           <span>{connected ? 'LIVE' : 'OFFLINE'}</span>
         </div>
 
-        {authToken && authUser ? (
-          <div className="flex items-center gap-2 caption-mono" title={`Signed in as ${authUser.username}`}>
-            <span className="text-[var(--text-muted)]">{authUser.username}</span>
-            <button
-              onClick={logout}
-              className="industrial-control shrink-0 px-2"
-              title="Sign out"
-              aria-label="Sign out"
-              style={{ fontSize: 11 }}
-            >
-              Sign out
-            </button>
-          </div>
-        ) : (
+        <div className="flex items-center gap-2 caption-mono" title={`Signed in as ${authUser?.username}`}>
+          <span className="text-[var(--text-muted)]">{authUser?.username}</span>
           <button
-            onClick={onLoginClick}
+            onClick={logout}
             className="industrial-control shrink-0 px-2"
-            title="Sign in for protected Studio actions"
-            aria-label="Sign in"
+            title="Sign out"
+            aria-label="Sign out"
             style={{ fontSize: 11 }}
           >
-            Sign in
+            Sign out
           </button>
-        )}
+        </div>
       </div>
     </header>
   );
