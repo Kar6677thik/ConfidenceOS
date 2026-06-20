@@ -580,34 +580,6 @@ function SimulationControlStrip({ demoState, busy, onReset, onStart, role }) {
   );
 }
 
-function WhatChangedPanel({ demoState, basis, situation }) {
-  const phase = demoState?.phase || 'NORMAL_BASELINE';
-  const changed = phase !== 'NORMAL_BASELINE';
-  const doNotTrust = displayText(asList(basis?.do_not_trust || situation?.action_contract?.do_not_use)[0]);
-  const safeMove = displayText(basis?.operator_single_safe_move || situation?.action_contract?.first_safe_action);
-  return (
-    <div className="bg-[var(--surface-highest)] border border-[var(--border-strong)] p-4">
-      <p className="label-caps text-[var(--text-muted)]">What Changed</p>
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
-        <div>
-          <p className="label-caps text-[var(--text-dim)]">Before</p>
-          <p className="caption-mono">Primary indication allowed in operating basis.</p>
-        </div>
-        <div>
-          <p className="label-caps text-[var(--text-dim)]">Now</p>
-          <p className={`caption-mono ${changed ? 'status-warning' : 'status-safe'}`}>
-            {changed ? `${doNotTrust || 'Primary indication'} removed from decision basis.` : 'No trust exception active.'}
-          </p>
-        </div>
-        <div>
-          <p className="label-caps text-[var(--text-dim)]">Required Action</p>
-          <p className="caption-mono font-semibold">{safeMove || 'Continue normal monitoring.'}</p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function ConfidenceEvidenceLedger({ confidence, situation, basis }) {
   const affected = new Set([
     ...asList(situation?.affected_sensors),

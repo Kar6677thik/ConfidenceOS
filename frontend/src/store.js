@@ -136,7 +136,7 @@ const useStore = create((set, get) => ({
         authError: null,
       });
       return true;
-    } catch (e) {
+    } catch {
       set({ authLoading: false, authError: 'Network error.' });
       return false;
     }

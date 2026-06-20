@@ -8,10 +8,6 @@
  */
 import useStore from '../store';
 
-function authHeaders() {
-  const headers = { ...(options.headers || {}) };
-}
-
 function buildHeaders(options = {}, forceDemoRole = false) {
   const headers = { ...(options.headers || {}) };
   try {
@@ -47,7 +43,7 @@ export default async function apiFetch(path, options = {}) {
   try {
     payload = await response.clone().json();
   } catch {
-    payload = null;
+    // Keep payload null when the backend did not return JSON.
   }
 
   const { authToken, logout } = useStore.getState();
@@ -58,5 +54,5 @@ export default async function apiFetch(path, options = {}) {
   // role bridge instead of letting Runtime collapse to a blank error state.
   logout();
   const retryHeaders = buildHeaders(options, true);
-  return fetch(path, { ...options, headers });
+  return fetch(path, { ...options, headers: retryHeaders });
 }

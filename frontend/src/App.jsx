@@ -110,6 +110,7 @@ const SHORTCUTS = [
 export default function App() {
   const [showHelp, setShowHelp] = useState(false);
   const [labOpen, setLabOpen] = useState(false);
+  const [showLogin, setShowLogin] = useState(false);
   const connect = useStore((s) => s.connect);
   const fetchSystemHealth = useStore((s) => s.fetchSystemHealth);
   const authToken = useStore((s) => s.authToken);
@@ -142,8 +143,8 @@ export default function App() {
 
   return (
     <div className="industrial-app">
-      {!authToken && <LoginModal />}
-      <NavBar />
+      {showLogin && !authToken && <LoginModal onDismiss={() => setShowLogin(false)} />}
+      <NavBar onLoginClick={() => setShowLogin(true)} />
       <main className="industrial-main">
         <ErrorBoundary>
         <Routes>

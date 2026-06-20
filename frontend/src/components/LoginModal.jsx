@@ -1,7 +1,7 @@
 /**
  * LoginModal — JWT login form for ConfidenceOS.
  *
- * Shows as an overlay when the user is not authenticated.
+ * Shows as an overlay when the user chooses to sign in.
  * On success, token is stored in Zustand; the modal disappears.
  * Demo credentials are shown to reduce friction in demo sessions.
  */
@@ -16,7 +16,7 @@ const DEMO_CREDS = [
   { label: 'Auditor',     username: 'auditor',  password: 'ConfidenceOS-Aud-2025' },
 ];
 
-export default function LoginModal() {
+export default function LoginModal({ onDismiss }) {
   const login = useStore((s) => s.login);
   const authLoading = useStore((s) => s.authLoading);
   const authError = useStore((s) => s.authError);
@@ -45,7 +45,7 @@ export default function LoginModal() {
       >
         <div className="mb-5">
           <div className="text-[var(--text)] font-semibold text-base mb-1">ConfidenceOS</div>
-          <div className="caption-mono text-[var(--text-muted)]">Sign in to continue</div>
+          <div className="caption-mono text-[var(--text-muted)]">Sign in for protected Studio actions, or continue in read-only Runtime mode.</div>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-3">
@@ -112,6 +112,27 @@ export default function LoginModal() {
           >
             {authLoading ? 'Signing in…' : 'Sign in'}
           </button>
+          {onDismiss && (
+            <button
+              type="button"
+              onClick={onDismiss}
+              disabled={authLoading}
+              style={{
+                width: '100%',
+                padding: '8px 0',
+                background: 'var(--surface)',
+                border: '1px solid var(--border)',
+                borderRadius: 4,
+                color: 'var(--text)',
+                fontFamily: 'var(--font-mono, monospace)',
+                fontSize: 13,
+                cursor: authLoading ? 'wait' : 'pointer',
+                opacity: authLoading ? 0.7 : 1,
+              }}
+            >
+              Continue read-only Runtime
+            </button>
+          )}
         </form>
 
         <div className="mt-4">

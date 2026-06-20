@@ -24,7 +24,7 @@ const SUPPORT_ITEMS = [
   { path: '/sandbox',    label: 'Simulation Sandbox',     roles: ['Engineer'] },
 ];
 
-export default function NavBar() {
+export default function NavBar({ onLoginClick }) {
   const {
     connected,
     averageConfidence,
@@ -163,7 +163,7 @@ export default function NavBar() {
           <span>{connected ? 'LIVE' : 'OFFLINE'}</span>
         </div>
 
-        {authToken && authUser && (
+        {authToken && authUser ? (
           <div className="flex items-center gap-2 caption-mono" title={`Signed in as ${authUser.username}`}>
             <span className="text-[var(--text-muted)]">{authUser.username}</span>
             <button
@@ -176,6 +176,16 @@ export default function NavBar() {
               Sign out
             </button>
           </div>
+        ) : (
+          <button
+            onClick={onLoginClick}
+            className="industrial-control shrink-0 px-2"
+            title="Sign in for protected Studio actions"
+            aria-label="Sign in"
+            style={{ fontSize: 11 }}
+          >
+            Sign in
+          </button>
         )}
       </div>
     </header>
