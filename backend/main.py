@@ -116,24 +116,27 @@ from demo_service import (
     start_abnormal_situation,
 )
 import nlquery
+import deps
+from routers import demo as demo_router
 
 
 # ─── Global instances ───────────────────────────────────────────────────────
 
-plant_manager = PlantManager()
+# plant_manager lives in deps so routers can share the same singleton
+plant_manager = deps.plant_manager
 
 # Anomaly deduplication: (plant_id:sensor_id:anomaly_type) → last-logged timestamp
-_anomaly_cooldown: dict[str, float] = {}
-ANOMALY_COOLDOWN_SECONDS = 60.0
+_anomaly_cooldown: dict[str, float] = deps.anomaly_cooldown
+ANOMALY_COOLDOWN_SECONDS = deps.ANOMALY_COOLDOWN_SECONDS
 
 BASE_MB_TOLERANCE = DEFAULT_TOLERANCE
 
 # Confidence logging throttle — log every N ticks to avoid DB bloat
 _confidence_log_counter: dict[str, int] = {}
-CONFIDENCE_LOG_INTERVAL = max(1, int(os.getenv("CONFIDENCEOS_CONFIDENCE_LOG_INTERVAL", "10")))  # log every N ticks
-PERSIST_READINGS_INTERVAL = max(1, int(os.getenv("CONFIDENCEOS_PERSIST_READINGS_INTERVAL", "10")))
-VERIFICATION_SYNC_INTERVAL = max(1, int(os.getenv("CONFIDENCEOS_VERIFICATION_SYNC_INTERVAL", "5")))
-_plant_loop_status: dict[str, dict] = {}
+CONFIDENCE_LOG_INTERVAL = deps.CONFIDENCE_LOG_INTERVAL
+PERSIST_READINGS_INTERVAL = deps.PERSIST_READINGS_INTERVAL
+VERIFICATION_SYNC_INTERVAL = deps.VERIFICATION_SYNC_INTERVAL
+_plant_loop_status: dict[str, dict] = deps.plant_loop_status
 
 # Serialize all plant-loop DB writes through one in-process lock so the
 # concurrent plant tick loops never commit simultaneously — this removes the
@@ -307,6 +310,8 @@ app.add_middleware(
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type", "Accept", "Authorization", "X-API-Key", "X-Role"],
 )
+
+app.include_router(demo_router.router)
 
 
 # Lightweight API-key gate on mutating requests. No-op unless CONFIDENCEOS_API_KEY
@@ -1907,204 +1912,7 @@ def get_handover_debt(plant_id: str = Query(default="plant-a"), db: Session = De
     return plant.latest_handover_debt
 
 
-def _resolve_scenario_path(scenario_path: Optional[str]) -> Path:
-    if not scenario_path:
-        scenario_name = "scenario.json"
-    else:
-        candidate = Path(scenario_path)
-        if candidate.is_absolute() or ".." in candidate.parts or candidate.name != str(candidate):
-            raise HTTPException(status_code=400, detail="Scenario path must be a known demo scenario filename.")
-        scenario_name = candidate.name
-    if scenario_name not in ALLOWED_SCENARIOS:
-        raise HTTPException(status_code=404, detail=f"Unknown demo scenario: {scenario_name}")
-    path = SCENARIO_DIR / scenario_name
-    if not path.exists():
-        raise HTTPException(status_code=404, detail=f"Scenario file not found: {scenario_name}")
-    return path
-
-
-@app.post("/api/scenario/load")
-def load_scenario(scenario_path: Optional[str] = None, plant_id: str = Query(default="plant-a")):
-    """Load a failure injection scenario."""
-    plant = plant_manager.get(plant_id)
-    path = _resolve_scenario_path(scenario_path)
-    plant.tag_provider.load_scenario(path)
-    plant.tag_provider.reset()
-    plant.mass_balance_engine.reset()
-    return {"status": "loaded", "scenario": path.name}
-
-
-@app.post("/api/scenario/reset")
-def reset_scenario(plant_id: str = Query(default="plant-a")):
-    """Reset the simulator clock and state."""
-    plant = plant_manager.get(plant_id)
-    plant.tag_provider.reset()
-    plant.mass_balance_engine.reset()
-    return {"status": "reset"}
-
-
-# ─── Simulator training controls ─────────────────────────────────────────────
-# These endpoints manipulate the SIMULATOR source so engineering/training users
-# can trigger sensor failures live. They do NOT write any plant
-# control command (the read-only-to-plant contract is unchanged; tag_provider
-# .write_tag still raises). They are scoped to the simulator-backed provider.
-
-@app.get("/api/simulation/state")
-def get_simulation_state(plant_id: str = Query(default="plant-a")):
-    """Return simulator scenario phase and source facts."""
-    plant = plant_manager.get(plant_id)
-    return get_demo_state(plant_id, plant, _plant_loop_status.get(plant_id, {}))
-
-
-@app.post("/api/simulation/reset-source")
-def reset_simulation_source(plant_id: str = Query(default="plant-a")):
-    """Reset only the simulator source and scenario state.
-
-    This does not reset Studio compiler state or shift-channel notes.
-    """
-    plant = _require_simulator_plant(plant_id)
-    state = reset_demo(plant_id, plant)
-    return {"status": "reset", "simulation_state": state, "demo_state": state}
-
-
-@app.post("/api/simulation/start-abnormal-situation")
-def start_simulation_abnormal_situation(plant_id: str = Query(default="plant-a")):
-    """Start the abnormal simulator scenario without changing Studio state."""
-    plant = _require_simulator_plant(plant_id)
-    state = start_abnormal_situation(plant_id, plant)
-    return {"status": "started", "simulation_state": state, "demo_state": state}
-
-
-@app.post("/api/simulation/advance")
-def advance_simulation_scenario(plant_id: str = Query(default="plant-a")):
-    """Advance the simulator scenario phase without writing plant controls."""
-    plant = _require_simulator_plant(plant_id)
-    state = advance_demo(plant_id, plant)
-    return {"status": "advanced", "simulation_state": state, "demo_state": state}
-
-
-@app.get("/api/demo/state")
-def get_judge_demo_state(plant_id: str = Query(default="plant-a")):
-    """Compatibility alias for simulator scenario state."""
-    plant = plant_manager.get(plant_id)
-    return get_demo_state(plant_id, plant, _plant_loop_status.get(plant_id, {}))
-
-
-@app.post("/api/demo/reset")
-def reset_judge_demo(plant_id: str = Query(default="plant-a")):
-    """Compatibility endpoint: reset the app-wide training baseline.
-
-    This resets ConfidenceOS training state: the read-only simulator, shift
-    notes, Studio compiler state, and active asset model. It does not write any
-    controller command, setpoint, mode, or alarm acknowledgement.
-    """
-    plant = _require_simulator_plant(plant_id)
-    studio_state = studio_reset()
-    reset_shift_notes()
-    state = reset_demo(plant_id, plant)
-    return {
-        "status": "reset",
-        "demo_state": state,
-        "studio_state": {
-            "selected_asset_model": studio_state.get("selected_asset_model"),
-            "published_build_id": studio_state.get("published_build_id"),
-            "build_counter": studio_state.get("build_counter"),
-            "read_only_boundary": "Studio reset changes only ConfidenceOS compiler files and simulator-backed demo state.",
-        },
-    }
-
-
-@app.post("/api/demo/start-abnormal-situation")
-def start_judge_abnormal_situation(plant_id: str = Query(default="plant-a")):
-    """Compatibility endpoint: trigger the trust-quarantine simulator scenario."""
-    plant = _require_simulator_plant(plant_id)
-    # The primary judge story is the Texas City vessel. Keep the active compiler
-    # model aligned so Runtime language, action contracts, and trust graph do not
-    # inherit a previous Pump Station exploration.
-    if active_asset_model_key() != "texas_city_vessel":
-        studio_select_asset_model("texas_city_vessel")
-    state = start_abnormal_situation(plant_id, plant)
-    return {"status": "started", "demo_state": state}
-
-
-@app.post("/api/demo/advance")
-def advance_judge_demo(plant_id: str = Query(default="plant-a")):
-    """Compatibility endpoint: advance the simulator scenario phase without writing plant controls."""
-    plant = _require_simulator_plant(plant_id)
-    state = advance_demo(plant_id, plant)
-    return {"status": "advanced", "demo_state": state}
-
-
-_VALID_FAILURE_TYPES = {
-    "calibration_drift", "stuck_reading", "sg_mismatch", "command_state_decoupling",
-}
-
-
-def _require_simulator_plant(plant_id: str):
-    """Return the plant if it is simulator-backed; else 400."""
-    from tag_provider import SimulatorProvider
-    plant = plant_manager.get(plant_id)
-    if not isinstance(plant.tag_provider, SimulatorProvider) or getattr(plant, "simulator", None) is None:
-        raise HTTPException(
-            status_code=400,
-            detail="Live failure injection is only supported on the simulator provider.",
-        )
-    return plant
-
-
-@app.post("/api/sim/inject")
-def sim_inject(request: SimInjectRequest):
-    """Inject a single failure into the LIVE simulator so the trust
-    pipeline reacts immediately. Configures the simulated source, not a plant
-    control write."""
-    from simulator import FailureConfig
-    plant = _require_simulator_plant(request.plant_id)
-    if request.failure_type not in _VALID_FAILURE_TYPES:
-        raise HTTPException(
-            status_code=400,
-            detail=f"failure_type must be one of {sorted(_VALID_FAILURE_TYPES)}",
-        )
-    if request.sensor_id not in plant.simulator.sensors:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Unknown sensor '{request.sensor_id}'. Known: {sorted(plant.simulator.sensors)}",
-        )
-    # Fire immediately: start_time = current elapsed seconds.
-    start = plant.simulator.elapsed()
-    failure = FailureConfig(
-        sensor_id=request.sensor_id,
-        failure_type=request.failure_type,
-        start_time=start,
-        drift_rate=request.drift_rate if request.drift_rate is not None else 0.5,
-        stuck_duration=request.stuck_duration if request.stuck_duration is not None else 0.0,
-        sg_actual=request.sg_actual if request.sg_actual is not None else 0.65,
-        sg_calibrated=request.sg_calibrated if request.sg_calibrated is not None else 0.80,
-        commanded_value=request.commanded_value if request.commanded_value is not None else 0.0,
-        actual_value=request.actual_value if request.actual_value is not None else 85.0,
-    )
-    plant.simulator.failures.append(failure)
-    return {
-        "status": "injected",
-        "simulation_source_only": True,
-        "failure": {
-            "sensor_id": failure.sensor_id,
-            "failure_type": failure.failure_type,
-            "start_time": round(start, 1),
-        },
-        "active_failures": len(plant.simulator.failures),
-    }
-
-
-@app.post("/api/sim/clear")
-def sim_clear(plant_id: str = Query(default="plant-a")):
-    """Clear all injected failures from the LIVE simulator and reset
-    it to normal operation. Does not write any plant control."""
-    plant = _require_simulator_plant(plant_id)
-    plant.simulator.failures.clear()
-    plant.tag_provider.reset()
-    plant.mass_balance_engine.reset()
-    state = reset_demo(plant_id, plant)
-    return {"status": "cleared", "simulation_source_only": True, "active_failures": 0, "simulation_state": state}
+# scenario/simulation/demo/sim routes extracted to routers/demo.py
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
