@@ -30,6 +30,7 @@ Env vars:
 import os
 import secrets
 import logging
+import hashlib
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
@@ -42,8 +43,8 @@ load_dotenv(Path(__file__).parent.parent / ".env")
 
 from fastapi import Depends, Header, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+import bcrypt
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from sqlalchemy.orm import Session
 
 from database import get_db, User, SessionLocal
@@ -71,8 +72,14 @@ if not os.getenv(JWT_SECRET_ENV):
         "Set this env var to a persistent secret for production."
     )
 
-# Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# Password hashing.
+#
+# Passlib 1.7.x runs a bcrypt backend self-test with a >72-byte password. Newer
+# bcrypt releases reject that input instead of truncating, which can crash app
+# startup while seeding demo users. Use bcrypt directly and pre-hash new
+# passwords so long passwords are deterministic and never exceed bcrypt's limit.
+PASSWORD_HASH_PREFIX = "$confidenceos-bcrypt-sha256$"
+BCRYPT_ROUNDS = int(os.getenv("CONFIDENCEOS_BCRYPT_ROUNDS", "12"))
 
 # OAuth2 scheme — reads Authorization: Bearer <token>
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
@@ -96,7 +103,7 @@ def seed_demo_users() -> None:
             for u in DEMO_USERS:
                 db.add(User(
                     username=u["username"],
-                    hashed_password=pwd_context.hash(u["password"]),
+                    hashed_password=hash_password(u["password"]),
                     role=u["role"],
                     full_name=u["full_name"],
                     is_active=1,
@@ -217,11 +224,30 @@ def api_key_guard(x_api_key: Optional[str] = Header(default=None)):
 # ── Password utilities (used by user management endpoints) ────────────────────
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
+    if not plain or not hashed:
+        return False
+    try:
+        if hashed.startswith(PASSWORD_HASH_PREFIX):
+            candidate = _password_digest(plain)
+            stored_hash = hashed.removeprefix(PASSWORD_HASH_PREFIX).encode("ascii")
+        else:
+            # Legacy passlib/bcrypt hashes are still accepted for existing DBs.
+            # bcrypt historically truncated after 72 bytes; keep that behavior
+            # only for legacy hashes so old accounts remain usable.
+            candidate = plain.encode("utf-8")[:72]
+            stored_hash = hashed.encode("ascii")
+        return bcrypt.checkpw(candidate, stored_hash)
+    except (TypeError, ValueError):
+        return False
 
 
 def hash_password(plain: str) -> str:
-    return pwd_context.hash(plain)
+    hashed = bcrypt.hashpw(_password_digest(plain), bcrypt.gensalt(rounds=BCRYPT_ROUNDS))
+    return PASSWORD_HASH_PREFIX + hashed.decode("ascii")
+
+
+def _password_digest(plain: str) -> bytes:
+    return hashlib.sha256(plain.encode("utf-8")).hexdigest().encode("ascii")
 
 
 def authenticate_user(username: str, password: str, db: Session) -> Optional[User]:
