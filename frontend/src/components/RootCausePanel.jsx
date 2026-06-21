@@ -13,11 +13,11 @@ export default function RootCausePanel({ sensorId }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  if (!sensorId) return null;
+
   const selected = confidence.find((c) => c.sensor_id === sensorId);
   const tier = selected?.tier || 'HIGH';
-
-  // Only show for degraded sensors
-  if (!sensorId || tier === 'HIGH') return null;
+  const isHealthy = tier === 'HIGH';
 
   const analyze = async () => {
     setLoading(true);
@@ -57,14 +57,21 @@ export default function RootCausePanel({ sensorId }) {
       <div className="p-4 space-y-3">
         {!result && !loading && (
           <>
-            <p className="caption-mono text-[var(--text-muted)]">
-              Analyse why <span className="text-[var(--text)] font-semibold">{sensorId}</span> confidence
-              degraded — sensor fault vs. process issue, and what to check first.
-            </p>
-            <button
-              onClick={analyze}
-              className="industrial-control w-full"
-            >
+            {isHealthy ? (
+              <div className="flex items-center gap-2 mb-1">
+                <span className="led-square status-safe" />
+                <span className="caption-mono text-[var(--text-muted)] text-[11px]">
+                  {sensorId} at HIGH confidence — analyse baseline or inject a failure to test
+                </span>
+              </div>
+            ) : (
+              <p className="caption-mono text-[var(--text-muted)]">
+                Sensor <span className="text-[var(--text)] font-semibold">{sensorId}</span> is{' '}
+                <span className="status-warning font-semibold">{tier}</span> — click to identify
+                whether this is a sensor fault or process issue.
+              </p>
+            )}
+            <button onClick={analyze} className="industrial-control w-full">
               Analyze Root Cause
             </button>
           </>

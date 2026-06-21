@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import useStore from '../store';
 import PriorityBand from './hmi/PriorityBand';
 import apiFetch from '../lib/apiFetch';
+import RootCausePanel from './RootCausePanel';
 
 function formatText(value) {
   if (value == null || value === '') return '';
@@ -1541,6 +1542,7 @@ export default function RuntimePlatform() {
                 <p className="caption-mono text-[var(--text-muted)]">No faceplate selected.</p>
               )}
             </DockSection>
+            <RootCausePanel sensorId={selectedFaceplate?.signals?.[0]?.tag} />
             <RoleDock
               manifest={manifest}
               selectedFaceplate={selectedFaceplate}
