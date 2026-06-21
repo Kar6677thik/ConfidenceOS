@@ -1303,6 +1303,36 @@ async def get_root_cause_explanation(
     return await explain_root_cause(sensor_id, confidence_data, confidence_history, causal_context)
 
 
+class WhatIfRequest(BaseModel):
+    sensor_id: str
+    what_if_pct: int
+    plant_id: str = "plant-a"
+
+
+@app.post("/api/confidence/what-if")
+async def post_what_if_scenario(body: WhatIfRequest):
+    """
+    What-If Trust Propagation — simulate how confidence cascades if a sensor degrades.
+
+    Returns estimated impact on all downstream sensors in the causal graph, with an
+    AI narrative explaining the failure scenario. Falls back to deterministic cascade
+    analysis when no LLM provider is configured.
+    Advisory only — confidence engine remains authoritative.
+    """
+    from whatif import simulate_what_if
+
+    plant = plant_manager.get(body.plant_id)
+    if body.what_if_pct < 0 or body.what_if_pct > 100:
+        raise HTTPException(status_code=422, detail="what_if_pct must be 0–100.")
+    graph = get_graph_state(body.plant_id, plant.latest_confidence)
+    return await simulate_what_if(
+        sensor_id=body.sensor_id,
+        what_if_pct=body.what_if_pct,
+        plant_confidence=plant.latest_confidence,
+        graph=graph,
+    )
+
+
 @app.get("/api/confidence/sensitivity/{sensor_id}")
 def get_score_sensitivity(
     sensor_id: str,

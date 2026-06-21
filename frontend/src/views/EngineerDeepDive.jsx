@@ -14,6 +14,7 @@ import useStore from '../store';
 import { chartGrid, axisTick, axisLine } from '../lib/chartTheme';
 import PageIdentity from '../components/hmi/PageIdentity';
 import SupportViewNotice from '../components/SupportViewNotice';
+import WhatIfPanel from '../components/WhatIfPanel';
 
 function SubScoreBar({ label, value }) {
   const pct   = value != null ? Math.round(value * 100) : null;
@@ -256,6 +257,9 @@ export default function EngineerDeepDive() {
                 </div>
               </div>
             )}
+
+            {/* -- What-If Trust Propagation -- */}
+            <WhatIfPanel />
           </>
         )}
       </main>

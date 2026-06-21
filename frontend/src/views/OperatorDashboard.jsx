@@ -30,6 +30,7 @@ import VerificationTokens from '../components/VerificationTokens';
 import HandoverDebtLedger from '../components/HandoverDebtLedger';
 import PageIdentity from '../components/hmi/PageIdentity';
 import SupportViewNotice from '../components/SupportViewNotice';
+import RootCausePanel from '../components/RootCausePanel';
 
 function healthColor(pct) {
   if (pct >= 80) return 'text-[var(--safe-text)]';
@@ -517,6 +518,9 @@ export default function OperatorDashboard() {
           <div className="shrink-0">
             <EvidenceStack selectedSensorId={selectedSensorId} confidence={confidence} incidents={incidents} />
           </div>
+
+          {/* AI Root Cause — shown for all roles when a degraded sensor is selected */}
+          <RootCausePanel sensorId={selectedSensorId} />
 
           {/* Verification tokens */}
           <div className="shrink-0">
