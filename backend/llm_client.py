@@ -138,6 +138,12 @@ def _openai_compatible_complete(
             "Authorization": f"Bearer {key}",
             "Content-Type": "application/json",
             "Accept": "application/json",
+            # Some OpenAI-compatible Claude gateways sit behind Cloudflare and
+            # reject urllib's default Python-urllib user agent. Use the same
+            # style of headers expected by OpenAI-compatible client libraries.
+            "User-Agent": _env("OPENAI_COMPATIBLE_USER_AGENT", "OpenAI/Python 1.0.0"),
+            "HTTP-Referer": _env("OPENAI_COMPATIBLE_REFERER", "https://confidenceos.netlify.app"),
+            "X-Title": _env("OPENAI_COMPATIBLE_APP_TITLE", "ConfidenceOS"),
         },
     )
     try:

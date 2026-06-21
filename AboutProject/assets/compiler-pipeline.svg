@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="420" viewBox="0 0 1280 420">
+  <rect width="1280" height="420" fill="#f4f5f6"/>
+  <text x="44" y="54" font-family="Arial, Helvetica, sans-serif" font-size="28" font-weight="700" fill="#10202f">HMI Compiler Pipeline</text>
+  <text x="44" y="84" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#44515c">Raw imported tags become a publishable Runtime only after mapping, validation, generation, and guardrails.</text>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#555"/>
+    </marker>
+  </defs>
+  <g font-family="Arial, Helvetica, sans-serif">
+    <g fill="#fff" stroke="#8d969d" stroke-width="2">
+      <rect x="44" y="144" width="155" height="108" rx="8"/>
+      <rect x="244" y="144" width="155" height="108" rx="8"/>
+      <rect x="444" y="144" width="155" height="108" rx="8"/>
+      <rect x="644" y="144" width="155" height="108" rx="8"/>
+      <rect x="844" y="144" width="155" height="108" rx="8"/>
+      <rect x="1044" y="144" width="155" height="108" rx="8"/>
+    </g>
+    <g fill="#111820">
+      <text x="68" y="178" font-size="16" font-weight="700">1. Raw Tags</text>
+      <text x="68" y="210" font-size="13">dirty import</text>
+      <text x="68" y="230" font-size="13">line receipts</text>
+      <text x="268" y="178" font-size="16" font-weight="700">2. Asset Graph</text>
+      <text x="268" y="210" font-size="13">plant, area, unit</text>
+      <text x="268" y="230" font-size="13">equipment, signals</text>
+      <text x="468" y="178" font-size="16" font-weight="700">3. Template Binding</text>
+      <text x="468" y="210" font-size="13">vessel, pump</text>
+      <text x="468" y="230" font-size="13">valve, flow pair</text>
+      <text x="668" y="178" font-size="16" font-weight="700">4. Validation</text>
+      <text x="668" y="210" font-size="13">info, warning</text>
+      <text x="668" y="230" font-size="13">blocking rules</text>
+      <text x="868" y="178" font-size="16" font-weight="700">5. Screen Generation</text>
+      <text x="868" y="210" font-size="13">manifests</text>
+      <text x="868" y="230" font-size="13">screen receipts</text>
+      <text x="1068" y="178" font-size="16" font-weight="700">6. Runtime</text>
+      <text x="1068" y="210" font-size="13">published HMI</text>
+      <text x="1068" y="230" font-size="13">role workspaces</text>
+    </g>
+    <g stroke="#555" stroke-width="2.5" fill="none" marker-end="url(#arrow)">
+      <path d="M199 198 H244"/>
+      <path d="M399 198 H444"/>
+      <path d="M599 198 H644"/>
+      <path d="M799 198 H844"/>
+      <path d="M999 198 H1044"/>
+    </g>
+    <g fill="#fff8d8" stroke="#d6a700" stroke-width="2">
+      <rect x="120" y="304" width="1040" height="58" rx="8"/>
+    </g>
+    <text x="146" y="338" font-size="15" fill="#111820">Publish is refused when blocking validation remains. Dirty critical mappings require engineer approval or an ignore reason. Runtime is generated from the last published passing build.</text>
+  </g>
+</svg>

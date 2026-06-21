@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720">
+  <rect width="1280" height="720" fill="#f4f5f6"/>
+  <text x="48" y="58" font-family="Arial, Helvetica, sans-serif" font-size="30" font-weight="700" fill="#10202f">ConfidenceOS System Architecture</text>
+  <text x="48" y="88" font-family="Arial, Helvetica, sans-serif" font-size="15" fill="#44515c">Read-only trust-aware HMI compiler and Runtime beside existing DCS/HMI systems</text>
+
+  <g fill="#ffffff" stroke="#8d969d" stroke-width="2">
+    <rect x="48" y="130" width="230" height="140" rx="8"/>
+    <rect x="48" y="320" width="230" height="140" rx="8"/>
+    <rect x="336" y="92" width="250" height="116" rx="8"/>
+    <rect x="336" y="238" width="250" height="116" rx="8"/>
+    <rect x="336" y="384" width="250" height="116" rx="8"/>
+    <rect x="650" y="92" width="260" height="116" rx="8"/>
+    <rect x="650" y="238" width="260" height="116" rx="8"/>
+    <rect x="650" y="384" width="260" height="116" rx="8"/>
+    <rect x="974" y="92" width="230" height="116" rx="8"/>
+    <rect x="974" y="238" width="230" height="116" rx="8"/>
+    <rect x="974" y="384" width="230" height="116" rx="8"/>
+    <rect x="650" y="560" width="554" height="92" rx="8"/>
+  </g>
+
+  <g font-family="Arial, Helvetica, sans-serif" fill="#111820">
+    <text x="70" y="165" font-size="18" font-weight="700">Read-only Tag Sources</text>
+    <text x="70" y="198" font-size="14">SimulatorProvider</text>
+    <text x="70" y="222" font-size="14">CsvReplayProvider</text>
+    <text x="70" y="246" font-size="14">OpcUaProvider boundary</text>
+
+    <text x="70" y="355" font-size="18" font-weight="700">Static Engineering Inputs</text>
+    <text x="70" y="388" font-size="14">asset_model.json</text>
+    <text x="70" y="412" font-size="14">templates and policies</text>
+    <text x="70" y="436" font-size="14">assumptions register</text>
+
+    <text x="360" y="128" font-size="18" font-weight="700">Live Data Loop</text>
+    <text x="360" y="162" font-size="14">WebSocket sensor stream</text>
+    <text x="360" y="184" font-size="14">SQLite history and events</text>
+
+    <text x="360" y="274" font-size="18" font-weight="700">Trust Engines</text>
+    <text x="360" y="308" font-size="14">confidence, mass balance</text>
+    <text x="360" y="330" font-size="14">mode inference, advisory</text>
+
+    <text x="360" y="420" font-size="18" font-weight="700">HMI Compiler</text>
+    <text x="360" y="454" font-size="14">mapping court, validation</text>
+    <text x="360" y="476" font-size="14">screen manifests, receipts</text>
+
+    <text x="674" y="128" font-size="18" font-weight="700">Generated Runtime</text>
+    <text x="674" y="162" font-size="14">trust map navigation</text>
+    <text x="674" y="184" font-size="14">faceplates and situations</text>
+
+    <text x="674" y="274" font-size="18" font-weight="700">Studio</text>
+    <text x="674" y="308" font-size="14">dirty tags to manifest</text>
+    <text x="674" y="330" font-size="14">engineer approval gate</text>
+
+    <text x="674" y="420" font-size="18" font-weight="700">Shift Channel</text>
+    <text x="674" y="454" font-size="14">verification tasks</text>
+    <text x="674" y="476" font-size="14">handover debt ledger</text>
+
+    <text x="998" y="128" font-size="18" font-weight="700">Operator</text>
+    <text x="998" y="162" font-size="14">one safe move</text>
+    <text x="998" y="184" font-size="14">operating basis</text>
+
+    <text x="998" y="274" font-size="18" font-weight="700">Maintenance</text>
+    <text x="998" y="308" font-size="14">field verification</text>
+    <text x="998" y="330" font-size="14">confidence debt</text>
+
+    <text x="998" y="420" font-size="18" font-weight="700">Engineer / Auditor</text>
+    <text x="998" y="454" font-size="14">receipts, assumptions</text>
+    <text x="998" y="476" font-size="14">ledger and compliance</text>
+
+    <text x="674" y="596" font-size="18" font-weight="700">Read-only contract</text>
+    <text x="674" y="628" font-size="14">ConfidenceOS publishes trust, evidence, receipts, and operator guidance only. It does not write tag values, setpoints, controller modes, pump starts, valve commands, or alarm acknowledgements.</text>
+  </g>
+
+  <g stroke="#4e5963" stroke-width="2.5" fill="none" marker-end="url(#arrow)">
+    <path d="M278 200 H336"/>
+    <path d="M278 390 H336"/>
+    <path d="M586 150 H650"/>
+    <path d="M586 296 H650"/>
+    <path d="M586 442 H650"/>
+    <path d="M910 150 H974"/>
+    <path d="M910 296 H974"/>
+    <path d="M910 442 H974"/>
+    <path d="M780 500 V560"/>
+  </g>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#4e5963"/>
+    </marker>
+  </defs>
+</svg>

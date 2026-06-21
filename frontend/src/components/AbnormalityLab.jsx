@@ -31,6 +31,7 @@ const SCENARIOS = [
     roleLabel: 'Operator',
     roleColor: '#22c55e',
     accentColor: '#ff5252',
+    activateImmediately: true,
     hint: 'LT-5100 frozen → ZT-6100 decoupled → TT drift → PT frozen',
     demonstrates: 'Root Cause · Mass Balance Mismatch · Trust Quarantine',
   },
@@ -383,13 +384,21 @@ export default function AbnormalityLab({ onClose }) {
   };
 
   // ── Scenario actions ─────────────────────────────────────────────────────
-  const handleScenario = (s) => {
+  const handleScenario = async (s) => {
     if (s.type === 'file') {
-      return post(
+      const loaded = await post(
         `/api/scenario/load?scenario_path=${encodeURIComponent(s.file)}&plant_id=${plantId}`,
         null,
         s.label,
       );
+      if (loaded && s.activateImmediately) {
+        return post(
+          `/api/simulation/start-abnormal-situation?plant_id=${plantId}`,
+          null,
+          `${s.label} active abnormal path`,
+        );
+      }
+      return loaded;
     }
     return injectMultiple(s.injections, s.label);
   };
