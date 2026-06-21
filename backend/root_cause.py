@@ -83,8 +83,8 @@ async def _call_llm(
             sub_parts.append(f"{label}={val:.0%}")
     sub_score_text = ", ".join(sub_parts) if sub_parts else "not available"
 
-    # Sample last 8 readings as a confidence trend line
-    samples = confidence_history[-8:]
+    # Sample last 5 readings as a confidence trend line
+    samples = confidence_history[-5:]
     trend_text = (
         " → ".join(f"{s['confidence_pct']}%" for s in samples)
         if samples else "no recent history"
@@ -95,35 +95,32 @@ async def _call_llm(
     plant_name = causal_context.get("plant_name", "industrial plant")
 
     system = (
-        "You are ConfidenceOS, a read-only industrial process monitoring AI. "
-        "You help operators understand why a sensor's confidence score degraded. "
-        "You never issue control commands or setpoints — your output is advisory only. "
+        "You are ConfidenceOS, a read-only process monitoring AI. "
+        "Advisory only — never issue control commands. "
         "End every explanation with: VERIFY PHYSICALLY BEFORE ACTING."
     )
 
     prompt = (
         f"Sensor: {sensor_id} | Plant: {plant_name}\n"
-        f"Current confidence: {pct}% (tier: {tier}, dominant weakness: {dominant})\n"
-        f"System-detected reasons: {'; '.join(reasons) if reasons else 'none'}\n"
+        f"Confidence: {pct}% (tier: {tier}, dominant: {dominant})\n"
+        f"Reasons: {'; '.join(reasons) if reasons else 'none'}\n"
         f"Sub-scores: {sub_score_text}\n"
-        f"Confidence trend (oldest→newest): {trend_text}\n"
-        f"Upstream sensors (potential process causes): {', '.join(upstream) or 'none'}\n"
-        f"Downstream sensors affected: {', '.join(downstream) or 'none'}\n\n"
-        f"Write exactly 3 sentences for an operator:\n"
-        f"Sentence 1: Why this anomaly likely occurred (use sub-scores and trend).\n"
-        f"Sentence 2: Whether this is a sensor fault or a process issue, and why.\n"
-        f"Sentence 3: What the operator should physically check or verify first.\n\n"
-        f"Then on a new line output exactly this JSON (no markdown fences):\n"
+        f"Trend (oldest→newest): {trend_text}\n"
+        f"Upstream: {', '.join(upstream[:4]) or 'none'} | Downstream: {', '.join(downstream[:4]) or 'none'}\n\n"
+        f"Write exactly 3 operator sentences:\n"
+        f"1. Why this anomaly likely occurred.\n"
+        f"2. Sensor fault or process issue, and why.\n"
+        f"3. What to physically check first.\n\n"
+        f"Then output exactly this JSON on a new line (no fences):\n"
         f'{{\"fault_class\": \"sensor_fault\" or \"process_issue\" or \"uncertain\", '
-        f'\"check_first\": \"one short action phrase\"}}\n\n'
-        f"Use plain operator English. Do not invent sensor values not shown above. "
-        f"End the 3rd sentence with: VERIFY PHYSICALLY BEFORE ACTING."
+        f'\"check_first\": \"short action\"}}\n\n'
+        f"End 3rd sentence with: VERIFY PHYSICALLY BEFORE ACTING."
     )
 
     response = await complete_text(
         system=system,
         messages=[{"role": "user", "content": prompt}],
-        max_tokens=380,
+        max_tokens=260,
         temperature=0.2,
     )
     text = response["text"].strip()

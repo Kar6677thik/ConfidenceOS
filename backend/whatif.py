@@ -180,35 +180,30 @@ async def _call_llm(scenario: dict, plant_name: str) -> dict:
     current_pct = scenario["current_pct"]
 
     affected_lines = "\n".join(
-        f"  {s['sensor_id']}: {s['current_pct']}% → ~{s['estimated_pct']}% ({s['severity']})"
-        for s in affected[:6]
+        f"  {s['sensor_id']}: {s['current_pct']}% -> ~{s['estimated_pct']}% ({s['severity']})"
+        for s in affected[:4]
     ) or "  none detected in current graph"
 
     system = (
-        "You are ConfidenceOS, a read-only industrial process monitoring AI. "
-        "You help engineers understand hypothetical cascade failures in a process plant. "
-        "You never issue control commands — your analysis is advisory and scenario-based only. "
-        "Be specific about which sensors to watch and why the cascade matters operationally."
+        "You are ConfidenceOS, a read-only process monitoring AI. "
+        "Advisory only — never issue control commands."
     )
 
     prompt = (
         f"Plant: {plant_name}\n"
-        f"What-If Scenario: {sensor_id} confidence drops from {current_pct}% to {what_if_pct}%\n"
-        f"Estimated cascade (deterministic graph propagation):\n{affected_lines}\n\n"
-        f"Write exactly 3 sentences for an engineer:\n"
-        f"Sentence 1: What physical failure mode would drive {sensor_id} to {what_if_pct}% "
-        f"confidence, and what that level means for operator trust.\n"
-        f"Sentence 2: How the cascade propagates through the process — name the most at-risk "
-        f"downstream sensor and why.\n"
-        f"Sentence 3: What the engineer should monitor or pre-position to mitigate "
-        f"this scenario if it becomes real.\n\n"
-        f"End with: ADVISORY — verify physically before acting on this scenario."
+        f"Scenario: {sensor_id} drops from {current_pct}% to {what_if_pct}% confidence\n"
+        f"Estimated cascade:\n{affected_lines}\n\n"
+        f"Write exactly 3 engineer sentences:\n"
+        f"1. Physical failure mode driving {sensor_id} to {what_if_pct}% and trust implication.\n"
+        f"2. How cascade propagates — most at-risk downstream sensor and why.\n"
+        f"3. What to monitor or pre-position to mitigate this scenario.\n\n"
+        f"End with: ADVISORY — verify physically before acting."
     )
 
     response = await complete_text(
         system=system,
         messages=[{"role": "user", "content": prompt}],
-        max_tokens=320,
+        max_tokens=240,
         temperature=0.2,
     )
 
