@@ -204,6 +204,28 @@ class VerificationEvent(Base):
 
 # ── Database lifecycle ──────────────────────────────────────────────────────
 
+class OperationalEvent(Base):
+    """Append-only operational trace ledger for incident, verification, handover, and report events."""
+    __tablename__ = "operational_events"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    event_id = Column(String(140), index=True, nullable=False, unique=True)
+    plant_id = Column(String(20), index=True, nullable=False, default="plant-a")
+    event_type = Column(String(60), index=True, nullable=False)
+    source = Column(String(60), index=True, nullable=False)
+    source_id = Column(String(140), index=True, nullable=True)
+    subject_id = Column(String(80), index=True, nullable=True)
+    severity = Column(String(20), nullable=False, default="INFO")
+    message = Column(Text, nullable=True)
+    payload_json = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    __table_args__ = (
+        Index('ix_operational_events_plant_ts', 'plant_id', 'created_at'),
+        Index('ix_operational_events_plant_type_ts', 'plant_id', 'event_type', 'created_at'),
+    )
+
+
 class VerificationTask(Base):
     """Durable current state for field-verification tasks."""
     __tablename__ = "verification_tasks"

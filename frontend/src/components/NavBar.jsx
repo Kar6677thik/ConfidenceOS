@@ -28,15 +28,15 @@ const NAV_ITEMS = [
 ];
 
 const SUPPORT_ITEMS = [
-  { path: '/work-queue', label: 'Verification Work Queue', roles: ['Operator', 'Maintenance', 'Engineer', 'Manager', 'Auditor'] },
-  { path: '/integrity',  label: 'Instrument Integrity',   roles: ['Operator', 'Maintenance', 'Engineer', 'Manager', 'Auditor'] },
-  { path: '/operator',   label: 'Operator Detail',        roles: ['Operator', 'Maintenance', 'Engineer', 'Manager'] },
-  { path: '/predictions',label: 'Degradation Forecast',   roles: ['Operator', 'Maintenance', 'Engineer', 'Manager'] },
-  { path: '/forensics',  label: 'Incident Replay',        roles: ['Engineer', 'Manager', 'Auditor'] },
-  { path: '/graph',      label: 'Causal Graph',           roles: ['Engineer', 'Manager'] },
-  { path: '/engineer',   label: 'Engineer Analysis',      roles: ['Engineer', 'Manager'] },
-  { path: '/compliance', label: 'Compliance Report',      roles: ['Manager', 'Auditor'] },
-  { path: '/sandbox',    label: 'Simulation Sandbox',     roles: ['Engineer'] },
+  { path: '/work-queue', label: 'Verification Work Queue', status: 'live', priority: 1, roles: ['Operator', 'Maintenance', 'Engineer', 'Manager', 'Auditor'] },
+  { path: '/integrity',  label: 'Instrument Integrity',   status: 'support', priority: 2, roles: ['Operator', 'Maintenance', 'Engineer', 'Manager', 'Auditor'] },
+  { path: '/operator',   label: 'Operator Detail',        status: 'support', priority: 3, roles: ['Operator', 'Maintenance', 'Engineer', 'Manager'] },
+  { path: '/predictions',label: 'Degradation Forecast',   status: 'limited', priority: 4, roles: ['Operator', 'Maintenance', 'Engineer', 'Manager'] },
+  { path: '/forensics',  label: 'Incident Replay',        status: 'training', priority: 5, roles: ['Engineer', 'Manager', 'Auditor'] },
+  { path: '/graph',      label: 'Causal Graph',           status: 'support', priority: 6, roles: ['Engineer', 'Manager'] },
+  { path: '/engineer',   label: 'Engineer Analysis',      status: 'support', priority: 7, roles: ['Engineer', 'Manager'] },
+  { path: '/compliance', label: 'Compliance Report',      status: 'support', priority: 8, roles: ['Manager', 'Auditor'] },
+  { path: '/sandbox',    label: 'Simulation Sandbox',     status: 'training', priority: 9, roles: ['Engineer'] },
 ];
 
 export default function NavBar() {
@@ -61,7 +61,9 @@ export default function NavBar() {
   const [muted, setMutedState] = useState(() => isAlarmMuted());
   useEffect(() => onMuteChange(setMutedState), []);
   const visibleItems = NAV_ITEMS.filter((item) => item.roles.includes(role));
-  const supportItems = SUPPORT_ITEMS.filter((item) => item.roles.includes(role));
+  const supportItems = SUPPORT_ITEMS
+    .filter((item) => item.roles.includes(role))
+    .sort((a, b) => (a.priority || 99) - (b.priority || 99));
   const activeSupport = supportItems.some((item) => item.path === location.pathname) ? location.pathname : '';
   const alerts = countActiveAlerts(confidence, massBalance, staleFlags);
   const trustException = worstTrustException(confidence, connected);
@@ -119,7 +121,7 @@ export default function NavBar() {
             >
               <option value="">Support Views</option>
               {supportItems.map((item) => (
-                <option key={item.path} value={item.path}>{item.label}</option>
+                <option key={item.path} value={item.path}>{item.label} - {item.status}</option>
               ))}
             </select>
           )}

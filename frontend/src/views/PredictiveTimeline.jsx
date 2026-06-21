@@ -12,6 +12,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import useStore from '../store';
 import ConfidenceDebtPanel from '../components/ConfidenceDebtPanel';
 import PageIdentity from '../components/hmi/PageIdentity';
+import SupportViewNotice from '../components/SupportViewNotice';
 
 const WINDOW_HOURS = 12;
 
@@ -113,6 +114,15 @@ export default function PredictiveTimeline() {
         <button onClick={() => fetchPredictions(plantId)} className="industrial-control text-[var(--safe-text)]">
           {predictionsLoading ? 'Refreshing...' : 'Refresh'}
         </button>
+      </div>
+
+      <div className="px-4 py-1 bg-[var(--border-strong)] flex-shrink-0">
+        <SupportViewNotice
+          title="Degradation Forecast"
+          status="limited"
+          source="Logged confidence history plus current live snapshot; sparse histories show limited evidence."
+          boundary="Use Runtime trust state for current operating decisions."
+        />
       </div>
 
       {/* -- Main body split -- */}

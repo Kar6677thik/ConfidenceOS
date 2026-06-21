@@ -15,6 +15,7 @@ import useStore from '../store';
 import TrustDependencyGraph from '../components/TrustDependencyGraph';
 import { trustColor, chartColors } from '../lib/chartTheme';
 import PageIdentity from '../components/hmi/PageIdentity';
+import SupportViewNotice from '../components/SupportViewNotice';
 
 const confidenceColor = (tier) => trustColor(tier);
 
@@ -202,6 +203,14 @@ export default function CausalGraph() {
       {/* -- Graph canvas -- */}
       <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
         <PageIdentity displayName="Causal Graph Explorer" level={3} area="Trust Propagation Topology" plant={plantId} />
+        <div className="px-4 py-1 bg-[var(--border-strong)] flex-shrink-0">
+          <SupportViewNotice
+            title="Causal Graph"
+            status="support"
+            source="Active asset model relationships and runtime trust dependency graph."
+            boundary="Runtime shows the active operating basis; this view explains propagation paths."
+          />
+        </div>
         {graph?.nodes && (
           <div className="px-5 py-1.5 border-b border-[var(--border)] flex-shrink-0 flex items-center gap-4 bg-[var(--bg-surface)]">
             <span className="caption-mono text-[var(--text-dim)]">

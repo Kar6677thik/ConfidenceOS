@@ -16,6 +16,7 @@ import SensorCard from '../components/SensorCard';
 import MassBalanceChart from '../components/MassBalanceChart';
 import PageIdentity from '../components/hmi/PageIdentity';
 import { LoadFailed, EmptyState } from '../components/PanelSkeleton';
+import SupportViewNotice from '../components/SupportViewNotice';
 
 const DEFAULT_PRESET = 'texas-city';
 
@@ -175,6 +176,12 @@ export default function ForensicsReplay() {
 
         {/* Main canvas */}
         <main className="flex-1 min-w-0 overflow-y-auto scrollbar-thin bg-[var(--bg-base)] p-1">
+          <SupportViewNotice
+            title="Incident Replay"
+            status="training"
+            source="Preset replay frames and logged history when available."
+            boundary="Runtime and Shift Channel hold the live operating basis and handover trace."
+          />
           {!data && presetError && <LoadFailed message={presetError} />}
           {data && !presetError && (data.timeline?.length ?? 0) === 0 && (
             <EmptyState icon="history_toggle_off" title="No replay frames"

@@ -960,7 +960,7 @@ function AssumptionGovernancePanel({ summaryItem, assumptions }) {
   );
 }
 
-function RoleDock({ manifest, selectedFaceplate, confidenceDebt, handoverDebt, verificationTasks, plantId }) {
+function RoleDock({ manifest, selectedFaceplate, confidenceDebt, handoverDebt, verificationTasks, plantId, ledgerEvents = [] }) {
   const role = manifest?.role || 'Operator';
   const roleKey = normalizeRole(role);
   const basis = manifest?.operating_basis || {};
@@ -1020,6 +1020,12 @@ function RoleDock({ manifest, selectedFaceplate, confidenceDebt, handoverDebt, v
           <p className={`caption-mono ${(handoverDebt?.handover_acceptance_blocked || handoverDebt?.handover_acceptance === 'blocked') ? 'status-critical' : 'status-safe'}`}>
             {(handoverDebt?.handover_acceptance_blocked || handoverDebt?.handover_acceptance === 'blocked') ? 'Blocked until verification debt clears.' : 'Unblocked.'}
           </p>
+        </DockSection>
+        <DockSection title="Latest Event References">
+          <ValueList
+            values={(ledgerEvents || []).slice(0, 5).map((event) => `${event.event_id} / ${formatText(event.event_type)} / ${event.subject_id || 'subject n/a'}`)}
+            empty="No operational ledger references recorded yet."
+          />
         </DockSection>
         <DockSection title="Field Verification">
           {/* Manager can accept/reject a field-checked task; Auditor sees it read-only
@@ -1334,10 +1340,26 @@ export default function RuntimePlatform() {
   const [selected, setSelected] = useState('');
   const [demoBusy, setDemoBusy] = useState(false);
   const [localDemoState, setLocalDemoState] = useState(null);
+  const [ledgerEvents, setLedgerEvents] = useState([]);
 
   useEffect(() => {
     connect();
   }, [connect]);
+
+  useEffect(() => {
+    let active = true;
+    apiFetch(`/api/operational-ledger?plant_id=${plantId}&limit=5`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((payload) => {
+        if (active) setLedgerEvents(payload?.events || []);
+      })
+      .catch(() => {
+        if (active) setLedgerEvents([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [plantId, retryToken]);
 
   useEffect(() => {
     let active = true;
@@ -1537,6 +1559,7 @@ export default function RuntimePlatform() {
               handoverDebt={handoverDebt}
               verificationTasks={verificationTasks}
               plantId={plantId}
+              ledgerEvents={ledgerEvents}
             />
             {showEngineeringInternals(role) && (
               <DockSection title="Support Level" eyebrow="Level 4 Details">

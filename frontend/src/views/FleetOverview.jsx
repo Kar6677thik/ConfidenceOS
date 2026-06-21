@@ -16,6 +16,7 @@ import {
 import useStore from '../store';
 import { pctColor, TRUST_COLOR, chartGrid, axisTick, axisLine } from '../lib/chartTheme';
 import PageIdentity from '../components/hmi/PageIdentity';
+import SupportViewNotice from '../components/SupportViewNotice';
 
 // Per-plant trend colors drawn from the shared NAMUR palette (distinct hues, on-token).
 const PLANT_COLORS = { 'plant-a': TRUST_COLOR.CRITICAL, 'plant-b': TRUST_COLOR.MEDIUM, 'plant-c': TRUST_COLOR.HIGH };
@@ -141,6 +142,12 @@ export default function FleetOverview() {
       <PageIdentity displayName="Instrument Integrity Overview" level={3} area="Real-time aggregate trust state across active facilities" />
       <div className="flex-1 overflow-y-auto scrollbar-thin overflow-x-hidden">
       <div className="p-8 space-y-8">
+        <SupportViewNotice
+          title="Instrument Integrity Overview"
+          status="support"
+          source="Live fleet API plus logged integrity trend where available."
+          boundary="Use Runtime for the operating basis and Shift Channel for auditable handover trace."
+        />
 
         {/* -- KPI chips -- */}
         <div className="flex justify-end items-start">

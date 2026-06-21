@@ -9,6 +9,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useStore from '../store';
 import PageIdentity from '../components/hmi/PageIdentity';
+import SupportViewNotice from '../components/SupportViewNotice';
 
 const REPORT_TYPES = [
   { value: 'full', label: 'Full Operational Appendix' },
@@ -61,6 +62,7 @@ function sectionLabel(key) {
     mass_balance_summary: 'Mass-Balance Evidence',
     field_verification_tasks: 'Field Verification Tasks',
     engineering_assumption_governance: 'Engineering Assumption Governance',
+    operational_event_ledger: 'Operational Event Ledger',
     recommendations: 'Deterministic Recommendations',
   };
   return labels[key] || titleize(key);
@@ -289,6 +291,12 @@ export default function CompliancePortal() {
       </aside>
 
       <main className="flex-1 min-w-0 overflow-y-auto scrollbar-thin bg-[var(--bg-base)] p-6">
+        <SupportViewNotice
+          title="Compliance Report"
+          status="support"
+          source="Logged anomalies, confidence history, verification tasks, handover briefs, assumption governance, and operational event IDs."
+          boundary="This is an operational evidence appendix, not a regulatory certification."
+        />
         {!report ? (
           <div className="h-full flex flex-col items-center justify-center gap-4 text-center">
             <span className="material-symbols-outlined text-[64px] text-[var(--border)]">description</span>

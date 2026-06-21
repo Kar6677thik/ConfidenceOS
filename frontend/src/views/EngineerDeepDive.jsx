@@ -13,6 +13,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ReferenceLine, R
 import useStore from '../store';
 import { chartGrid, axisTick, axisLine } from '../lib/chartTheme';
 import PageIdentity from '../components/hmi/PageIdentity';
+import SupportViewNotice from '../components/SupportViewNotice';
 
 function SubScoreBar({ label, value }) {
   const pct   = value != null ? Math.round(value * 100) : null;
@@ -132,6 +133,12 @@ export default function EngineerDeepDive() {
 
       {/* -- Main - deep dive panels -- */}
       <main className="flex-1 min-w-0 overflow-y-auto scrollbar-thin p-6 space-y-6 bg-[var(--bg-base)]">
+        <SupportViewNotice
+          title="Engineer Analysis"
+          status="support"
+          source="Adaptive envelopes, confidence sub-scores, and score sensitivity evidence."
+          boundary="Studio is the primary engineering compiler workspace."
+        />
         {!selectedSensorId ? (
           <div className="h-full flex flex-col items-center justify-center gap-4 text-center">
             <span className="material-symbols-outlined text-[64px] text-[var(--border)]">biotech</span>

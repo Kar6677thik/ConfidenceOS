@@ -15,6 +15,7 @@ import { chartColors, chartGrid, axisTick, axisLine, TRUST_COLOR } from '../lib/
 import PageIdentity from '../components/hmi/PageIdentity';
 import StatusTag from '../components/hmi/StatusTag';
 import apiFetch from '../lib/apiFetch';
+import SupportViewNotice from '../components/SupportViewNotice';
 
 // Fallback only — the live list is fetched from the active asset model
 // (/api/model/signals) so the sandbox reflects whatever model is loaded.
@@ -130,6 +131,12 @@ export default function SandboxSimulator() {
         </div>
 
         <div className="p-5 space-y-4 flex-1 overflow-y-auto scrollbar-thin">
+          <SupportViewNotice
+            title="Simulation Sandbox"
+            status="training"
+            source="Isolated synthetic what-if calculations; live plant state is not modified."
+            boundary="Runtime remains the authoritative operating-basis view."
+          />
           <p className="caption-mono text-[var(--text-muted)] leading-relaxed">
             Inject synthetic trust degradation into an isolated sensor model.
             Live plant data is never affected.

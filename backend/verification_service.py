@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from asset_model import sensor_by_tag
 from database import VerificationEvidence, VerificationTask, log_verification_event
+from operational_ledger import record_verification_event
 
 logger = logging.getLogger(__name__)
 
@@ -381,6 +382,19 @@ def create_task(
             evidence_note=note or ("Auto-generated verification requested." if source == "auto" else "Verification requested."),
             commit=False,
         )
+        record_verification_event(
+            db,
+            plant_id=plant_id,
+            task_id=task.task_id,
+            sensor_id=sensor_id,
+            to_state="REQUESTED",
+            from_state=None,
+            actor=actor,
+            actor_role=actor_role,
+            evidence_note=note or ("Auto-generated verification requested." if source == "auto" else "Verification requested."),
+            created_at=now,
+            commit=False,
+        )
         if commit:
             db.commit()
     except Exception:
@@ -491,6 +505,19 @@ def transition_task(
             evidence_note=note or None,
             commit=False,
         )
+        record_verification_event(
+            db,
+            plant_id=plant_id,
+            task_id=task.task_id,
+            sensor_id=task.sensor_id,
+            to_state=state,
+            from_state=current_state,
+            actor=actor,
+            actor_role=actor_role,
+            evidence_note=note or None,
+            created_at=now,
+            commit=False,
+        )
         db.commit()
     except HTTPException:
         raise
@@ -532,6 +559,19 @@ def expire_due_tasks(db: Session, *, plant_id: str, current: datetime | None = N
                 actor="ConfidenceOS",
                 actor_role="ConfidenceOS",
                 evidence_note="Task expired before acceptance.",
+                commit=False,
+            )
+            record_verification_event(
+                db,
+                plant_id=plant_id,
+                task_id=task.task_id,
+                sensor_id=task.sensor_id,
+                to_state="EXPIRED",
+                from_state=from_state,
+                actor="ConfidenceOS",
+                actor_role="ConfidenceOS",
+                evidence_note="Task expired before acceptance.",
+                created_at=current,
                 commit=False,
             )
             expired.append(task_to_dict(task))

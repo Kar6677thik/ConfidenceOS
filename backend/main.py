@@ -90,6 +90,13 @@ from verification_service import (
     sync_auto_tasks,
     transition_task as transition_verification_task,
 )
+from operational_ledger import (
+    get_operational_event,
+    ledger_response,
+    list_operational_events,
+    record_operational_event,
+    record_timeline_events,
+)
 from studio_service import (
     assign_template as studio_assign_template,
     auto_map as studio_auto_map,
@@ -680,6 +687,24 @@ async def _plant_tick_loop(plant_id: str, plant, start_delay: float = 0.0):
                     plant.latest_incident_timeline,
                     tick_events,
                 )
+                if tick_events and tick_count % 5 == 0:
+                    ledger_db = None
+                    await _db_write_lock.acquire()
+                    try:
+                        ledger_db = SessionLocal()
+                        record_timeline_events(ledger_db, tick_events, commit=True)
+                    except OperationalError as exc:
+                        if ledger_db:
+                            ledger_db.rollback()
+                        print(f"[PlantTick] Ledger persistence skipped for {plant_id}: {exc}")
+                    except Exception as exc:
+                        if ledger_db:
+                            ledger_db.rollback()
+                        print(f"[PlantTick] Ledger persistence error in {plant_id}: {exc}")
+                    finally:
+                        if ledger_db:
+                            ledger_db.close()
+                        _db_write_lock.release()
                 plant.latest_new_anomalies = new_anomalies
                 _plant_loop_status[plant_id] = {
                     "status": "ok",
@@ -1339,7 +1364,11 @@ def get_shift_channel(plant_id: str = Query(default="plant-a"), db: Session = De
         confidence_debt=plant.latest_confidence_debt,
         now=time.time(),
     )
-    return build_shift_channel(plant_id, plant)
+    channel = build_shift_channel(plant_id, plant)
+    ledger_events = list_operational_events(db, plant_id=plant_id, limit=60)
+    channel["operational_ledger"] = ledger_response(plant_id, ledger_events)
+    channel["event_refs"] = sorted(set((channel.get("event_refs") or []) + [event["event_id"] for event in ledger_events[:20]]))
+    return channel
 
 
 @app.post("/api/shift-channel/note")
@@ -1351,11 +1380,30 @@ def post_shift_channel_note(
     """Add an operator note to the persistent shift channel."""
     author = user.get("username") or user.get("role") or "authenticated-user"
     note = add_shift_note(request.plant_id, author, request.message)
+    ledger_event = record_operational_event(
+        db,
+        plant_id=request.plant_id,
+        event_type="operator_note",
+        source="shift_channel",
+        source_id=note.get("id"),
+        subject_id="shift_channel",
+        severity="INFO",
+        message=note.get("message", ""),
+        payload=note,
+        event_id=note.get("event_id"),
+        created_at=note.get("timestamp"),
+        commit=True,
+    )
+    note["event_id"] = ledger_event.get("event_id")
+    note["event_ref"] = ledger_event.get("event_id")
     plant = plant_manager.get(request.plant_id)
     plant.verification_tokens = list_verification_tasks(db, plant_id=request.plant_id, include_closed=True)
+    channel = build_shift_channel(request.plant_id, plant)
+    ledger_events = list_operational_events(db, plant_id=request.plant_id, limit=60)
+    channel["operational_ledger"] = ledger_response(request.plant_id, ledger_events)
     return {
         "note": note,
-        "channel": build_shift_channel(request.plant_id, plant),
+        "channel": channel,
     }
 
 
@@ -1365,6 +1413,27 @@ def post_shift_channel_reset(
 ):
     """Reset demo shift-channel notes; operational debt is rebuilt from live state."""
     return {"status": "reset", "state": reset_shift_notes()}
+
+
+@app.get("/api/operational-ledger")
+def get_operational_ledger(
+    plant_id: str = Query(default="plant-a"),
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+):
+    """Return the consolidated read-only operational trace ledger."""
+    plant_manager.get(plant_id)
+    events = list_operational_events(db, plant_id=plant_id, limit=limit)
+    return ledger_response(plant_id, events)
+
+
+@app.get("/api/operational-ledger/{event_id:path}")
+def get_operational_ledger_event(event_id: str, db: Session = Depends(get_db)):
+    """Return one operational ledger event by stable event ID."""
+    event = get_operational_event(db, event_id)
+    if not event:
+        raise HTTPException(status_code=404, detail=f"Operational event '{event_id}' not found.")
+    return {"event": event}
 
 
 # ─── REST: mass-balance flags (Module 3) ─────────────────────────────────────
@@ -1836,7 +1905,26 @@ async def generate_handover_brief(plant_id: str = Query(default="plant-a"), db: 
 
     # V2: Log the brief
     try:
-        log_shift_handover(db, plant_id, brief.get("brief", ""), brief.get("source", "fallback"))
+        handover_row = log_shift_handover(db, plant_id, brief.get("brief", ""), brief.get("source", "fallback"))
+        ledger_event = record_operational_event(
+            db,
+            plant_id=plant_id,
+            event_type="handover_brief_generated",
+            source="handover",
+            source_id=str(handover_row.id),
+            subject_id="shift_handover",
+            severity="WARNING" if (plant.latest_handover_debt or {}).get("handover_acceptance_blocked") else "INFO",
+            message="Shift handover brief generated from current operating basis.",
+            payload={
+                "source": brief.get("source", "fallback"),
+                "handover_acceptance": (plant.latest_handover_debt or {}).get("handover_acceptance"),
+                "debt_count": (plant.latest_handover_debt or {}).get("count", 0),
+            },
+            event_id=f"{plant_id}:handover_brief:{handover_row.id}",
+            created_at=handover_row.generated_at,
+            commit=True,
+        )
+        brief["event_id"] = ledger_event.get("event_id")
     except Exception:
         pass
 
@@ -2427,6 +2515,24 @@ async def generate_compliance_report(request: ComplianceRequest, db: Session = D
         ],
         "boundary": "Engineering assumption governance is prototype traceability for a governed trust rubric; it is not a certified safety calculation or site MOC record.",
     }
+    ledger_events = list_operational_events(db, plant_id=request.plant_id, limit=80)
+    ledger_section = {
+        "count": len(ledger_events),
+        "trace_summary": ledger_response(request.plant_id, ledger_events).get("trace_summary", {}),
+        "event_refs": [
+            {
+                "event_id": event.get("event_id"),
+                "event_type": event.get("event_type"),
+                "source": event.get("source"),
+                "subject_id": event.get("subject_id"),
+                "severity": event.get("severity"),
+                "message": event.get("message"),
+                "timestamp": event.get("timestamp"),
+            }
+            for event in ledger_events[:25]
+        ],
+        "boundary": "Operational event IDs link ConfidenceOS evidence across incident, verification, shift, handover, and report surfaces. This is not a certified plant historian.",
+    }
 
     all_sections = {
         "data_coverage": {
@@ -2472,12 +2578,13 @@ async def generate_compliance_report(request: ComplianceRequest, db: Session = D
             "entries": verification_task_rows,
         },
         "engineering_assumption_governance": assumption_governance_section,
+        "operational_event_ledger": ledger_section,
         "recommendations": recommendations,
     }
     section_profiles = {
-        "alarm": ["data_coverage", "runtime_state_at_generation", "alarm_summary", "mass_balance_summary", "engineering_assumption_governance", "recommendations"],
-        "sensor": ["data_coverage", "runtime_state_at_generation", "sensor_reliability", "field_verification_tasks", "engineering_assumption_governance", "recommendations"],
-        "handover": ["data_coverage", "runtime_state_at_generation", "shift_handover_log", "field_verification_tasks", "engineering_assumption_governance", "recommendations"],
+        "alarm": ["data_coverage", "runtime_state_at_generation", "alarm_summary", "mass_balance_summary", "engineering_assumption_governance", "operational_event_ledger", "recommendations"],
+        "sensor": ["data_coverage", "runtime_state_at_generation", "sensor_reliability", "field_verification_tasks", "engineering_assumption_governance", "operational_event_ledger", "recommendations"],
+        "handover": ["data_coverage", "runtime_state_at_generation", "shift_handover_log", "field_verification_tasks", "engineering_assumption_governance", "operational_event_ledger", "recommendations"],
         "full": list(all_sections.keys()),
     }
     selected_section_keys = section_profiles.get(request.report_type, section_profiles["full"])
@@ -2511,6 +2618,29 @@ async def generate_compliance_report(request: ComplianceRequest, db: Session = D
         "signed": False,
         "note": "Unsigned operational summary. Content hash allows tamper-evidence, not authority of signature.",
     }
+    try:
+        report_event = record_operational_event(
+            db,
+            plant_id=request.plant_id,
+            event_type="compliance_report_generated",
+            source="compliance_report",
+            source_id=report["provenance"]["content_sha256"][:16],
+            subject_id=request.report_type,
+            severity="INFO",
+            message=f"Compliance evidence appendix generated for {request.report_type} profile.",
+            payload={
+                "report_type": request.report_type,
+                "period_hours": request.hours,
+                "included_sections": selected_section_keys,
+                "referenced_event_count": len(ledger_events),
+            },
+            event_id=f"{request.plant_id}:compliance_report:{report['provenance']['content_sha256'][:16]}",
+            created_at=report.get("generated_at"),
+            commit=True,
+        )
+        report["operational_event_id"] = report_event.get("event_id")
+    except Exception:
+        report["operational_event_id"] = None
 
     pdf_text = _format_compliance_report_text(report)
     return {
@@ -2575,6 +2705,7 @@ def _format_compliance_report_text(report: dict) -> str:
     runtime_state = sections.get("runtime_state_at_generation", {})
     verification = sections.get("field_verification_tasks", {})
     assumption_governance = sections.get("engineering_assumption_governance", {}) or report.get("assumption_governance", {})
+    operational_ledger = sections.get("operational_event_ledger", {})
     recommendations = sections.get("recommendations", [])
     severity_items = alarm.get("by_severity", {}) or {}
     top_sensors = alarm.get("top_10_sensors", []) or []
@@ -2714,6 +2845,24 @@ def _format_compliance_report_text(report: dict) -> str:
                 f"{item.get('owner_role', 'owner n/a')} / due {item.get('next_review_due', 'n/a')} / "
                 f"MOC {item.get('moc_reference', 'n/a')}"
             )
+    ledger_summary = operational_ledger.get("trace_summary", {}) or {}
+    ledger_refs = operational_ledger.get("event_refs", []) or []
+    lines.extend([
+        "",
+        "Referenced Operational Event IDs",
+        f"Ledger rows referenced: {operational_ledger.get('count', 0)}",
+        f"Incident events: {ledger_summary.get('incident_events', 0)} / Verification events: {ledger_summary.get('verification_events', 0)} / Handover events: {ledger_summary.get('handover_events', 0)} / Operator notes: {ledger_summary.get('operator_notes', 0)}",
+        f"Boundary: {operational_ledger.get('boundary', 'Prototype operational traceability, not a certified plant historian.')}",
+    ])
+    if ledger_refs:
+        for event in ledger_refs[:18]:
+            lines.append(
+                f"- {event.get('event_id', 'event-id-missing')} / {event.get('event_type', 'event')} / "
+                f"{event.get('source', 'source n/a')} / {event.get('subject_id', 'subject n/a')} / "
+                f"{event.get('severity', 'INFO')}: {event.get('message', '')[:140]}"
+            )
+    else:
+        lines.append("- No operational event IDs were logged in this report window.")
     lines.extend([
         "",
         "Recommendations",

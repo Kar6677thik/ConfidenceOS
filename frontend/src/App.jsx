@@ -111,7 +111,7 @@ const ROLE_HOME = {
   Maintenance: '/runtime',
   Engineer:    '/studio',
   Manager:     '/runtime',
-  Auditor:     '/forensics',
+  Auditor:     '/handover',
 };
 
 // App root

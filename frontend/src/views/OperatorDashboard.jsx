@@ -29,6 +29,7 @@ import ScoreSensitivityPanel from '../components/ScoreSensitivityPanel';
 import VerificationTokens from '../components/VerificationTokens';
 import HandoverDebtLedger from '../components/HandoverDebtLedger';
 import PageIdentity from '../components/hmi/PageIdentity';
+import SupportViewNotice from '../components/SupportViewNotice';
 
 function healthColor(pct) {
   if (pct >= 80) return 'text-[var(--safe-text)]';
@@ -416,6 +417,12 @@ export default function OperatorDashboard() {
             </span>
           </div>
           <div className="flex-1 overflow-y-auto scrollbar-thin overflow-x-hidden p-4 gap-4 flex flex-col">
+          <SupportViewNotice
+            title="Operator Detail"
+            status="support"
+            source="Live WebSocket stream and advisory support panels."
+            boundary="Runtime remains the primary pressure-mode operator screen."
+          />
           {railMessage && (
             <div className="industrial-card p-3 caption-mono text-[var(--data-mono)] flex items-center justify-between gap-3">
               <span>{railMessage}</span>

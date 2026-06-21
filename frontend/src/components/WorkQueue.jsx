@@ -4,6 +4,7 @@ import useStore from '../store';
 import PageIdentity from './hmi/PageIdentity';
 import StatusTag from './hmi/StatusTag';
 import apiFetch from '../lib/apiFetch';
+import SupportViewNotice from './SupportViewNotice';
 
 const ROLE_TRANSITIONS = {
   Operator: new Set(['EXPIRED']),
@@ -399,13 +400,21 @@ export default function WorkQueue() {
   }
 
   return (
-    <div className="industrial-page grid grid-rows-[auto_minmax(0,1fr)] overflow-hidden">
+    <div className="industrial-page grid grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden">
       <PageIdentity
         displayName="Work Queue"
         level={2}
         area="Operational Ownership Console"
         plant={plantId}
       />
+      <div className="bg-[var(--border-strong)]">
+        <SupportViewNotice
+          title="Verification Work Queue"
+          status="live"
+          source="Durable verification task lifecycle and handover blockers."
+          boundary="Shift Channel remains the primary continuity view for handover acceptance."
+        />
+      </div>
       <div className="grid grid-cols-[minmax(280px,360px)_1fr] gap-[1px] bg-[var(--border-strong)] min-h-0 overflow-hidden">
         <aside className="bg-[var(--surface-panel)] overflow-y-auto scrollbar-thin">
           <section className="industrial-panel border-t-0">

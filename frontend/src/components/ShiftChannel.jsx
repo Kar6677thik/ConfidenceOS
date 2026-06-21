@@ -13,6 +13,10 @@ function evidenceText(task) {
 
 function eventTime(timestamp) {
   if (!timestamp) return 'live';
+  if (typeof timestamp === 'string') {
+    const parsed = Date.parse(timestamp);
+    return Number.isFinite(parsed) ? new Date(parsed).toLocaleTimeString() : timestamp;
+  }
   const millis = timestamp > 10_000_000_000 ? timestamp : timestamp * 1000;
   return new Date(millis).toLocaleTimeString();
 }
@@ -132,6 +136,8 @@ export default function ShiftChannel() {
   const activeTasks = verificationTasks.filter((item) => item.active || item.handover_required);
   const closedTasks = verificationTasks.filter((item) => !item.active && !item.handover_required);
   const pinnedItems = dedupeItems(channel?.pinned || []);
+  const ledgerEvents = channel?.operational_ledger?.events || [];
+  const ledgerSummary = channel?.operational_ledger?.trace_summary || {};
 
   const refresh = useCallback(() => {
     fetch(`/api/shift-channel?plant_id=${plantId}`)
@@ -311,6 +317,56 @@ export default function ShiftChannel() {
             <input value={message} onChange={(event) => setMessage(event.target.value)} className="industrial-input" placeholder="Add operator note for handover..." />
             <button className="industrial-control status-safe">Pin Note</button>
           </form>
+        </section>
+        <section className="industrial-panel mb-[1px]">
+          <div className="industrial-panel-header">
+            <div>
+              <p className="label-caps text-[var(--text-muted)]">Operational Event Ledger</p>
+              <h2 className="industrial-panel-title text-base">Trace Ledger</h2>
+            </div>
+            <span className="industrial-badge text-[var(--data-mono)]">{ledgerEvents.length}</span>
+          </div>
+          <div className="industrial-body">
+            <div className="grid grid-cols-4 gap-2 mb-3">
+              {[
+                ['Incident', ledgerSummary.incident_events || 0],
+                ['Verify', ledgerSummary.verification_events || 0],
+                ['Handover', ledgerSummary.handover_events || 0],
+                ['Notes', ledgerSummary.operator_notes || 0],
+              ].map(([label, value]) => (
+                <div key={label} className="border border-[var(--border)] bg-[var(--surface-panel)] p-2">
+                  <p className="label-caps text-[var(--text-muted)]">{label}</p>
+                  <p className="caption-mono font-semibold text-[var(--data-mono)]">{value}</p>
+                </div>
+              ))}
+            </div>
+            <div className="space-y-[1px] bg-[var(--border-strong)]">
+              {ledgerEvents.slice(0, 10).map((event) => (
+                <div key={event.event_id} className="bg-[var(--surface-panel)] p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className={`label-caps min-w-0 truncate ${severityClass(event.severity)}`} title={event.event_id}>
+                      {event.event_type} / {event.source}
+                    </p>
+                    <span className="caption-mono text-[var(--data-mono)] shrink-0">{eventTime(event.timestamp)}</span>
+                  </div>
+                  <p className="caption-mono text-[var(--text-muted)] mt-1 truncate" title={event.event_id}>
+                    {event.event_id}
+                  </p>
+                  <p className="caption-mono text-[var(--text)] mt-1 [overflow-wrap:anywhere]">
+                    {event.subject_id || 'subject n/a'} - {event.message || 'No message recorded.'}
+                  </p>
+                </div>
+              ))}
+              {!ledgerEvents.length && (
+                <p className="bg-[var(--surface-panel)] p-3 caption-mono text-[var(--data-mono)]">
+                  No operational ledger events recorded yet. Wait for a runtime tick or add a handover note.
+                </p>
+              )}
+            </div>
+            <p className="caption-mono text-[var(--text-muted)] mt-3">
+              Event IDs connect incident evidence, verification tasks, shift notes, handover briefs, and compliance reports.
+            </p>
+          </div>
         </section>
         <section className="industrial-panel">
           <div className="industrial-panel-header">
