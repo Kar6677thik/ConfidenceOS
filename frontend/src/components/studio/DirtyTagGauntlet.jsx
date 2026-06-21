@@ -36,12 +36,20 @@ export default function DirtyTagGauntlet({ court, selectedRawTag, onSelect }) {
               <p className="label-caps text-[var(--text-muted)] mt-1">raw import row</p>
             </div>
             <div className="bg-[var(--surface-panel)] p-3">
-              <p className="caption-mono text-[var(--data-mono)] machine-token">{row.proposed_canonical_tag || 'unresolved'}</p>
-              <p className="label-caps text-[var(--text-muted)] mt-1">derived suggestion</p>
+              <p className="caption-mono text-[var(--data-mono)] machine-token">
+                {row.bucket === 'mapped'
+                  ? (row.proposed_canonical_tag || '—')
+                  : row.bucket === 'ignored'
+                  ? '—'
+                  : (row.proposed_canonical_tag || 'no match found')}
+              </p>
+              <p className="label-caps text-[var(--text-muted)] mt-1">
+                {row.bucket === 'mapped' ? 'approved mapping' : row.bucket === 'ignored' ? 'ignored' : 'suggested mapping'}
+              </p>
             </div>
             <div className="bg-[var(--surface-panel)] p-3">
               <p className={`caption-mono ${row.blocking ? 'status-critical' : statusClass(row.bucket)}`}>{formatText(row.bucket)}</p>
-              <p className="label-caps text-[var(--text-muted)] mt-1">state</p>
+              <p className="label-caps text-[var(--text-muted)] mt-1">court verdict</p>
             </div>
           </button>
         ))}

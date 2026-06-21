@@ -1262,6 +1262,47 @@ def explain_confidence_alias(sensor_id: str, plant_id: str = Query(default="plan
     return explain_confidence(sensor_id=sensor_id, plant_id=plant_id)
 
 
+@app.get("/api/confidence/{sensor_id}/root-cause")
+async def get_root_cause_explanation(
+    sensor_id: str,
+    plant_id: str = Query(default="plant-a"),
+    db: Session = Depends(get_db),
+):
+    """
+    AI-powered root cause analysis for a degraded sensor.
+
+    Returns a 3-sentence operator narrative: why the anomaly occurred, whether it
+    is a sensor fault or process issue, and what to verify first. Falls back to
+    deterministic structured text when no LLM provider is configured.
+    Advisory only — confidence engine remains authoritative.
+    """
+    from root_cause import explain_root_cause
+
+    plant = plant_manager.get(plant_id)
+    confidence_data = plant.latest_confidence.get(sensor_id)
+    if confidence_data is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No confidence data for sensor '{sensor_id}'. Ensure the plant is running.",
+        )
+
+    # Recent confidence trend from DB (2h window)
+    confidence_history = get_confidence_history(db, plant_id, sensor_id, hours=2.0)
+
+    # Causal graph: find upstream causes and downstream effects for this sensor
+    graph = get_graph_state(plant_id, plant.latest_confidence)
+    upstream = [e["source"] for e in graph.get("edges", []) if e["target"] == sensor_id]
+    downstream = [e["target"] for e in graph.get("edges", []) if e["source"] == sensor_id]
+
+    causal_context = {
+        "upstream": upstream,
+        "downstream": downstream,
+        "plant_name": graph.get("plant_name", plant_id),
+    }
+
+    return await explain_root_cause(sensor_id, confidence_data, confidence_history, causal_context)
+
+
 @app.get("/api/confidence/sensitivity/{sensor_id}")
 def get_score_sensitivity(
     sensor_id: str,
@@ -2176,6 +2217,12 @@ def get_trust_dependency_graph(plant_id: str):
         mass_balance=plant.latest_mb_state,
         incidents=plant.latest_incidents,
     )
+
+
+@app.get("/api/trust-dependency-graph")
+def get_trust_dependency_graph_alias(plant_id: str = Query(default="plant-a")):
+    """Alias for /api/trust-dependency/{plant_id} using query param."""
+    return get_trust_dependency_graph(plant_id=plant_id)
 
 
 # ─── Incident Forensics & Replay (Module 10) ─────────────────────────────────
