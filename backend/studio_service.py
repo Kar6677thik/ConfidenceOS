@@ -900,7 +900,9 @@ def _default_state(model_key: str | None = None) -> dict:
         },
         "suggestions": [],
         "approved_bindings": [],
-        "ignored_raw_tags": {},
+        "ignored_raw_tags": {
+            "BAD_TAG_123": "Demo shared-noise tag — not bound to any Runtime signal. Ignored during initial commissioning.",
+        },
         "manual_raw_tags": [],
         "notes": [],
     }
@@ -917,7 +919,13 @@ def _with_default_fields(state: dict) -> dict:
         if item.get("source") != "demo_default_engineer_approval"
     ]
     if not isinstance(merged.get("ignored_raw_tags"), dict):
-        merged["ignored_raw_tags"] = {}
+        merged["ignored_raw_tags"] = dict(default["ignored_raw_tags"])
+    else:
+        # Ensure demo noise tag is always ignored, even in migrated states.
+        merged["ignored_raw_tags"].setdefault(
+            "BAD_TAG_123",
+            "Demo shared-noise tag — not bound to any Runtime signal. Ignored during initial commissioning.",
+        )
     if not isinstance(merged.get("manual_raw_tags"), list):
         merged["manual_raw_tags"] = []
     if merged.get("selected_asset_model") not in MODEL_ASSIGNMENTS:
