@@ -2,8 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import useStore from '../store';
 import PriorityBand from './hmi/PriorityBand';
-import MassBalanceChart from './MassBalanceChart';
-import ComparisonPanel from './ComparisonPanel';
 import apiFetch from '../lib/apiFetch';
 
 function formatText(value) {
@@ -22,7 +20,7 @@ function formatText(value) {
     if (candidate) return formatText(candidate);
     return Object.entries(value)
       .filter(([, item]) => item != null && typeof item !== 'object')
-      .map(([key, item]) => `${formatText(key)}: ${item}`)
+      .map(([key, item]) => `${formatText(key)}: ${formatText(item)}`)
       .join(' / ');
   }
   return String(value)
@@ -49,7 +47,7 @@ function displayText(value) {
       || value.type
       || Object.entries(value)
         .filter(([, item]) => item != null && typeof item !== 'object')
-        .map(([key, item]) => `${formatText(key)}: ${item}`)
+        .map(([key, item]) => `${formatText(key)}: ${formatText(item)}`)
         .join(' / '),
     );
   }
@@ -62,7 +60,7 @@ function signalDisplayValue(signal, { includeUnit = true } = {}) {
   const unavailable = ['METADATA_ONLY', 'NO_LIVE_SAMPLE', 'UNAVAILABLE'].includes(trust.tier);
   if (rawValue == null || rawValue === '--' || typeof rawValue === 'object' || unavailable) {
     if (trust.tier === 'UNAVAILABLE') return 'provider unavailable';
-    if (trust.tier === 'NO_LIVE_SAMPLE') return 'sample pending';
+    if (trust.tier === 'NO_LIVE_SAMPLE') return 'awaiting sample';
     return 'metadata binding';
   }
   const numeric = Number(rawValue);
@@ -73,7 +71,7 @@ function signalDisplayValue(signal, { includeUnit = true } = {}) {
 function signalSourceNote(signal) {
   const trust = signalTrustState(signal);
   if (trust.tier === 'UNAVAILABLE') return 'Live provider reported unavailable.';
-  if (trust.tier === 'NO_LIVE_SAMPLE') return 'Awaiting the next live provider sample.';
+  if (trust.tier === 'NO_LIVE_SAMPLE') return 'Awaiting the next live provider sample; do not use as operating basis yet.';
   if (trust.tier === 'METADATA_ONLY') return 'Configured from asset model; no live provider sample is bound yet.';
   if (trust.tier === 'NO_CONFIDENCE_RESULT') return 'Live value present; confidence calculation is pending.';
   return trust.pct != null ? `${formatText(trust.tier)} trust / ${trust.pct}%` : `${formatText(trust.tier)} trust`;
@@ -1137,7 +1135,6 @@ function PressureModeRuntime({
   connected,
   plantId,
   plantContext,
-  chartHistory,
   massBalance,
   demoState,
   demoBusy,
@@ -1151,10 +1148,6 @@ function PressureModeRuntime({
   const contract = lead.action_contract || {};
   const collapse = lead.alarm_collapse_receipt || basis.alarm_collapse_receipt || lead.alarm_collapse || {};
   const score = decisionScore(lead, confidence);
-  // Physics is the alarm: surface the implied-vs-indicated gap when a
-  // mass-balance contradiction is the basis of the abnormal situation.
-  const hasMassBalanceStory = (massBalance?.flags || []).length > 0
-    || (chartHistory || []).length > 1;
   const flagMessages = asList(massBalance?.flags).map(displayText);
 
   return (
@@ -1179,20 +1172,12 @@ function PressureModeRuntime({
                 <ValueList values={flagMessages} status="status-critical" />
               </div>
             )}
-            {/* The star of the abnormal situation: physics disagreeing with the
-                indicated reading. This dominates the operator's view. */}
-            {hasMassBalanceStory && (
-              <div className="min-h-[560px] w-full shrink-0" style={{ minWidth: 0 }}>
-                <MassBalanceChart chartHistory={chartHistory} massBalance={massBalance} flags={massBalance?.flags} />
-              </div>
-            )}
             <div className="hmi-operation-note">
               <p className="label-caps text-[var(--text-muted)]">Operator Single Safe Move</p>
               <p className="text-[24px] leading-[30px] font-bold mt-2">
                 {formatText(basis.operator_single_safe_move || contract.first_safe_action || 'Verify locally before changing operation.')}
               </p>
             </div>
-            <ComparisonPanel confidence={confidence} massBalance={massBalance} basis={basis} situation={lead} />
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
               <div className="bg-[var(--surface-highest)] border border-[var(--border-strong)] p-4">
                 <p className="label-caps status-critical">Do Not Trust</p>
@@ -1246,17 +1231,21 @@ function PressureModeRuntime({
 
 function RuntimeUnavailable({ error, plantId, role, connected, onRetry }) {
   const operatorView = isOperatorRole(role);
+  const text = String(error || '');
+  const notPublished = /No published Runtime|Publish a passing Studio build|not published/i.test(text);
   const manifest = {
-    navigation: { name: operatorView ? 'Runtime operating view unavailable' : 'Runtime manifest unavailable' },
-    context: 'runtime_unavailable',
-    validation_status: 'FAILED',
-    worst_trust_exception: { label: operatorView ? 'Runtime operating view unavailable' : 'Runtime manifest unavailable', trust_state: 'CRITICAL' },
+    navigation: { name: notPublished ? 'Generated Runtime not published' : operatorView ? 'Runtime operating view unavailable' : 'Runtime manifest unavailable' },
+    context: notPublished ? 'publish_required' : 'runtime_unavailable',
+    validation_status: notPublished ? 'NOT_PUBLISHED' : 'FAILED',
+    worst_trust_exception: { label: notPublished ? 'Publish required' : operatorView ? 'Runtime operating view unavailable' : 'Runtime manifest unavailable', trust_state: notPublished ? 'DEGRADED' : 'CRITICAL' },
   };
-  const title = operatorView ? 'Runtime operating view unavailable' : 'Generated Runtime manifest did not load';
+  const title = notPublished ? 'Generated Runtime unavailable until Studio publishes a build' : operatorView ? 'Runtime operating view unavailable' : 'Generated Runtime manifest did not load';
   const recovery = operatorView
-    ? 'Retry Runtime data. If this remains active, continue from the existing HMI/DCS and notify Engineering.'
+    ? notPublished
+      ? 'Ask Engineering to publish a passing Studio build. Continue from the existing HMI/DCS until ConfidenceOS Runtime is published.'
+      : 'Retry Runtime data. If this remains active, continue from the existing HMI/DCS and notify Engineering.'
     : 'Retry Runtime manifest, then verify backend health if this remains active.';
-  const detail = operatorView ? 'The read-only operating display cannot load current Runtime data.' : (error || 'No response from /api/screens/generated.');
+  const detail = operatorView && !notPublished ? 'The read-only operating display cannot load current Runtime data.' : (error || 'No response from /api/screens/generated.');
   return (
     <div className="industrial-page hmi-workplace hmi-pressure">
       <HmiAlarmBand manifest={manifest} role={role} connected={connected} plantId={plantId} plantContext={{ status: 'runtime_unavailable' }} />

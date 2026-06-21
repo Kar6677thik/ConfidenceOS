@@ -41,3 +41,34 @@ def test_valid_operator_jwt_allows_verification_request(client, auth_headers):
     )
     assert response.status_code == 200
     assert response.json()["sensor_id"] == "LT-5100"
+
+
+def test_compliance_report_rejects_missing_token(client):
+    response = client.post(
+        "/api/compliance/generate",
+        json={"plant_id": "plant-a", "hours": 8, "report_type": "full"},
+    )
+    assert response.status_code == 401
+
+
+def test_compliance_report_rejects_operator_role(client, auth_headers):
+    response = client.post(
+        "/api/compliance/generate",
+        headers=auth_headers("Operator"),
+        json={"plant_id": "plant-a", "hours": 8, "report_type": "full"},
+    )
+    assert response.status_code == 403
+
+
+def test_compliance_report_records_authenticated_actor(client, auth_headers):
+    response = client.post(
+        "/api/compliance/generate",
+        headers=auth_headers("Manager"),
+        json={"plant_id": "plant-a", "hours": 8, "report_type": "full"},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["generated_role"] == "Manager"
+    assert payload["generated_by"]
+    assert "generated_by" in payload["provenance"]
+    assert "report_event_id" in payload

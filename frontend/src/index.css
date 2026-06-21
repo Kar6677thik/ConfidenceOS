@@ -302,7 +302,8 @@ button:disabled { cursor: not-allowed; }
 .caption-mono,
 .label-caps {
   word-break: normal;
-  overflow-wrap: normal;
+  overflow-wrap: break-word;
+  min-width: 0;
 }
 
 .text-fit-safe {
@@ -644,6 +645,19 @@ button:disabled { cursor: not-allowed; }
   font-weight: 700;
   text-transform: uppercase;
   padding: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: normal;
+  overflow-wrap: normal;
+}
+
+.hmi-edge-button span {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .hmi-edge-button.active,

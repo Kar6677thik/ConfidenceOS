@@ -216,8 +216,13 @@ export default function EvidenceStack({ selectedSensorId, confidence, incidents 
       <div className="industrial-body space-y-4">
         <div className="industrial-grid-shell grid-cols-2">
           <div className="industrial-panel-subtle p-3">
-            <p className="label-caps text-[var(--text-muted)]">Confidence</p>
-            <p className={`font-data text-3xl font-bold ${namurClass}`}>{Math.round(selected.confidence_pct ?? 0)}%</p>
+            <p className="label-caps text-[var(--text-muted)]">Trust State</p>
+            <p className={`font-data text-xl font-bold ${namurClass}`}>
+              {(selected.trust_state || selected.tier || 'UNKNOWN').replace(/_/g, ' ')}
+            </p>
+            <p className="caption-mono text-[var(--text-muted)] mt-1">
+              governed score detail: {Math.round(selected.confidence_pct ?? 0)}%
+            </p>
           </div>
           <div className="industrial-panel-subtle p-3">
             <p className="label-caps text-[var(--text-muted)]">Dominant Factor</p>
@@ -226,6 +231,13 @@ export default function EvidenceStack({ selectedSensorId, confidence, incidents 
         </div>
 
         <ConfidenceCourtroom selected={selected} explanation={explanation} loading={loading} />
+
+        <div className="border border-[var(--border-strong)] bg-[var(--surface-base)] p-3">
+          <p className="label-caps text-[var(--text-muted)]">Confidence Definition</p>
+          <p className="caption-mono text-[var(--text-muted)] mt-2">
+            Confidence is a deterministic governed trust score from calibration, stability, cross-sensor evidence, plausibility, and operating context. It is not a calibrated probability.
+          </p>
+        </div>
 
         {explanation?.formula?.expression && (
           <div className="border border-[var(--border-strong)] bg-[var(--surface-base)] p-3">

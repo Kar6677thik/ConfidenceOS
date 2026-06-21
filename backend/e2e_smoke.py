@@ -442,7 +442,7 @@ def test_shift_handover(plant):
 def test_compliance_sandbox(plant, sensors):
     print(f"\n== Compliance & sandbox ({plant}) ==")
     def fc():
-        r = post("/api/compliance/generate", {"plant_id": plant, "hours": 24, "report_type": "full"})
+        r = post("/api/compliance/generate", {"plant_id": plant, "hours": 24, "report_type": "full"}, auth_role="Manager")
         if r.status_code != 200:
             return False, f"status {r.status_code}"
         d = r.json()
@@ -452,10 +452,12 @@ def test_compliance_sandbox(plant, sensors):
             ("pdf_base64" in d)
             and bool(prov.get("content_sha256"))
             and prov.get("signed") in (False, None)
+            and d.get("generated_role") == "Manager"
+            and bool(d.get("generated_by"))
             and "engineering_assumption_governance" in sections
             and "assumption_governance" in d
         )
-        return ok, f"signed={prov.get('signed')} hash={'yes' if prov.get('content_sha256') else 'no'} assumptions={'yes' if 'assumption_governance' in d else 'no'}"
+        return ok, f"signed={prov.get('signed')} hash={'yes' if prov.get('content_sha256') else 'no'} actor={d.get('generated_role')} assumptions={'yes' if 'assumption_governance' in d else 'no'}"
     check("Compliance", "POST /api/compliance/generate", "report + provenance + pdf", fc)
 
     sid = sensors[0] if sensors else "LT-5100"
