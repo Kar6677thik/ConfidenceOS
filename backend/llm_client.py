@@ -46,7 +46,7 @@ _load_env_file(Path(__file__).parent.parent / ".env")
 
 
 ANTHROPIC_DIRECT_MODEL = "claude-sonnet-4-20250514"
-OPENAI_COMPATIBLE_MODEL = "anthropic/claude-3.5-haiku"
+OPENAI_COMPATIBLE_MODEL = "anthropic/claude-haiku-4-5"
 OPENAI_COMPATIBLE_BASE_URL = "https://aicredits.in/v1"
 
 

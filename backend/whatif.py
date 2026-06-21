@@ -203,7 +203,7 @@ async def _call_llm(scenario: dict, plant_name: str) -> dict:
     response = await complete_text(
         system=system,
         messages=[{"role": "user", "content": prompt}],
-        max_tokens=240,
+        max_tokens=320,
         temperature=0.2,
     )
 
