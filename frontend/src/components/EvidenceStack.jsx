@@ -20,6 +20,13 @@ function statusClass(status) {
   return STATUS_CLASS[status] || STATUS_CLASS.INFO;
 }
 
+function governanceClass(status) {
+  const value = String(status || '').toLowerCase();
+  if (['stale', 'unapproved', 'rejected'].includes(value)) return 'status-critical';
+  if (['due_soon', 'review_required', 'draft'].includes(value)) return 'status-warning';
+  return 'status-safe';
+}
+
 function formatAssumptionId(value) {
   return String(value || '')
     .replace(/_/g, ' ')
@@ -105,14 +112,22 @@ function ConfidenceCourtroom({ selected, explanation, loading }) {
               <div key={item.assumption_id} className="caption-mono border-t border-[var(--border-strong)] pt-2 first:border-t-0 first:pt-0">
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-[var(--text)]">{formatAssumptionId(item.assumption_id)}</span>
-                  <span className={item.review_required ? 'status-warning' : 'status-safe'}>
-                    {item.confidence_impact || 'impact unknown'}
+                  <span className={governanceClass(item.governance_status || item.approval_status)}>
+                    {formatAssumptionId(item.governance_status || item.approval_status || 'unknown')}
                   </span>
                 </div>
                 <p className="text-[var(--data-mono)] mt-1">
-                  {String(typeof item.value === 'object' ? 'structured' : item.value)} {item.unit} / {item.owner_role}
+                  v{item.version || 'n/a'} / {item.owner_role || 'owner role n/a'} / {item.confidence_impact || 'impact unknown'} confidence impact
                 </p>
-                <p className="text-[var(--text-muted)] mt-1">{item.source}</p>
+                <p className="text-[var(--text-muted)] mt-1">
+                  Last reviewed {item.last_reviewed_at || 'n/a'} / next review {item.next_review_due || 'n/a'} / MOC {item.moc_reference || 'n/a'}
+                </p>
+                <p className="text-[var(--text-muted)] mt-1">
+                  Approved by {item.approved_by || 'n/a'} ({item.approval_role || 'role n/a'}). {item.source}
+                </p>
+                {item.review_warning && (
+                  <p className="status-warning mt-1">{item.review_warning}</p>
+                )}
               </div>
             ))}
           </div>

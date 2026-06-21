@@ -65,7 +65,12 @@ from prediction import predict_all_sensors
 from causal_graph import get_graph_state
 from adaptive_thresholds import compute_adaptive_envelopes
 from advisory import detect_plant_context, build_incidents, build_timeline_events
-from assumptions import build_confidence_explanation, confidence_engine_config, load_assumptions
+from assumptions import (
+    build_assumption_governance,
+    build_confidence_explanation,
+    confidence_engine_config,
+    load_assumptions,
+)
 from asset_model import active_asset_model_key, load_asset_model, mass_balance_validation
 from model_graph import get_assets, get_model_graph, get_navigation, get_signals
 from screen_generator import equipment_manifest
@@ -1273,6 +1278,7 @@ def get_assumptions():
         "assumptions": assumptions,
         "count": len(assumptions),
         "source": "backend/assumptions.json",
+        "governance": build_assumption_governance(assumptions),
     }
 
 
@@ -2397,6 +2403,30 @@ async def generate_compliance_report(request: ComplianceRequest, db: Session = D
     recommendations = _generate_compliance_recommendations(
         alarm_by_severity, sensor_reliability, mb_anomalies, plant
     )
+    assumption_register = load_assumptions()
+    assumption_governance = build_assumption_governance(assumption_register)
+    assumption_governance_section = {
+        "status": assumption_governance.get("status"),
+        "summary": assumption_governance.get("summary", {}),
+        "warnings": assumption_governance.get("warnings", []),
+        "high_impact_open_items": assumption_governance.get("high_impact_open_items", []),
+        "assumptions": [
+            {
+                "assumption_id": assumption_id,
+                "version": assumption.get("version"),
+                "owner_role": assumption.get("owner_role"),
+                "confidence_impact": assumption.get("confidence_impact"),
+                "approval_status": assumption.get("approval_status"),
+                "approved_by": assumption.get("approved_by"),
+                "approval_role": assumption.get("approval_role"),
+                "last_reviewed_at": assumption.get("last_reviewed_at"),
+                "next_review_due": assumption.get("next_review_due"),
+                "moc_reference": assumption.get("moc_reference"),
+            }
+            for assumption_id, assumption in assumption_register.items()
+        ],
+        "boundary": "Engineering assumption governance is prototype traceability for a governed trust rubric; it is not a certified safety calculation or site MOC record.",
+    }
 
     all_sections = {
         "data_coverage": {
@@ -2441,12 +2471,13 @@ async def generate_compliance_report(request: ComplianceRequest, db: Session = D
             "confidence_override": False,
             "entries": verification_task_rows,
         },
+        "engineering_assumption_governance": assumption_governance_section,
         "recommendations": recommendations,
     }
     section_profiles = {
-        "alarm": ["data_coverage", "runtime_state_at_generation", "alarm_summary", "mass_balance_summary", "recommendations"],
-        "sensor": ["data_coverage", "runtime_state_at_generation", "sensor_reliability", "field_verification_tasks", "recommendations"],
-        "handover": ["data_coverage", "runtime_state_at_generation", "shift_handover_log", "field_verification_tasks", "recommendations"],
+        "alarm": ["data_coverage", "runtime_state_at_generation", "alarm_summary", "mass_balance_summary", "engineering_assumption_governance", "recommendations"],
+        "sensor": ["data_coverage", "runtime_state_at_generation", "sensor_reliability", "field_verification_tasks", "engineering_assumption_governance", "recommendations"],
+        "handover": ["data_coverage", "runtime_state_at_generation", "shift_handover_log", "field_verification_tasks", "engineering_assumption_governance", "recommendations"],
         "full": list(all_sections.keys()),
     }
     selected_section_keys = section_profiles.get(request.report_type, section_profiles["full"])
@@ -2459,11 +2490,13 @@ async def generate_compliance_report(request: ComplianceRequest, db: Session = D
         "period_hours": request.hours,
         "generated_at": datetime.utcnow().isoformat(),
         "sections": {key: all_sections[key] for key in selected_section_keys},
+        "assumption_governance": assumption_governance,
         "available_sections": list(all_sections.keys()),
         "included_sections": selected_section_keys,
         "limitations": [
             "Generated from ConfidenceOS logged simulator/runtime data only.",
             "Confidence values are governed trust scores, not calibrated probabilities.",
+            "Engineering assumption governance is prototype traceability; it is not a certified safety calculation or site MOC approval.",
             "This report does not certify regulatory compliance or replace DCS/HMI records.",
             "False-positive, silence-rate, and digital-signature claims are not made unless source data exists.",
         ],
@@ -2541,6 +2574,7 @@ def _format_compliance_report_text(report: dict) -> str:
     coverage = sections.get("data_coverage", {})
     runtime_state = sections.get("runtime_state_at_generation", {})
     verification = sections.get("field_verification_tasks", {})
+    assumption_governance = sections.get("engineering_assumption_governance", {}) or report.get("assumption_governance", {})
     recommendations = sections.get("recommendations", [])
     severity_items = alarm.get("by_severity", {}) or {}
     top_sensors = alarm.get("top_10_sensors", []) or []
@@ -2657,6 +2691,29 @@ def _format_compliance_report_text(report: dict) -> str:
             )
     else:
         lines.append("- No field verification tasks logged for this report profile/window.")
+    summary = assumption_governance.get("summary", {}) or {}
+    lines.extend([
+        "",
+        "Engineering Assumption Governance",
+        f"Governance status: {assumption_governance.get('status', 'not included')}",
+        f"Approved: {summary.get('approved', 0)} / Due soon: {summary.get('due_soon', 0)} / Stale: {summary.get('stale', 0)} / Unapproved: {summary.get('unapproved', 0)}",
+        "Boundary: governed trust rubric; not a certified safety calculation or site MOC record.",
+        "Warnings:",
+    ])
+    governance_warnings = assumption_governance.get("warnings", []) or []
+    if governance_warnings:
+        lines.extend([f"- {warning}" for warning in governance_warnings[:12]])
+    else:
+        lines.append("- No stale or unapproved engineering assumptions detected in the generated register.")
+    high_impact = assumption_governance.get("high_impact_open_items", []) or []
+    if high_impact:
+        lines.append("High-impact open items:")
+        for item in high_impact[:12]:
+            lines.append(
+                f"- {item.get('assumption_id')} / {item.get('governance_status')} / "
+                f"{item.get('owner_role', 'owner n/a')} / due {item.get('next_review_due', 'n/a')} / "
+                f"MOC {item.get('moc_reference', 'n/a')}"
+            )
     lines.extend([
         "",
         "Recommendations",

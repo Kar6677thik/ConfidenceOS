@@ -10,37 +10,61 @@
     "source": "confidence.py ConfidenceWeights default",
     "owner_role": "Controls Engineer",
     "confidence_impact": "high",
-    "review_required": true
+    "review_required": true,
+    "version": "1.0",
+    "effective_date": "2026-06-01",
+    "last_reviewed_at": "2026-06-15",
+    "next_review_due": "2026-12-12",
+    "approval_status": "approved",
+    "approved_by": "Demo Controls Authority",
+    "approval_role": "Controls Engineer",
+    "moc_reference": "DEMO-MOC-ASSUMPTIONS-001"
   },
   "calibration_interval": {
     "value": 90.0,
     "unit": "days",
-    "source": "confidence.py DEFAULT_CALIBRATION_INTERVAL_DAYS — global fallback when no per-sensor-type interval applies",
-    "owner_role": "Instrumentation Engineer",
-    "confidence_impact": "high",
-    "review_required": true
-  },
-  "per_sensor_type_calibration_intervals": {
-    "value": {
-      "level":       180,
-      "flow_in":     365,
-      "flow_out":    365,
-      "pressure":    365,
-      "temperature": 365,
-      "valve":       180
-    },
-    "unit": "days",
-    "source": "Site calibration schedule — typical ISA-5.1 instrument types. Override per site per instrument data sheet.",
+    "source": "confidence.py DEFAULT_CALIBRATION_INTERVAL_DAYS - global fallback when no per-sensor-type interval applies",
     "owner_role": "Instrumentation Engineer",
     "confidence_impact": "high",
     "review_required": true,
+    "version": "1.0",
+    "effective_date": "2026-06-01",
+    "last_reviewed_at": "2026-06-15",
+    "next_review_due": "2026-12-12",
+    "approval_status": "approved",
+    "approved_by": "Demo Instrument Authority",
+    "approval_role": "Instrumentation Engineer",
+    "moc_reference": "DEMO-MOC-ASSUMPTIONS-002"
+  },
+  "per_sensor_type_calibration_intervals": {
+    "value": {
+      "level": 180,
+      "flow_in": 365,
+      "flow_out": 365,
+      "pressure": 365,
+      "temperature": 365,
+      "valve": 180
+    },
+    "unit": "days",
+    "source": "Site calibration schedule - typical ISA-5.1 instrument types. Override per site per instrument data sheet.",
+    "owner_role": "Instrumentation Engineer",
+    "confidence_impact": "high",
+    "review_required": true,
+    "version": "1.0",
+    "effective_date": "2026-06-01",
+    "last_reviewed_at": "2026-06-15",
+    "next_review_due": "2026-12-12",
+    "approval_status": "approved",
+    "approved_by": "Demo Instrument Authority",
+    "approval_role": "Instrumentation Engineer",
+    "moc_reference": "DEMO-MOC-ASSUMPTIONS-003",
     "notes": "Level and valve transmitters calibrated every 6 months; differential-pressure flow meters and thermowell-mounted TEs annually. These are site-typical values, not universal. Update from plant calibration management system records."
   },
   "per_sensor_type_confidence_weights": {
     "value": {
       "level": {
-        "calibration": 0.30,
-        "stability": 0.20,
+        "calibration": 0.3,
+        "stability": 0.2,
         "cross_sensor": 0.35,
         "physical_plausibility": 0.15
       },
@@ -57,29 +81,37 @@
         "physical_plausibility": 0.15
       },
       "pressure": {
-        "calibration": 0.40,
+        "calibration": 0.4,
         "stability": 0.25,
-        "cross_sensor": 0.20,
+        "cross_sensor": 0.2,
         "physical_plausibility": 0.15
       },
       "temperature": {
         "calibration": 0.35,
-        "stability": 0.30,
-        "cross_sensor": 0.20,
+        "stability": 0.3,
+        "cross_sensor": 0.2,
         "physical_plausibility": 0.15
       },
       "valve": {
         "calibration": 0.25,
-        "stability": 0.30,
-        "cross_sensor": 0.30,
+        "stability": 0.3,
+        "cross_sensor": 0.3,
         "physical_plausibility": 0.15
       }
     },
     "unit": "fraction",
-    "source": "Engineering judgment by sensor type. Safety-critical pressure loops weight calibration score more heavily. Cross-sensor weight elevated for level (physics-driven). All weights must sum to 1.0 per sensor type.",
+    "source": "Engineering judgment by sensor type. Safety-critical pressure loops weight calibration score more heavily. Cross-sensor weight elevated for level. All weights must sum to 1.0 per sensor type.",
     "owner_role": "Controls Engineer",
     "confidence_impact": "high",
-    "review_required": true
+    "review_required": true,
+    "version": "1.0",
+    "effective_date": "2026-06-01",
+    "last_reviewed_at": "2026-06-15",
+    "next_review_due": "2026-12-12",
+    "approval_status": "approved",
+    "approved_by": "Demo Controls Authority",
+    "approval_role": "Controls Engineer",
+    "moc_reference": "DEMO-MOC-ASSUMPTIONS-004"
   },
   "mass_balance_tolerance": {
     "value": 5.0,
@@ -87,7 +119,15 @@
     "source": "mass_balance.py DEFAULT_TOLERANCE",
     "owner_role": "Process Engineer",
     "confidence_impact": "high",
-    "review_required": true
+    "review_required": true,
+    "version": "1.0",
+    "effective_date": "2026-06-01",
+    "last_reviewed_at": "2026-06-15",
+    "next_review_due": "2026-12-12",
+    "approval_status": "approved",
+    "approved_by": "Demo Process Authority",
+    "approval_role": "Process Engineer",
+    "moc_reference": "DEMO-MOC-ASSUMPTIONS-005"
   },
   "flow_to_level_conversion_factor": {
     "value": 0.005,
@@ -95,7 +135,15 @@
     "source": "mass_balance.py FLOW_TO_LEVEL_RATE demo vessel conversion",
     "owner_role": "Process Engineer",
     "confidence_impact": "high",
-    "review_required": true
+    "review_required": true,
+    "version": "1.0",
+    "effective_date": "2026-06-01",
+    "last_reviewed_at": "2026-06-15",
+    "next_review_due": "2026-07-10",
+    "approval_status": "approved",
+    "approved_by": "Demo Process Authority",
+    "approval_role": "Process Engineer",
+    "moc_reference": "DEMO-MOC-ASSUMPTIONS-006"
   },
   "startup_thresholds": {
     "value": {
@@ -117,7 +165,15 @@
     "source": "startup.py StartupManager tier thresholds and tolerance multiplier",
     "owner_role": "Operations Engineer",
     "confidence_impact": "medium",
-    "review_required": true
+    "review_required": true,
+    "version": "1.0",
+    "effective_date": "2026-06-01",
+    "last_reviewed_at": "2026-06-15",
+    "next_review_due": "2027-06-15",
+    "approval_status": "approved",
+    "approved_by": "Demo Operations Authority",
+    "approval_role": "Operations Engineer",
+    "moc_reference": "DEMO-MOC-ASSUMPTIONS-007"
   },
   "stale_reading_threshold": {
     "value": 480.0,
@@ -125,7 +181,15 @@
     "source": "startup.py StartupManager STALE_THRESHOLD_SECONDS",
     "owner_role": "Operations Engineer",
     "confidence_impact": "medium",
-    "review_required": true
+    "review_required": true,
+    "version": "1.0",
+    "effective_date": "2026-06-01",
+    "last_reviewed_at": "2026-06-15",
+    "next_review_due": "2027-06-15",
+    "approval_status": "approved",
+    "approved_by": "Demo Operations Authority",
+    "approval_role": "Operations Engineer",
+    "moc_reference": "DEMO-MOC-ASSUMPTIONS-008"
   },
   "operating_envelopes": {
     "value": {
@@ -164,6 +228,14 @@
     "source": "confidence.py OPERATING_ENVELOPES",
     "owner_role": "Process Engineer",
     "confidence_impact": "medium",
-    "review_required": true
+    "review_required": true,
+    "version": "1.0",
+    "effective_date": "2026-06-01",
+    "last_reviewed_at": "2026-06-15",
+    "next_review_due": "2027-06-15",
+    "approval_status": "approved",
+    "approved_by": "Demo Process Authority",
+    "approval_role": "Process Engineer",
+    "moc_reference": "DEMO-MOC-ASSUMPTIONS-009"
   }
 }

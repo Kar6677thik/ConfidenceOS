@@ -60,6 +60,7 @@ function sectionLabel(key) {
     shift_handover_log: 'Shift Handover Evidence',
     mass_balance_summary: 'Mass-Balance Evidence',
     field_verification_tasks: 'Field Verification Tasks',
+    engineering_assumption_governance: 'Engineering Assumption Governance',
     recommendations: 'Deterministic Recommendations',
   };
   return labels[key] || titleize(key);
@@ -72,6 +73,8 @@ function reportSummary(report) {
   const alarm = sections.alarm_summary || {};
   const verification = sections.field_verification_tasks || {};
   const massBalance = sections.mass_balance_summary || {};
+  const governance = sections.engineering_assumption_governance || report?.assumption_governance || {};
+  const governanceSummary = governance.summary || {};
   return [
     {
       label: 'Logged Evidence Rows',
@@ -101,6 +104,11 @@ function reportSummary(report) {
       label: 'Verification State',
       value: `${verification.active_count ?? 0} active / ${verification.handover_required_count ?? 0} handover-required`,
       status: verification.handover_required_count ? 'status-critical' : 'status-safe',
+    },
+    {
+      label: 'Assumption Governance',
+      value: `${governance.status || 'not evaluated'} / ${governanceSummary.stale ?? 0} stale / ${governanceSummary.unapproved ?? 0} unapproved`,
+      status: ['WARNING', 'BLOCKING'].includes(String(governance.status || '').toUpperCase()) ? 'status-warning' : 'status-safe',
     },
   ];
 }
@@ -265,6 +273,8 @@ export default function CompliancePortal() {
             {[
               'Generated from logged ConfidenceOS data only.',
               'Trust scores are governed rubric values, not calibrated probabilities.',
+              'Engineering assumptions show owner role, review due date, approval status, and MOC reference.',
+              'Assumption governance is prototype traceability, not a certified safety calculation.',
               'Field verification tasks never restore confidence by themselves.',
               'Unsigned SHA-256 hash provides tamper evidence, not legal certification.',
               'ConfidenceOS remains read-only beside existing DCS/HMI records.',

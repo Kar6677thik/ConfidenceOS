@@ -121,7 +121,7 @@ function missingEvidenceItems(task, values) {
 function statusClass(value) {
   const status = String(value || '').toUpperCase();
   if (['CRITICAL', 'BLOCKING', 'LOW', 'QUARANTINED', 'UNAVAILABLE', 'FAILED'].includes(status)) return 'status-critical';
-  if (['WARNING', 'PASS_WITH_WARNINGS', 'PUBLISHED_WITH_WARNINGS', 'DEGRADED', 'MEDIUM', 'NOT_PUBLISHED', 'NO_CONFIDENCE_RESULT'].includes(status)) return 'status-warning';
+  if (['WARNING', 'PASS_WITH_WARNINGS', 'PUBLISHED_WITH_WARNINGS', 'DEGRADED', 'MEDIUM', 'NOT_PUBLISHED', 'NO_CONFIDENCE_RESULT', 'DUE_SOON', 'REVIEW_REQUIRED', 'DRAFT'].includes(status)) return 'status-warning';
   if (['SUBSTITUTED', 'TRUSTED', 'HIGH', 'PASS', 'PUBLISHED'].includes(status)) return 'status-safe';
   if (['METADATA_ONLY', 'NO_LIVE_SAMPLE', 'NOT_BOUND', 'RUNTIME_FALLBACK'].includes(status)) return 'text-[var(--data-mono)]';
   return 'text-[var(--text-muted)]';
@@ -892,6 +892,74 @@ function VerificationTaskControls({ tasks, role, plantId }) {
   );
 }
 
+function assumptionStatusClass(status) {
+  const value = String(status || '').toUpperCase();
+  if (['STALE', 'UNAPPROVED', 'REJECTED'].includes(value)) return 'status-critical';
+  if (['DUE_SOON', 'REVIEW_REQUIRED', 'DRAFT', 'WARNING'].includes(value)) return 'status-warning';
+  return 'status-safe';
+}
+
+function AssumptionGovernancePanel({ summaryItem, assumptions }) {
+  const summary = summaryItem?.summary || {};
+  const warnings = asList(summaryItem?.warnings);
+  const highImpact = asList(summaryItem?.high_impact_open_items);
+  const rows = asList(assumptions).slice(0, 5);
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-2">
+        {[
+          ['Approved', summary.approved ?? 0, 'status-safe'],
+          ['Due Soon', summary.due_soon ?? 0, summary.due_soon ? 'status-warning' : 'text-[var(--text-muted)]'],
+          ['Stale', summary.stale ?? 0, summary.stale ? 'status-critical' : 'text-[var(--text-muted)]'],
+          ['Unapproved', summary.unapproved ?? 0, summary.unapproved ? 'status-critical' : 'text-[var(--text-muted)]'],
+        ].map(([label, value, tone]) => (
+          <div key={label} className="border border-[var(--border)] bg-[var(--surface-panel)] p-2 min-w-0">
+            <p className="label-caps text-[var(--text-muted)]">{label}</p>
+            <p className={`caption-mono font-semibold ${tone}`}>{value}</p>
+          </div>
+        ))}
+      </div>
+      <p className="caption-mono text-[var(--text-muted)]">
+        Confidence is a governed trust rubric, not a calibrated probability or certified safety calculation.
+      </p>
+      {warnings.length > 0 ? (
+        <ValueList values={warnings.slice(0, 3)} status="status-warning" />
+      ) : (
+        <p className="caption-mono status-safe">No stale or unapproved engineering assumptions detected.</p>
+      )}
+      {highImpact.length > 0 && (
+        <div>
+          <p className="label-caps text-[var(--text-muted)] mb-2">High Confidence Impact Open Items</p>
+          <ValueList
+            values={highImpact.map((item) => `${item.assumption_id}: ${formatText(item.governance_status)} / owner role ${item.owner_role || 'n/a'} / due ${item.next_review_due || 'n/a'}`)}
+            status="status-warning"
+          />
+        </div>
+      )}
+      {rows.length > 0 && (
+        <div className="space-y-2">
+          {rows.map((item) => (
+            <div key={item.assumption_id} className="border-t border-[var(--border)] pt-2 first:border-t-0 first:pt-0">
+              <div className="flex items-start justify-between gap-2">
+                <p className="caption-mono text-[var(--text)] font-semibold break-words">{formatText(item.assumption_id)}</p>
+                <span className={`caption-mono ${assumptionStatusClass(item.governance_status || item.approval_status)}`}>
+                  {formatText(item.governance_status || item.approval_status || 'unknown')}
+                </span>
+              </div>
+              <p className="caption-mono text-[var(--text-muted)] mt-1">
+                v{item.version || 'n/a'} / owner role {item.owner_role || 'n/a'} / {item.confidence_impact || 'unknown'} confidence impact
+              </p>
+              <p className="caption-mono text-[var(--text-dim)] mt-1">
+                last reviewed {item.last_reviewed_at || 'n/a'} / next review {item.next_review_due || 'n/a'} / MOC {item.moc_reference || 'n/a'}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function RoleDock({ manifest, selectedFaceplate, confidenceDebt, handoverDebt, verificationTasks, plantId }) {
   const role = manifest?.role || 'Operator';
   const roleKey = normalizeRole(role);
@@ -917,6 +985,8 @@ function RoleDock({ manifest, selectedFaceplate, confidenceDebt, handoverDebt, v
 
   if (roleKey === 'engineer') {
     const receipt = selectedFaceplate?.receipt || {};
+    const assumptionSummary = sectionItems('assumption_governance')[0];
+    const assumptions = sectionItems('assumptions_used');
     return (
       <>
         <DockSection title="Field Verification" eyebrow="Engineer Workspace">
@@ -929,6 +999,9 @@ function RoleDock({ manifest, selectedFaceplate, confidenceDebt, handoverDebt, v
           <ValueList values={receipt.generated_because} empty="No generated-because receipt lines." />
           <ValueList values={receipt.warnings} empty="No receipt warnings." status="status-warning" />
           <p className="caption-mono text-[var(--text-muted)] mt-2">{selectedFaceplate?.template_id} v{selectedFaceplate?.template_version || '1.0'}</p>
+        </DockSection>
+        <DockSection title="Assumption Governance" eyebrow="Engineer Workspace">
+          <AssumptionGovernancePanel summaryItem={assumptionSummary} assumptions={assumptions} />
         </DockSection>
         <DockSection title="Validation Warnings">
           <ValueList values={sectionItems('validation_warnings').map((item) => item.message || item.rule)} empty="No validation warnings attached." status="status-warning" />

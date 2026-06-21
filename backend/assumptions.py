@@ -3,6 +3,7 @@ assumptions.py - Engineering assumption register and deterministic confidence ex
 """
 
 import json
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 
@@ -22,12 +23,107 @@ FACTOR_ASSUMPTIONS = {
 
 SEVERITY_ORDER = {"CRITICAL": 0, "WARNING": 1, "INFO": 2}
 STATUS_ORDER = {"BAD": 0, "DEGRADED": 1, "OK": 2, "INFO": 3}
+GOVERNANCE_FIELDS = {
+    "version",
+    "effective_date",
+    "last_reviewed_at",
+    "next_review_due",
+    "approval_status",
+    "approved_by",
+    "approval_role",
+    "moc_reference",
+}
+APPROVAL_STATUSES = {"approved", "review_required", "draft", "rejected"}
+DUE_SOON_DAYS = 30
 
 
 def load_assumptions() -> dict:
     """Load the engineering assumption register from disk."""
     with ASSUMPTIONS_PATH.open("r", encoding="utf-8") as handle:
         return json.load(handle)
+
+
+def build_assumption_governance(register: dict | None = None, now: date | datetime | str | None = None) -> dict:
+    """Return deterministic governance status for the engineering assumption register."""
+    assumptions = register or load_assumptions()
+    today = _coerce_date(now) or date.today()
+    warnings = []
+    by_status = {"approved": 0, "due_soon": 0, "stale": 0, "unapproved": 0}
+    stale_ids = []
+    unapproved_ids = []
+    due_soon_ids = []
+    high_impact_open_items = []
+    items = []
+
+    for assumption_id, assumption in assumptions.items():
+        governance = _assumption_governance_status(assumption_id, assumption, today)
+        status = governance["governance_status"]
+        by_status[status] = by_status.get(status, 0) + 1
+        items.append({"assumption_id": assumption_id, **governance})
+
+        if status == "stale":
+            stale_ids.append(assumption_id)
+        if status == "unapproved":
+            unapproved_ids.append(assumption_id)
+        if status == "due_soon":
+            due_soon_ids.append(assumption_id)
+        if governance.get("review_warning"):
+            warnings.append(governance["review_warning"])
+        if assumption.get("confidence_impact") == "high" and status in {"stale", "unapproved", "due_soon"}:
+            high_impact_open_items.append({
+                "assumption_id": assumption_id,
+                "governance_status": status,
+                "confidence_impact": assumption.get("confidence_impact"),
+                "owner_role": assumption.get("owner_role"),
+                "next_review_due": assumption.get("next_review_due"),
+                "moc_reference": assumption.get("moc_reference"),
+                "review_warning": governance.get("review_warning"),
+            })
+
+    if unapproved_ids or stale_ids:
+        status = "WARNING"
+    elif due_soon_ids:
+        status = "WARNING"
+    else:
+        status = "OK"
+
+    return {
+        "status": status,
+        "summary": {
+            "total": len(assumptions),
+            "approved": by_status.get("approved", 0),
+            "due_soon": by_status.get("due_soon", 0),
+            "stale": by_status.get("stale", 0),
+            "unapproved": by_status.get("unapproved", 0),
+            "review_required": sum(1 for item in assumptions.values() if item.get("review_required")),
+        },
+        "warnings": warnings,
+        "stale_assumption_ids": stale_ids,
+        "unapproved_assumption_ids": unapproved_ids,
+        "due_soon_assumption_ids": due_soon_ids,
+        "high_impact_open_items": high_impact_open_items,
+        "items": items,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "policy": {
+            "stale_if_past_next_review_due": True,
+            "unapproved_warns": True,
+            "due_soon_days": DUE_SOON_DAYS,
+            "confidence_score_type": "governed trust rubric, not calibrated probability",
+        },
+    }
+
+
+def decorate_related_assumptions_with_governance(assumptions: list[dict], now: date | datetime | str | None = None) -> list[dict]:
+    """Attach derived governance fields to assumption rows used by evidence ledgers."""
+    today = _coerce_date(now) or date.today()
+    decorated = []
+    for item in assumptions:
+        assumption_id = item.get("assumption_id", "unknown_assumption")
+        decorated.append({
+            **item,
+            **_assumption_governance_status(assumption_id, item, today),
+        })
+    return decorated
 
 
 def build_confidence_explanation(
@@ -74,7 +170,9 @@ def build_confidence_explanation(
         "counter_evidence": counter,
         "verdict": _verdict(sensor_id, confidence, strongest, counter),
         "recommended_action": confidence.get("recommended_action"),
-        "related_assumptions": _related_assumptions(dominant_factor, evidence, register),
+        "related_assumptions": decorate_related_assumptions_with_governance(
+            _related_assumptions(dominant_factor, evidence, register)
+        ),
     }
 
 
@@ -190,3 +288,69 @@ def _related_assumptions(dominant_factor: str, evidence: list[dict], register: d
         for assumption_id in assumption_ids
         if assumption_id in register
     ]
+
+
+def _coerce_date(value: date | datetime | str | None) -> date | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value.replace("Z", "+00:00")).date()
+        except ValueError:
+            try:
+                return date.fromisoformat(value[:10])
+            except ValueError:
+                return None
+    return None
+
+
+def _assumption_governance_status(assumption_id: str, assumption: dict, today: date) -> dict:
+    missing = sorted(field for field in GOVERNANCE_FIELDS if not assumption.get(field))
+    approval_status = str(assumption.get("approval_status") or "").lower()
+    if approval_status and approval_status not in APPROVAL_STATUSES:
+        missing.append("valid_approval_status")
+
+    next_review_due = _coerce_date(assumption.get("next_review_due"))
+    last_reviewed = _coerce_date(assumption.get("last_reviewed_at"))
+    review_required = bool(assumption.get("review_required"))
+
+    if missing or approval_status != "approved":
+        status = "unapproved"
+        reason = "missing governance metadata" if missing else f"approval status is {approval_status or 'missing'}"
+    elif review_required and next_review_due and next_review_due < today:
+        status = "stale"
+        reason = f"review was due on {next_review_due.isoformat()}"
+    elif review_required and next_review_due and (next_review_due - today).days <= DUE_SOON_DAYS:
+        status = "due_soon"
+        reason = f"review due on {next_review_due.isoformat()}"
+    else:
+        status = "approved"
+        reason = "approved governance metadata is current"
+
+    warning = None
+    if status == "unapproved":
+        warning = f"{assumption_id} is unapproved: {reason}."
+    elif status == "stale":
+        warning = f"{assumption_id} is a stale assumption: {reason}."
+    elif status == "due_soon":
+        warning = f"{assumption_id} review required soon: {reason}."
+
+    return {
+        "governance_status": status,
+        "review_warning": warning,
+        "missing_governance_fields": missing,
+        "review_required": review_required,
+        "last_reviewed_at": last_reviewed.isoformat() if last_reviewed else assumption.get("last_reviewed_at"),
+        "next_review_due": next_review_due.isoformat() if next_review_due else assumption.get("next_review_due"),
+        "approval_status": assumption.get("approval_status"),
+        "approved_by": assumption.get("approved_by"),
+        "approval_role": assumption.get("approval_role"),
+        "moc_reference": assumption.get("moc_reference"),
+        "version": assumption.get("version"),
+        "confidence_impact": assumption.get("confidence_impact"),
+        "owner_role": assumption.get("owner_role"),
+    }

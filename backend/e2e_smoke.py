@@ -447,8 +447,15 @@ def test_compliance_sandbox(plant, sensors):
             return False, f"status {r.status_code}"
         d = r.json()
         prov = d.get("provenance", {})
-        ok = ("pdf_base64" in d) and bool(prov.get("content_sha256")) and prov.get("signed") in (False, None)
-        return ok, f"signed={prov.get('signed')} hash={'yes' if prov.get('content_sha256') else 'no'}"
+        sections = d.get("sections", {})
+        ok = (
+            ("pdf_base64" in d)
+            and bool(prov.get("content_sha256"))
+            and prov.get("signed") in (False, None)
+            and "engineering_assumption_governance" in sections
+            and "assumption_governance" in d
+        )
+        return ok, f"signed={prov.get('signed')} hash={'yes' if prov.get('content_sha256') else 'no'} assumptions={'yes' if 'assumption_governance' in d else 'no'}"
     check("Compliance", "POST /api/compliance/generate", "report + provenance + pdf", fc)
 
     sid = sensors[0] if sensors else "LT-5100"

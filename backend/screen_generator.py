@@ -6,7 +6,12 @@ from __future__ import annotations
 
 import time
 
-from assumptions import confidence_formula_expression, load_assumptions
+from assumptions import (
+    build_assumption_governance,
+    confidence_formula_expression,
+    decorate_related_assumptions_with_governance,
+    load_assumptions,
+)
 from decision_integrity import build_score_sensitivity
 from model_graph import equipment_signals, get_assets, get_model_graph, get_navigation
 from template_library import load_context_policies, load_role_policies, template_by_id, validate_assignments
@@ -392,6 +397,7 @@ def _role_sections(
         rows = [
             {"section": "signal_mapping", "items": get_model_graph(model_key=model_key).get("signals", [])},
             {"section": "template_receipt", "items": build_context.get("receipts", [])},
+            {"section": "assumption_governance", "items": [_assumption_governance_summary()]},
             {"section": "assumptions_used", "items": _assumptions_used()},
             {"section": "score_sensitivity", "items": [build_score_sensitivity(lead_confidence.get("sensor_id", primary_level), lead_confidence, role="Engineer")] if lead_confidence else []},
             {"section": "validation_warnings", "items": (build_context.get("validation") or {}).get("warnings", []) + (build_context.get("validation") or {}).get("blocking", [])},
@@ -574,14 +580,18 @@ def _assumptions_used() -> list[dict]:
         "stale_reading_threshold",
         "operating_envelopes",
     ]
-    return [
+    return decorate_related_assumptions_with_governance([
         {
             "assumption_id": key,
             **assumptions.get(key, {}),
         }
         for key in keys
         if key in assumptions
-    ]
+    ])
+
+
+def _assumption_governance_summary() -> dict:
+    return build_assumption_governance(load_assumptions())
 
 
 def _trust_rubric_receipts(live_state: dict) -> list[dict]:

@@ -241,6 +241,8 @@ code, data = GET("/api/assumptions")
 check("GET /api/assumptions returns 200", code == 200)
 check("Assumptions include confidence_weights", "confidence_weights" in data.get("assumptions", {}))
 check("Assumptions include mass_balance_tolerance", "mass_balance_tolerance" in data.get("assumptions", {}))
+check("Assumptions include governance summary", "governance" in data and "summary" in data.get("governance", {}))
+check("Assumption governance has status", data.get("governance", {}).get("status") in ("OK", "WARNING", "BLOCKING"))
 
 code, data = GET("/api/asset-model")
 check("GET /api/asset-model returns 200", code == 200)
@@ -330,6 +332,7 @@ for key in ("formula", "sub_scores", "dominant_factor", "strongest_evidence",
     check(f"  Explanation has '{key}'", key in data)
 check("Explanation has 4 formula terms", len(data.get("formula", {}).get("terms", [])) == 4)
 check("Explanation links related assumptions", len(data.get("related_assumptions", [])) > 0)
+check("Explanation assumptions include governance", all("governance_status" in item for item in data.get("related_assumptions", [])))
 
 code, data = GET("/api/confidence/LT-5100/explain")
 check("GET /api/confidence/LT-5100/explain alias returns 200", code == 200)
