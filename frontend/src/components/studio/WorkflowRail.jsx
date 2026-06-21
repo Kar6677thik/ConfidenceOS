@@ -32,6 +32,13 @@ export default function WorkflowRail({
   onSwitchAssetModel,
   onToggleVerificationMutation,
 }) {
+  const handleReset = () => {
+    if (window.confirm(
+      'Reset Engineering Baseline?\n\nThis will clear all tag mappings, build state, and published manifest for this asset model.\n\nThis action cannot be undone.'
+    )) {
+      onReset();
+    }
+  };
   const selectedModel = overview?.selected_asset_model || overview?.state?.selected_asset_model || 'texas_city_vessel';
   const mutationEnabled = !!(overview?.template_mutations || overview?.state?.template_mutations)?.require_manual_verification_when_level_quarantined;
   const blockerCount = build?.validation?.blocking?.length || court?.counts?.blocking || 0;
@@ -153,7 +160,7 @@ export default function WorkflowRail({
 
           <button
             type="button"
-            onClick={onReset}
+            onClick={handleReset}
             disabled={busy}
             className="industrial-control w-full text-[var(--data-mono)] disabled:opacity-40"
           >

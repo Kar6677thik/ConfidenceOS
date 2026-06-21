@@ -9,7 +9,7 @@ import re
 import time
 from pathlib import Path
 
-from hmi_compiler import imported_tag_buckets, mapping_court, mapping_court_for_tag, run_build
+from hmi_compiler import imported_tag_buckets, mapping_court, mapping_court_for_tag, run_build, _build_validation
 from asset_model import available_asset_models
 from hmi_compiler import load_imported_tags
 from model_graph import equipment_signals, get_assets, get_model_graph, get_signals
@@ -429,12 +429,13 @@ def reset(model_key: str | None = None) -> dict:
 def validation(model_key: str | None = None) -> dict:
     model_key = _active_model_key(model_key)
     state = get_state(model_key)
+    mapping_payload = mapping_court(state)
+    full_validation = _build_validation(mapping_payload, state.get("assignments", []), model_key=model_key)
     build = state.get("last_build")
-    template_validation = validate_assignments(state.get("assignments", []), model_key=model_key)
     if not build:
-        return template_validation
+        return full_validation
     return {
-        **template_validation,
+        **full_validation,
         "compiler": build.get("validation", {}),
         "build_id": build.get("build_id"),
         "can_publish": build.get("can_publish", False),

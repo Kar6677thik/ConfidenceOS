@@ -11,6 +11,7 @@
  */
 
 import { create } from 'zustand';
+import { persist } from 'zustand/middleware';
 
 // How many data points to keep for the mass-balance chart
 const CHART_HISTORY_MAX = 120;
@@ -26,7 +27,9 @@ const storedAssetModelKey = () => {
   }
 };
 
-const useStore = create((set, get) => ({
+const useStore = create(
+  persist(
+    (set, get) => ({
   // -- Connection state --------------------------------------------------
   connected: false,
   _ws: null,
@@ -406,6 +409,16 @@ const useStore = create((set, get) => ({
       return { answer: 'Failed to get response. Please try again.', sources: [] };
     }
   },
-}));
+    }),
+    {
+      name: 'confidenceos.auth',
+      partialize: (state) => ({
+        authToken: state.authToken,
+        authUser: state.authUser,
+        role: state.role,
+      }),
+    }
+  )
+);
 
 export default useStore;

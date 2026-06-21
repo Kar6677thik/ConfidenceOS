@@ -54,7 +54,16 @@ export default function NavBar() {
     authToken,
     logout,
     unackedAlarms,
+    plantId,
   } = useStore();
+
+  const acknowledgeAllAlarms = async () => {
+    const headers = {};
+    if (authToken) headers.Authorization = `Bearer ${authToken}`;
+    try {
+      await fetch(`/api/alarms/acknowledge?plant_id=${plantId}`, { method: 'POST', headers });
+    } catch {}
+  };
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -164,9 +173,14 @@ export default function NavBar() {
           {alerts > 0 ? `${alerts} Trust Alert${alerts > 1 ? 's' : ''}` : trustException.label}
         </div>
         {unackedAlarms > 0 && (
-          <div className="caption-mono status-critical" title="ISA-18.2 unacknowledged alarms — use /api/alarms to acknowledge">
-            {unackedAlarms} Unack Alarm{unackedAlarms > 1 ? 's' : ''}
-          </div>
+          <button
+            onClick={acknowledgeAllAlarms}
+            className="caption-mono status-critical industrial-control shrink-0 px-2"
+            title="ISA-18.2 unacknowledged alarms — click to acknowledge all"
+            aria-label="Acknowledge all alarms"
+          >
+            {unackedAlarms} Unack Alarm{unackedAlarms > 1 ? 's' : ''} · Ack All
+          </button>
         )}
 
         {!runtimeReady && (
