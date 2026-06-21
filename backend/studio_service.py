@@ -159,7 +159,7 @@ async def auto_map(model_key: str | None = None) -> dict:
     # Deterministic verdict remains authoritative; AI explains it.
     model_context = _model_context_for_ai(state)
     ai_assisted = False
-    ai_label = "deterministic rule active; AI explanation unavailable (no key); engineer approval required"
+    ai_label = "deterministic rule active; AI explanation unavailable (no provider); engineer approval required"
     items = court.get("items", [])
     if _ai._ai_available() and items:
         enriched = []
@@ -178,11 +178,10 @@ async def auto_map(model_key: str | None = None) -> dict:
                 }})
                 if explanation.get("ai_assisted"):
                     ai_assisted = True
+                    ai_label = explanation.get("ai_label", ai_label)
             except Exception:
                 enriched.append(item)
         court = {**court, "items": enriched}
-        if ai_assisted:
-            ai_label = "AI explanation active; deterministic rule authoritative; engineer approval required"
 
     state = get_state(model_key)
     state["suggestions"] = suggestions

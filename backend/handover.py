@@ -6,18 +6,19 @@ not communicate the faulty high-level alarm to the incoming day shift. This
 module makes silent handover impossible by auto-generating a comprehensive,
 LLM-polished shift brief from live system state.
 
-Uses Claude API (claude-sonnet-4-20250514) for natural language generation.
-Falls back to a structured template brief when no API key is configured.
+Uses the configured LLM adapter for natural language generation. Falls back to
+a structured template brief when no compatible provider is configured.
 
 PRD Reference: §4.6
 """
 
-import os
 import re
 import json
 import time
 from datetime import datetime, timezone
 from typing import Optional
+
+from llm_client import complete_text, is_configured, model_name, provider
 
 # Safety disclaimer appended to every generated brief regardless of source.
 _SAFETY_DISCLAIMER = (
@@ -82,7 +83,7 @@ def _validate_brief(brief_text: str, system_state: dict) -> dict:
 
 # ─── Configuration ───────────────────────────────────────────────────────────
 
-CLAUDE_MODEL = "claude-sonnet-4-20250514"
+CLAUDE_MODEL = model_name()
 
 SYSTEM_PROMPT = """\
 You are a safety-critical industrial system generating a shift handover brief \
@@ -114,8 +115,8 @@ class HandoverBriefGenerator:
     """
     Collects system state and generates a natural-language shift handover brief.
 
-    Uses Claude API when ANTHROPIC_API_KEY is set. Falls back to a structured
-    template brief otherwise.
+    Uses the LLM adapter when configured. Falls back to a structured template
+    brief otherwise.
 
     Usage:
         gen = HandoverBriefGenerator()
@@ -184,19 +185,17 @@ class HandoverBriefGenerator:
         """
         Generate a shift handover brief.
 
-        Uses Claude API if ANTHROPIC_API_KEY is configured and valid.
+        Uses the LLM adapter if configured and valid.
         Falls back to structured template otherwise.
 
         Returns:
             Dict with keys: source, model, generated_at, brief, system_state_summary
         """
-        api_key = os.getenv("ANTHROPIC_API_KEY", "")
-
-        if not api_key or api_key == "your_anthropic_api_key_here":
+        if not is_configured():
             brief = self._fallback_brief(system_state)
         else:
             try:
-                brief = await self._call_claude(system_state, api_key)
+                brief = await self._call_claude(system_state)
             except Exception as e:
                 brief = self._fallback_brief(system_state)
                 brief["generation_error"] = str(e)
@@ -206,28 +205,24 @@ class HandoverBriefGenerator:
         self._latest_timestamp = time.time()
         return brief
 
-    async def _call_claude(self, system_state: dict, api_key: str) -> dict:
-        """Call Claude API to generate a natural-language handover brief."""
-        import anthropic
-
-        client = anthropic.AsyncAnthropic(api_key=api_key)
-
+    async def _call_claude(self, system_state: dict) -> dict:
+        """Call the configured LLM provider to generate a handover brief."""
         user_message = self._build_user_message(system_state)
 
-        response = await client.messages.create(
-            model=CLAUDE_MODEL,
+        response = await complete_text(
+            model=model_name(),
             max_tokens=2048,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_message}],
         )
 
-        brief_text = response.content[0].text
+        brief_text = response["text"]
         validation = _validate_brief(brief_text, system_state)
         brief_with_disclaimer = brief_text + _SAFETY_DISCLAIMER
 
         return {
-            "source": "claude",
-            "model": CLAUDE_MODEL,
+            "source": f"claude ({provider()})",
+            "model": response["model"],
             "generated_at": system_state["generated_at"],
             "brief": brief_with_disclaimer,
             "brief_raw": brief_text,
@@ -320,7 +315,7 @@ class HandoverBriefGenerator:
     def _fallback_brief(self, state: dict) -> dict:
         """
         Generate a structured handover brief without the Claude API.
-        Used when ANTHROPIC_API_KEY is not configured or when the API call fails.
+        Used when the LLM provider is not configured or when the API call fails.
         """
         sections = []
 

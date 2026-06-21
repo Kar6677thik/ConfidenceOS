@@ -29,24 +29,24 @@ Pattern mirrors backend/handover.py (_call_claude / _fallback_brief).
 """
 
 import json
-import os
 import re
 from typing import Optional
 
-CLAUDE_MODEL = "claude-sonnet-4-6"
+from llm_client import complete_text, is_configured, model_name, provider
+
+CLAUDE_MODEL = model_name()
 
 _AI_AVAILABLE: Optional[bool] = None
 
 
 def _api_key() -> str:
-    return os.getenv("ANTHROPIC_API_KEY", "")
+    return "configured" if is_configured() else ""
 
 
 def _ai_available() -> bool:
     global _AI_AVAILABLE
     if _AI_AVAILABLE is None:
-        key = _api_key()
-        _AI_AVAILABLE = bool(key and key != "your_anthropic_api_key_here")
+        _AI_AVAILABLE = is_configured()
     return _AI_AVAILABLE
 
 
@@ -90,10 +90,6 @@ async def _call_claude_explain(
     proposed_binding: dict,
     model_context: dict,
 ) -> dict:
-    import anthropic
-
-    client = anthropic.AsyncAnthropic(api_key=_api_key())
-
     equipment_label = model_context.get("equipment_label", "unknown equipment")
     canonical_tag = proposed_binding.get("proposed_canonical_tag", "unknown")
     asset_id = proposed_binding.get("proposed_asset_id", "unknown")
@@ -121,21 +117,21 @@ async def _call_claude_explain(
         f"Be concise and industrial. Do not invent tag values or system state."
     )
 
-    response = await client.messages.create(
-        model=CLAUDE_MODEL,
+    response = await complete_text(
+        model=model_name(),
         max_tokens=512,
         messages=[{"role": "user", "content": prompt}],
     )
-    text = response.content[0].text.strip()
+    text = response["text"].strip()
 
     parsed = _parse_json_from_response(text)
     return {
         "ai_assisted": True,
-        "ai_label": "AI explanation active; deterministic rule authoritative; engineer approval required",
+        "ai_label": f"AI explanation active via {provider()}; deterministic rule authoritative; engineer approval required",
         "ai_narrative": parsed.get("narrative", text),
         "ai_evidence": parsed.get("evidence", []),
         "ai_counter_evidence": parsed.get("counter_evidence", []),
-        "model": CLAUDE_MODEL,
+        "model": response["model"],
     }
 
 
@@ -145,12 +141,12 @@ def _fallback_explain(raw_tag: str, proposed_binding: dict) -> dict:
     narrative = (
         f"The deterministic naming rule matched '{raw_tag}' to '{canonical}' "
         f"based on prefix/suffix pattern recognition and signal role '{role}'. "
-        f"No AI explanation is available — ANTHROPIC_API_KEY not configured. "
+        f"No AI explanation is available because no compatible LLM provider is configured. "
         f"Review the existing evidence and counter-evidence before approving."
     )
     return {
         "ai_assisted": False,
-        "ai_label": "deterministic rule active; AI explanation unavailable (no key); engineer approval required",
+        "ai_label": "deterministic rule active; AI explanation unavailable (no provider); engineer approval required",
         "ai_narrative": narrative,
         "ai_evidence": proposed_binding.get("evidence", []),
         "ai_counter_evidence": proposed_binding.get("counter_evidence", []),
@@ -212,10 +208,6 @@ async def _call_claude_parse(
     raw_tag_list: list[str],
     model_context: dict,
 ) -> dict:
-    import anthropic
-
-    client = anthropic.AsyncAnthropic(api_key=_api_key())
-
     signals = model_context.get("canonical_signals", [])
     equipment_label = model_context.get("equipment_label", "unknown")
     asset_id = model_context.get("equipment_id", "unknown")
@@ -249,12 +241,12 @@ async def _call_claude_parse(
         f"Every proposal still requires engineer approval before publish."
     )
 
-    response = await client.messages.create(
-        model=CLAUDE_MODEL,
+    response = await complete_text(
+        model=model_name(),
         max_tokens=1024,
         messages=[{"role": "user", "content": prompt}],
     )
-    text = response.content[0].text.strip()
+    text = response["text"].strip()
     raw_proposals = _parse_json_list_from_response(text)
 
     proposals = []
@@ -293,17 +285,17 @@ async def _call_claude_parse(
 
     return {
         "ai_assisted": True,
-        "ai_label": "AI-proposed bindings; deterministic validation pending; engineer approval required for all",
+        "ai_label": f"AI-proposed bindings via {provider()}; deterministic validation pending; engineer approval required for all",
         "proposals": proposals,
         "unresolved": list(dict.fromkeys(unresolved)),
-        "model": CLAUDE_MODEL,
+        "model": response["model"],
     }
 
 
 def _fallback_parse(raw_tag_list: list[str]) -> dict:
     return {
         "ai_assisted": False,
-        "ai_label": "deterministic fallback; AI unavailable (no key); engineer review required for all tags",
+        "ai_label": "deterministic fallback; AI unavailable (no provider); engineer review required for all tags",
         "proposals": [
             {
                 "raw_tag": tag,
@@ -311,7 +303,7 @@ def _fallback_parse(raw_tag_list: list[str]) -> dict:
                 "proposed_asset_id": None,
                 "proposed_role": None,
                 "confidence_band": "UNCERTAIN",
-                "ai_rationale": "No AI key configured — use Manual Mapping Workflow to bind this tag.",
+                "ai_rationale": "No compatible LLM provider configured — use Manual Mapping Workflow to bind this tag.",
                 "approval_required": True,
                 "source": "fallback_no_key",
             }
@@ -375,10 +367,6 @@ async def _call_claude_suggest(
     available_templates: list[dict],
     available_signals: list[dict],
 ) -> dict:
-    import anthropic
-
-    client = anthropic.AsyncAnthropic(api_key=_api_key())
-
     template_text = "\n".join(
         f"  {t.get('template_id')} — required roles: {', '.join(t.get('required_signal_roles', []))}; "
         f"label: {t.get('label', t.get('template_id'))}"
@@ -411,12 +399,12 @@ async def _call_claude_suggest(
         f"Never suggest a template not in the list."
     )
 
-    response = await client.messages.create(
-        model=CLAUDE_MODEL,
+    response = await complete_text(
+        model=model_name(),
         max_tokens=512,
         messages=[{"role": "user", "content": prompt}],
     )
-    text = response.content[0].text.strip()
+    text = response["text"].strip()
     parsed = _parse_json_from_response(text)
 
     # Enforce: proposed_template_id must be a real template
@@ -432,7 +420,7 @@ async def _call_claude_suggest(
         "rationale": parsed.get("rationale", ""),
         "required_roles": parsed.get("required_roles", []),
         "suggested_signal_map": parsed.get("suggested_signal_map", {}),
-        "model": CLAUDE_MODEL,
+        "model": response["model"],
         "approval_required": True,
     }
 
@@ -441,10 +429,10 @@ def _fallback_suggest(asset_description: str, available_templates: list[dict]) -
     template_list = [t.get("template_id") for t in available_templates]
     return {
         "ai_assisted": False,
-        "ai_label": "AI unavailable (no key); choose template from dropdown; engineer approval required",
+        "ai_label": "AI unavailable (no provider); choose template from dropdown; engineer approval required",
         "proposed_template_id": None,
         "rationale": (
-            f"No AI key configured. Based on your description, choose from: "
+            f"No compatible LLM provider configured. Based on your description, choose from: "
             f"{', '.join(template_list)}. "
             f"Consider 'vessel' for tanks/vessels with level + flow, "
             f"'pump' for rotating equipment with vibration, "
