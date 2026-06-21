@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -85,7 +86,11 @@ METHODS_BY_SENSOR_TYPE = {
     "valve": {"field_check", "local_field_check", "position_check"},
     "vibration": {"field_check", "local_field_check", "vibration_check"},
 }
-DEFAULT_EVIDENCE_REQUIRED = ["local indication", "field note", "time-stamped confirmation"]
+DEFAULT_EVIDENCE_REQUIRED = [
+    {"id": "local_indication", "label": "Local indication", "type": "text", "required": True},
+    {"id": "field_note", "label": "Field note", "type": "text", "required": True},
+    {"id": "timestamped_confirmation", "label": "Time-stamped confirmation", "type": "text", "required": True},
+]
 
 # Procedure details: per-method procedure specifications for field technicians.
 # Each entry provides the SOP reference, step-by-step field actions, expected
@@ -346,7 +351,7 @@ def create_task(
         assigned_role="Maintenance",
         verification_method=method,
         verification_type=method,
-        evidence_required_json=json.dumps(DEFAULT_EVIDENCE_REQUIRED),
+        evidence_required_json=json.dumps(_evidence_requirements_for_method(method)),
         note=note,
         valid_until=valid_until,
         created_at=now,
@@ -461,6 +466,13 @@ def transition_task(
     note = (evidence_note or evidence_payload.get("technician_note") or "").strip()
     if state in VERIFICATION_EVIDENCE_REQUIRED and not note:
         raise HTTPException(status_code=422, detail=f"An evidence note is required to move a task to {state}.")
+    if state == "FIELD_CHECK_DONE":
+        _validate_required_evidence(task, evidence_payload)
+    if state == "ACCEPTED" and not _task_has_field_check_evidence(db, task):
+        raise HTTPException(
+            status_code=422,
+            detail="Field-check evidence must be captured before acceptance.",
+        )
 
     now = _utcnow()
     try:
@@ -552,7 +564,7 @@ def list_tasks(
 
 
 def task_to_dict(task: VerificationTask) -> dict:
-    evidence_required = _loads_list(task.evidence_required_json) or DEFAULT_EVIDENCE_REQUIRED
+    evidence_required = _normalize_evidence_items(_loads_list(task.evidence_required_json) or DEFAULT_EVIDENCE_REQUIRED)
     active = bool(task.active) and task.state not in TERMINAL_STATES and task.valid_until > _utcnow()
     return {
         "task_id": task.task_id,
@@ -573,6 +585,8 @@ def task_to_dict(task: VerificationTask) -> dict:
         "verification_method": task.verification_method,
         "verification_type": task.verification_type,
         "evidence_required": evidence_required,
+        "evidence_required_labels": [item["label"] for item in evidence_required],
+        "evidence_required_text": " / ".join(item["label"] for item in evidence_required),
         "last_evidence_summary": task.last_evidence_summary,
         "note": task.note,
         "created_at": _timestamp(task.created_at),
@@ -693,6 +707,93 @@ def _evidence_row(task: VerificationTask, state: str, actor: str | None, note: s
     )
 
 
+def _evidence_requirements_for_method(method: str) -> list[dict]:
+    detail = PROCEDURE_DETAILS.get(method) or PROCEDURE_DETAILS["field_check"]
+    return _normalize_evidence_items(detail.get("evidence_items", []))
+
+
+def _normalize_evidence_items(items: list[Any]) -> list[dict]:
+    normalized = []
+    for index, item in enumerate(items or []):
+        if isinstance(item, str):
+            label = item
+            item_type = "text"
+            required = True
+            item_id = _evidence_item_id(label) or f"evidence_{index + 1}"
+        elif isinstance(item, dict):
+            label = str(item.get("label") or item.get("id") or f"Evidence item {index + 1}")
+            item_type = str(item.get("type") or "text")
+            required = bool(item.get("required", True))
+            item_id = str(item.get("id") or _evidence_item_id(label) or f"evidence_{index + 1}")
+        else:
+            continue
+        normalized.append({
+            "id": item_id,
+            "label": label,
+            "type": item_type,
+            "required": required,
+        })
+    return normalized
+
+
+def _validate_required_evidence(task: VerificationTask, evidence: dict[str, Any]) -> None:
+    required_items = [
+        item for item in _normalize_evidence_items(_loads_list(task.evidence_required_json) or DEFAULT_EVIDENCE_REQUIRED)
+        if item.get("required")
+    ]
+    provided = _provided_evidence_items(evidence)
+    missing = []
+    invalid_numeric = []
+    for item in required_items:
+        item_id = item["id"]
+        value = provided.get(item_id)
+        if value in (None, ""):
+            missing.append(item_id)
+            continue
+        if item.get("type") == "numeric":
+            try:
+                float(value)
+            except (TypeError, ValueError):
+                invalid_numeric.append(item_id)
+    if missing or invalid_numeric:
+        detail = {
+            "message": "Required structured field evidence is incomplete.",
+            "missing_evidence_item_ids": missing,
+            "invalid_numeric_evidence_item_ids": invalid_numeric,
+            "required_evidence": required_items,
+        }
+        raise HTTPException(status_code=422, detail=detail)
+
+
+def _provided_evidence_items(evidence: dict[str, Any]) -> dict[str, Any]:
+    provided = {}
+    for item in evidence.get("evidence_items") or []:
+        if not isinstance(item, dict):
+            continue
+        item_id = str(item.get("id") or _evidence_item_id(str(item.get("label") or "")))
+        if item_id:
+            provided[item_id] = item.get("value")
+    return provided
+
+
+def _task_has_field_check_evidence(db: Session, task: VerificationTask) -> bool:
+    return (
+        db.query(VerificationEvidence)
+        .filter(
+            VerificationEvidence.plant_id == task.plant_id,
+            VerificationEvidence.task_id == task.task_id,
+            VerificationEvidence.state == "FIELD_CHECK_DONE",
+        )
+        .first()
+        is not None
+    )
+
+
+def _evidence_item_id(label: str) -> str:
+    compact = re.sub(r"[^a-z0-9]+", "_", str(label or "").lower()).strip("_")
+    return compact[:64]
+
+
 def _validate_sensor(sensor_id: str) -> dict:
     sensor = sensor_by_tag(sensor_id)
     if not sensor:
@@ -762,7 +863,7 @@ def _timestamp(value: datetime | None) -> float | None:
     return value.replace(tzinfo=timezone.utc).timestamp() if value else None
 
 
-def _loads_list(value: str | None) -> list[str]:
+def _loads_list(value: str | None) -> list[Any]:
     if not value:
         return []
     try:

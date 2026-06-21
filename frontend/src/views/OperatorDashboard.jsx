@@ -127,7 +127,7 @@ function AssetIntegrationStrip({ plantId }) {
   useEffect(() => {
     let active = true;
     Promise.all([
-      fetch('/api/asset-model').then((res) => (res.ok ? res.json() : null)),
+      fetch(`/api/asset-model?plant_id=${encodeURIComponent(plantId)}`).then((res) => (res.ok ? res.json() : null)),
       fetch('/api/integration/read-only-layer').then((res) => (res.ok ? res.json() : null)),
     ])
       .then(([assetPayload, integrationPayload]) => {
@@ -139,13 +139,14 @@ function AssetIntegrationStrip({ plantId }) {
     return () => {
       active = false;
     };
-  }, []);
+  }, [plantId]);
 
   if (!metadata?.asset && !metadata?.integration) return null;
 
   const equipment = metadata.asset?.equipment || {};
   const relationship = (equipment.relationships || []).find((item) => item.type === 'mass_balance_validation') || {};
   const provider = metadata.integration?.active_providers?.[plantId] || {};
+  const opcua = metadata.integration?.opcua_boundary || {};
   const sensorCount = equipment.sensor_tags?.length || 0;
   const validationText = relationship.source_tags?.length
     ? `${relationship.source_tags.join(' + ')} validates ${relationship.validated_tag}`
@@ -162,9 +163,12 @@ function AssetIntegrationStrip({ plantId }) {
         <p className="caption-mono text-[var(--text)] mt-1 font-semibold text-[13px]">{validationText}</p>
       </div>
       <div className="industrial-card p-3">
-        <p className="label-caps text-[var(--safe-text)]">✓ Shadow Mode</p>
+        <p className="label-caps text-[var(--safe-text)]">Read-Only Provider</p>
         <p className="caption-mono text-[var(--text)] mt-1 font-semibold text-[13px]">
           {provider.display_name || 'TagProvider'} / {provider.control_writes_enabled === false ? 'Read-only' : 'Active'}
+        </p>
+        <p className="caption-mono text-[var(--text-muted)] mt-1">
+          OPC UA: {opcua.configured ? 'configured read-only boundary' : 'planned boundary, not connected in demo'}
         </p>
       </div>
     </div>

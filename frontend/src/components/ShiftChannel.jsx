@@ -4,6 +4,13 @@ import PageIdentity from './hmi/PageIdentity';
 import StatusTag from './hmi/StatusTag';
 import apiFetch from '../lib/apiFetch';
 
+function evidenceText(task) {
+  return (task.evidence_required || [])
+    .map((item) => (typeof item === 'string' ? item : item?.label || item?.id || 'Evidence item'))
+    .filter(Boolean)
+    .join(' / ');
+}
+
 function eventTime(timestamp) {
   if (!timestamp) return 'live';
   const millis = timestamp > 10_000_000_000 ? timestamp : timestamp * 1000;
@@ -216,7 +223,7 @@ export default function ShiftChannel() {
                 </div>
                 <p className="caption-mono text-[var(--data-mono)] mt-1">{task.verification_method}</p>
                 <p className="caption-mono text-[var(--text-muted)] mt-1">{relativeExpiry(task)}</p>
-                <p className="caption-mono text-[var(--text)] mt-1">{(task.evidence_required || []).join(' / ')}</p>
+                <p className="caption-mono text-[var(--text)] mt-1">{evidenceText(task)}</p>
                 {!!task.last_evidence_summary && (
                   <p className="caption-mono text-[var(--text-muted)] mt-1">evidence: {task.last_evidence_summary}</p>
                 )}

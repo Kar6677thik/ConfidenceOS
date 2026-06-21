@@ -12,11 +12,11 @@ Plants:
 
 from pathlib import Path
 from simulator import SensorSimulator
-from tag_provider import SimulatorProvider
+from tag_provider import CsvReplayProvider, SimulatorProvider
 from confidence import ConfidenceEngine
 from assumptions import confidence_engine_config, startup_config
 from mass_balance import MassBalanceEngine, DEFAULT_TOLERANCE
-from asset_model import mass_balance_engine_config
+from asset_model import load_asset_model, mass_balance_engine_config
 from startup import StartupManager
 from handover import HandoverBriefGenerator
 from mode_inference import ModeInferenceEngine
@@ -67,6 +67,23 @@ PLANT_CONFIGS = {
             "ZT-6100": 40.0,  # Valve sensor — somewhat aged
         },
     },
+    "plant-pump": {
+        "name": "Pump Station Demo",
+        "type": "Water Transfer",
+        "location": "Training Replay",
+        "scenario": None,
+        "model_key": "pump_station",
+        "provider": "csv_replay",
+        "replay_file": "pump_station_replay.csv",
+        "calibration_ages": {
+            "LIT-100": 32.0,
+            "FIT-101": 9.0,
+            "FIT-102": 11.0,
+            "VIB-101": 4.0,
+            "PIT-101": 6.0,
+            "P101-RUN": 2.0,
+        },
+    },
 }
 
 
@@ -79,10 +96,15 @@ class PlantInstance:
         self.name = config["name"]
         self.plant_type = config["type"]
         self.location = config["location"]
+        self.model_key = config.get("model_key")
 
         # Create independent instances
         self.simulator = SensorSimulator()
-        self.tag_provider = SimulatorProvider(self.simulator)
+        if config.get("provider") == "csv_replay":
+            replay_path = Path(__file__).parent / config.get("replay_file", "")
+            self.tag_provider = CsvReplayProvider(replay_path)
+        else:
+            self.tag_provider = SimulatorProvider(self.simulator)
         _confidence_cfg = confidence_engine_config()
         self.confidence_engine = ConfidenceEngine(
             weights=_confidence_cfg["weights"],
@@ -91,18 +113,20 @@ class PlantInstance:
             per_sensor_type_confidence_weights=_confidence_cfg.get("per_sensor_type_confidence_weights", {}),
         )
         self.confidence_engine.set_adaptive_envelopes(_confidence_cfg["operating_envelopes"])
-        _mb_cfg = mass_balance_engine_config()
+        _model = load_asset_model(self.model_key) if self.model_key else None
+        _mb_cfg = mass_balance_engine_config(_model)
         self.mass_balance_engine = MassBalanceEngine(
             tolerance=_mb_cfg["tolerance"],
             flow_to_level_rate=_mb_cfg["flow_to_level_rate"],
         )
+        self.base_mass_balance_tolerance = _mb_cfg["tolerance"]
         self.startup_manager = StartupManager(startup_config())
         self.mode_inference_engine = ModeInferenceEngine()
         self.handover_generator = HandoverBriefGenerator()
 
         # Load scenario
-        scenario_path = Path(__file__).parent / config["scenario"]
-        if scenario_path.exists():
+        scenario_path = Path(__file__).parent / config["scenario"] if config.get("scenario") else None
+        if scenario_path and scenario_path.exists():
             self.simulator.load_scenario(scenario_path)
 
         # Set calibration ages

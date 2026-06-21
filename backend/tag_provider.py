@@ -93,7 +93,9 @@ class CsvReplayProvider(TagProvider):
     Simple read-only CSV replay provider.
 
     Expected columns: timestamp, sensor_id, sensor_type, value, unit,
-    failure_mode. When no path is supplied it behaves as a placeholder.
+    failure_mode. Extra columns such as quality, timestamp_source, equipment_id,
+    and status are preserved so replayed tags look more like integration data.
+    When no path is supplied it behaves as a placeholder.
     """
 
     provider_id = "csv_replay"
@@ -150,7 +152,12 @@ class CsvReplayProvider(TagProvider):
 
 
 class OpcUaProvider(TagProvider):
-    """Placeholder for a future read-only OPC UA subscription provider."""
+    """Planned read-only OPC UA boundary descriptor.
+
+    The richer live adapter lives in opc_ua_adapter.py and is only used when a
+    server/dependency is configured. This catalog entry is intentionally honest:
+    the default demo does not connect to an industrial OPC UA endpoint.
+    """
 
     provider_id = "opcua"
     display_name = "OpcUaProvider"
@@ -167,7 +174,16 @@ class OpcUaProvider(TagProvider):
         payload = super().to_dict()
         payload.update({
             "endpoint_url": self.endpoint_url,
-            "note": "Placeholder only. Future OPC UA support must remain subscription/read-only.",
+            "boundary_status": "planned_or_unconfigured",
+            "quality_supported": True,
+            "source_timestamp_supported": True,
+            "namespace_browse_supported_when_configured": True,
+            "note": "OPC UA boundary prepared but not connected by default; live integration must remain subscription/read-only.",
+            "limitations": [
+                "No control writes, setpoints, controller modes, or alarm acknowledgements.",
+                "Security policy, client certificates, and endpoint-specific node mappings must be configured before production use.",
+                "Historian backfill is not part of the demo boundary.",
+            ],
         })
         return payload
 
@@ -191,7 +207,7 @@ def _coerce_csv_row(row: dict) -> dict:
         timestamp = float(timestamp)
     except (TypeError, ValueError):
         timestamp = 0.0
-    return {
+    payload = {
         "sensor_id": row.get("sensor_id", ""),
         "sensor_type": row.get("sensor_type", ""),
         "value": value,
@@ -199,6 +215,10 @@ def _coerce_csv_row(row: dict) -> dict:
         "timestamp": timestamp,
         "failure_mode": row.get("failure_mode") or None,
     }
+    for key in ("quality", "timestamp_source", "equipment_id", "status", "tag", "source"):
+        if row.get(key) not in (None, ""):
+            payload[key] = row.get(key)
+    return payload
 
 
 def _group_rows_by_timestamp(rows: Iterable[dict]) -> list[list[dict]]:

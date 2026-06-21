@@ -90,6 +90,28 @@
         "unit": "mm/s",
         "range": {"min": 0, "max": 25},
         "criticality": "high"
+      },
+      {
+        "tag": "PIT-101",
+        "name": "Pump Discharge Pressure",
+        "device_id": "DEV-PIT-101",
+        "equipment_id": "P-101",
+        "sensor_type": "discharge_pressure",
+        "role": "discharge_pressure",
+        "unit": "kPa",
+        "range": {"min": 0, "max": 1000},
+        "criticality": "medium"
+      },
+      {
+        "tag": "P101-RUN",
+        "name": "Pump Run Status",
+        "device_id": "DEV-P101-RUN",
+        "equipment_id": "P-101",
+        "sensor_type": "run_status",
+        "role": "run_status",
+        "unit": "",
+        "range": {"min": 0, "max": 1},
+        "criticality": "medium"
       }
     ],
     "relationships": [
@@ -134,7 +156,7 @@
       "template_id": "pump",
       "parent_module": "module-transfer",
       "criticality": "high",
-      "signal_tags": ["VIB-101", "FIT-102"]
+      "signal_tags": ["VIB-101", "FIT-102", "PIT-101", "P101-RUN"]
     },
     {
       "equipment_id": "FG-100",
@@ -151,6 +173,8 @@
     {"source": "FIT-102", "target": "TK-100", "type": "drains"},
     {"source": "LIT-100", "target": "TK-100", "type": "measured_by"},
     {"source": "VIB-101", "target": "P-101", "type": "measured_by"},
+    {"source": "PIT-101", "target": "P-101", "type": "measured_by"},
+    {"source": "P101-RUN", "target": "P-101", "type": "controlled_by"},
     {"source": "P-101", "target": "FIT-102", "type": "controlled_by"},
     {"source": "FIT-101", "target": "tk100_implied_level", "type": "mass_balance_group"},
     {"source": "FIT-102", "target": "tk100_implied_level", "type": "mass_balance_group"},

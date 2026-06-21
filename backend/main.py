@@ -215,6 +215,7 @@ class VerificationEvidenceRequest(BaseModel):
     field_reading_unit: Optional[str] = None
     technician_note: Optional[str] = None
     attachment_ref: Optional[str] = None
+    evidence_items: Optional[list[dict]] = None
 
 class VerificationTaskUpdateRequest(BaseModel):
     task_id: str
@@ -393,16 +394,18 @@ async def _plant_tick_loop(plant_id: str, plant, start_delay: float = 0.0):
                 pending_anomalies = []
 
                 # Apply startup mode overrides
+                plant_model_key = getattr(plant, "model_key", None)
+                base_tolerance = getattr(plant, "base_mass_balance_tolerance", BASE_MB_TOLERANCE)
                 if plant.startup_manager.is_active:
                     plant.confidence_engine.set_tier_thresholds(
                         plant.startup_manager.tier_thresholds
                     )
                     plant.mass_balance_engine.tolerance = (
-                        BASE_MB_TOLERANCE * plant.startup_manager.mass_balance_tolerance_multiplier
+                        base_tolerance * plant.startup_manager.mass_balance_tolerance_multiplier
                     )
                 else:
                     plant.confidence_engine.clear_tier_thresholds()
-                    plant.mass_balance_engine.tolerance = BASE_MB_TOLERANCE
+                    plant.mass_balance_engine.tolerance = base_tolerance
 
                 # Read tags through the read-only provider abstraction. ConfidenceOS
                 # observes plant state only; it does not write control commands.
@@ -416,7 +419,7 @@ async def _plant_tick_loop(plant_id: str, plant, start_delay: float = 0.0):
 
                 # Update mass-balance
                 mb_state = plant.mass_balance_engine.update(raw_readings)
-                plant.latest_mb_state = _translate_mass_balance_state_for_active_model(mb_state.to_dict())
+                plant.latest_mb_state = _translate_mass_balance_state_for_active_model(mb_state.to_dict(), model_key=plant_model_key)
                 # Surface the (engineer-owned) residual-check parameters + honest assumptions.
                 plant.latest_mb_state["config"] = plant.mass_balance_engine.config_dict()
                 # Safety reviewers require that mass-balance divergence surfaces alternate
@@ -435,11 +438,11 @@ async def _plant_tick_loop(plant_id: str, plant, start_delay: float = 0.0):
                 bound_live_state = _apply_demo_asset_model_bindings({
                     "readings": raw_readings,
                     "confidence": confidence_data,
-                })
+                }, model_key=plant_model_key)
                 readings = bound_live_state.get("readings", raw_readings)
                 confidence_data = bound_live_state.get("confidence", confidence_data)
                 plant.latest_readings = readings
-                confidence_data = _derive_trust_states(confidence_data, readings, plant.latest_mb_state)
+                confidence_data = _derive_trust_states(confidence_data, readings, plant.latest_mb_state, model_key=plant_model_key)
 
                 # Update cached confidence after trust quarantine/substitution is derived.
                 for payload in confidence_data:
@@ -954,6 +957,7 @@ def _apply_demo_asset_model_bindings(live_state: dict, model_key: str | None = N
 
 def _runtime_live_state(plant_id: str, plant, model_key: str | None = None) -> dict:
     """Collect frontend-friendly live state for generated Runtime manifests."""
+    model_key = model_key or getattr(plant, "model_key", None)
     confidence = list(plant.latest_confidence.values())
     if confidence and any("trust_state" not in item for item in confidence):
         confidence = _derive_trust_states(confidence, plant.latest_readings, plant.latest_mb_state, model_key=model_key)
@@ -1011,6 +1015,43 @@ def _annotate_generated_preview(manifest: dict, live_state: dict) -> dict:
     }
 
 
+def _opcua_boundary_status() -> dict:
+    try:
+        from opc_ua_adapter import Client as OpcUaClient
+    except Exception as exc:
+        return {
+            "boundary_status": "adapter_import_error",
+            "configured": False,
+            "read_only": True,
+            "control_writes_enabled": False,
+            "error": str(exc),
+        }
+
+    configured_endpoint = os.getenv("CONFIDENCEOS_OPCUA_ENDPOINT")
+    return {
+        "boundary_status": "configured" if configured_endpoint else "planned_or_unconfigured",
+        "configured": bool(configured_endpoint),
+        "endpoint_url": configured_endpoint,
+        "asyncua_installed": OpcUaClient is not None,
+        "read_only": True,
+        "control_writes_enabled": False,
+        "quality_supported": True,
+        "source_timestamp_supported": True,
+        "namespace_browse_supported_when_connected": True,
+        "demo_posture": (
+            "The default hackathon demo uses simulator/CSV replay providers. OPC UA is exposed "
+            "as a read-only integration boundary unless CONFIDENCEOS_OPCUA_ENDPOINT and node "
+            "mappings are explicitly configured."
+        ),
+        "limitations": [
+            "No writes to tag values, setpoints, controller modes, pump starts/stops, or alarm acknowledgements.",
+            "SecurityPolicy, message signing, and client certificates are not wired in the default demo.",
+            "Engineering units are inferred or mapped; OPC UA EUInformation is not yet authoritative.",
+            "No historian/HDA backfill for late or out-of-order samples.",
+        ],
+    }
+
+
 deps.runtime_live_state = _runtime_live_state
 deps.annotate_generated_preview = _annotate_generated_preview
 
@@ -1050,7 +1091,12 @@ async def sensor_stream(
             readings = plant.latest_readings
             confidence_data = list(plant.latest_confidence.values())
             if confidence_data and any("trust_state" not in item for item in confidence_data):
-                confidence_data = _derive_trust_states(confidence_data, readings, plant.latest_mb_state)
+                confidence_data = _derive_trust_states(
+                    confidence_data,
+                    readings,
+                    plant.latest_mb_state,
+                    model_key=getattr(plant, "model_key", None),
+                )
             stale_flags = plant.startup_manager.check_stale_readings(readings, now) if readings else []
             verification_tasks = [normalize_verification_task(task, now) for task in plant.verification_tokens or []]
             active_tasks = active_verification_tokens(plant.verification_tokens, now)
@@ -1231,11 +1277,18 @@ def get_assumptions():
 
 
 @app.get("/api/asset-model")
-def get_asset_model():
+def get_asset_model(
+    plant_id: Optional[str] = Query(default=None),
+    model_key: Optional[str] = Query(default=None),
+):
     """Return the demo vessel asset model used for trust/evidence metadata."""
+    if not model_key and plant_id:
+        model_key = getattr(plant_manager.get(plant_id), "model_key", None)
+    source = "backend/asset_model_pump_station.json" if model_key == "pump_station" else "backend/asset_model.json"
     return {
-        "asset_model": load_asset_model(),
-        "source": "backend/asset_model.json",
+        "asset_model": load_asset_model(model_key),
+        "model_key": model_key or "texas_city_vessel",
+        "source": source,
         "read_only_trust_layer": True,
     }
 
@@ -1258,6 +1311,7 @@ def get_read_only_integration_layer():
             for plant_id, plant in plant_manager.get_all().items()
         },
         "available_providers": provider_catalog(),
+        "opcua_boundary": _opcua_boundary_status(),
         "asset_model_id": asset_model.get("model_id"),
         "equipment_id": asset_model.get("equipment", {}).get("equipment_id"),
     }
@@ -1582,6 +1636,8 @@ def create_verification_token(
         valid_minutes=request.valid_minutes,
         note=request.note,
         source="manual",
+        actor=user.get("username"),
+        actor_role=user.get("role"),
         cmms_work_order=request.cmms_work_order,
         permit_to_work_ref=request.permit_to_work_ref,
         asset_tag_number=request.asset_tag_number,
@@ -1656,7 +1712,7 @@ def get_verification_task_audit(
         "task_id": task_id,
         "events": events,
         "count": len(events),
-        "note": "Immutable append-only audit trail. Actor identity is client-supplied (no auth yet).",
+        "note": "Immutable append-only audit trail. Mutating transitions record the authenticated JWT actor.",
     }
 
 
@@ -3141,6 +3197,7 @@ def health_check(response: Response):
         "mode": plant_a.startup_manager.mode_name,
         "scope": "judge-ready prototype; deterministic trust scoring; not a certified control or safety system",
         "read_only_contract": "ConfidenceOS reads simulator/provider tags and generates trust-aware HMI views; it does not write control commands.",
+        "opcua_boundary": _opcua_boundary_status(),
         "modules": {
             "sensor_simulator": "active",
             "tag_provider": "active",
@@ -3181,7 +3238,7 @@ def health_check(response: Response):
             "confidence_engine": "Governed deterministic trust rubric, not a calibrated probability of correctness.",
             "ai_configuration": "AI explanations are optional; deterministic rules remain authoritative; engineer approval is required before publish.",
             "verification_workflow": "SQLite-backed task lifecycle with immutable audit events; tasks never override confidence.",
-            "industrial_integration": "Read-only trust-aware HMI layer beside existing DCS/HMI; OPC UA provider remains a planned read-only boundary.",
+            "industrial_integration": "Read-only trust-aware HMI layer beside existing DCS/HMI; OPC UA boundary is prepared but not connected unless explicitly configured.",
         },
     }
 

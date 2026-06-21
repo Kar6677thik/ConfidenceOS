@@ -172,14 +172,15 @@ def get_generated_screens(
     model_key: Optional[str] = Query(default=None),
 ):
     plant = plant_manager.get(plant_id)
-    live_state = _runtime_live_state(plant_id, plant, model_key=model_key)
+    effective_model_key = model_key or getattr(plant, "model_key", None)
+    live_state = _runtime_live_state(plant_id, plant, model_key=effective_model_key)
     try:
-        manifest = studio_runtime_manifest(role=role, context=context, live_state=live_state, model_key=model_key)
+        manifest = studio_runtime_manifest(role=role, context=context, live_state=live_state, model_key=effective_model_key)
         if manifest.get("runtime_authority") != "published" and role not in {"Engineer", "Manager"}:
             raise HTTPException(status_code=409, detail={
                 "runtime_authority": manifest.get("runtime_authority", "preview"),
                 "operator_authoritative": False,
-                "model_key": manifest.get("model_key") or model_key,
+                "model_key": manifest.get("model_key") or effective_model_key,
                 "reason": manifest.get("runtime_notice") or "No published Runtime exists for this asset model.",
                 "read_only_trust_layer": True,
             })
@@ -191,18 +192,18 @@ def get_generated_screens(
             raise HTTPException(status_code=503, detail={
                 "runtime_authority": "unavailable",
                 "operator_authoritative": False,
-                "model_key": model_key,
+                "model_key": effective_model_key,
                 "reason": "Published Runtime manifest could not be hydrated.",
                 "error": str(exc),
                 "read_only_trust_layer": True,
             })
-        assignments = studio_overview(model_key).get("state", {}).get("assignments", [])
+        assignments = studio_overview(effective_model_key).get("state", {}).get("assignments", [])
         manifest = generate_screen_manifest(
             role=role, context=context, live_state=live_state, assignments=assignments,
             build_context={
                 "build_id": "runtime-fallback",
                 "validation_status": "PASS_WITH_WARNINGS",
-                "model_key": model_key,
+                "model_key": effective_model_key,
                 "validation": {
                     "info": [{"rule": "runtime_fallback_generation",
                               "message": "Generated fallback Runtime because published manifest hydration failed."}],
@@ -213,7 +214,7 @@ def get_generated_screens(
                                "message": "Runtime fallback generated from asset model and template assignments.",
                                "source": "api/screens/generated"}],
             },
-            model_key=model_key,
+            model_key=effective_model_key,
         )
         return _annotate_generated_preview({**manifest, "runtime_source": "fallback_runtime_generation",
                                             "runtime_authority": "fallback",
@@ -250,11 +251,12 @@ def get_runtime_equipment(
     model_key: Optional[str] = Query(default=None),
 ):
     plant = plant_manager.get(plant_id)
+    effective_model_key = model_key or getattr(plant, "model_key", None)
     faceplate = equipment_manifest(
         equipment_id, role,
-        live_state=_runtime_live_state(plant_id, plant, model_key=model_key),
-        assignments=studio_overview(model_key)["state"].get("assignments", []),
-        model_key=model_key,
+        live_state=_runtime_live_state(plant_id, plant, model_key=effective_model_key),
+        assignments=studio_overview(effective_model_key)["state"].get("assignments", []),
+        model_key=effective_model_key,
     )
     if not faceplate:
         raise HTTPException(status_code=404, detail=f"Equipment not found: {equipment_id}")

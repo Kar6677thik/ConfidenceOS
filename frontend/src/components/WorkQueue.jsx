@@ -59,6 +59,39 @@ function actionLabel(state) {
   }[state] || formatText(state);
 }
 
+function evidenceRequirements(task) {
+  const raw = Array.isArray(task?.evidence_required) ? task.evidence_required : [];
+  return raw.map((item, index) => {
+    if (typeof item === 'string') {
+      return { id: item.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || `evidence_${index + 1}`, label: item, type: 'text', required: true };
+    }
+    return {
+      id: item?.id || `evidence_${index + 1}`,
+      label: item?.label || item?.id || `Evidence item ${index + 1}`,
+      type: item?.type || 'text',
+      required: item?.required !== false,
+    };
+  });
+}
+
+function missingEvidenceItems(task, values) {
+  return evidenceRequirements(task)
+    .filter((item) => item.required && !String(values[item.id] ?? '').trim())
+    .map((item) => item.label);
+}
+
+function buildEvidencePayload(task, values, note) {
+  return {
+    method: task?.verification_method || task?.verification_type || 'field_check',
+    technician_note: note,
+    evidence_items: evidenceRequirements(task).map((item) => ({
+      id: item.id,
+      label: item.label,
+      value: values[item.id] ?? '',
+    })),
+  };
+}
+
 function QueueMetric({ label, value, tone = '' }) {
   return (
     <div className="bg-[var(--surface-panel)] border border-[var(--border-strong)] p-3 min-w-0">
@@ -94,6 +127,7 @@ function ExceptionCard({ item }) {
 
 function VerificationTaskCard({ task, role, plantId, onChanged }) {
   const [note, setNote] = useState('');
+  const [evidenceValues, setEvidenceValues] = useState({});
   const [busy, setBusy] = useState('');
   const [message, setMessage] = useState('');
   const allowedByRole = ROLE_TRANSITIONS[role] || new Set();
@@ -103,6 +137,13 @@ function VerificationTaskCard({ task, role, plantId, onChanged }) {
     if (EVIDENCE_REQUIRED.has(state) && !note.trim()) {
       setMessage('Evidence note required before this transition.');
       return;
+    }
+    if (state === 'FIELD_CHECK_DONE') {
+      const missing = missingEvidenceItems(task, evidenceValues);
+      if (missing.length) {
+        setMessage(`Required field evidence missing: ${missing.join(', ')}.`);
+        return;
+      }
     }
     const taskId = task.task_id || task.token_id;
     setBusy(state);
@@ -117,12 +158,15 @@ function VerificationTaskCard({ task, role, plantId, onChanged }) {
           actor: role,
           actor_role: role,
           evidence_note: note,
-          evidence: note ? { technician_note: note, method: task.verification_method } : {},
+          evidence: state === 'FIELD_CHECK_DONE'
+            ? buildEvidencePayload(task, evidenceValues, note)
+            : (note ? { technician_note: note, method: task.verification_method } : {}),
         }),
       });
       const payload = await res.json().catch(() => null);
       if (!res.ok) throw new Error(payload?.detail || `Task update failed: ${res.status}`);
       setNote('');
+      setEvidenceValues({});
       setMessage(`${task.sensor_id} moved to ${state}.`);
       onChanged?.();
     } catch (err) {
@@ -157,8 +201,22 @@ function VerificationTaskCard({ task, role, plantId, onChanged }) {
       </div>
       <p className="label-caps text-[var(--text-muted)] mt-3">Evidence Required</p>
       <p className="caption-mono text-[var(--text)]">
-        {(task.evidence_required || []).length ? task.evidence_required.join(' / ') : 'local indication / field note / timestamp'}
+        {evidenceRequirements(task).length ? evidenceRequirements(task).map((item) => `${item.label}${item.required ? ' *' : ''}`).join(' / ') : 'local indication / field note / timestamp'}
       </p>
+      {legalStates.includes('FIELD_CHECK_DONE') && evidenceRequirements(task).length > 0 && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-3">
+          {evidenceRequirements(task).map((item) => (
+            <input
+              key={item.id}
+              className="industrial-input"
+              value={evidenceValues[item.id] || ''}
+              onChange={(event) => setEvidenceValues((current) => ({ ...current, [item.id]: event.target.value }))}
+              placeholder={`${item.label}${item.required ? ' *' : ''}`}
+              type={item.type === 'numeric' ? 'number' : 'text'}
+            />
+          ))}
+        </div>
+      )}
       {!!task.procedure_ref && (
         <div className="mt-2 flex items-center gap-2">
           <p className="label-caps text-[var(--text-dim)]">Procedure</p>

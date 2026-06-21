@@ -97,11 +97,11 @@ def run_template_tests(assignments: list[dict] | None = None, model_key: str | N
             "message": "Pump P-101 uses the pump template and generates a device-health faceplate from VIB-101.",
         },
         {
-            "test_id": "pump_without_command_signal_warns_without_blocking_demo_publish",
+            "test_id": "pump_with_run_status_clears_missing_command_warning",
             "template_id": "pump",
-            "status": "PASS" if pump_result["command_warning"] and not pump_result["command_blocking"] else "FAIL",
-            "checks": ["pump flow evidence", "command missing", "warning only"],
-            "message": "Pump station flow/vibration context warns when run/command status is absent but remains publishable for the demo.",
+            "status": "PASS" if not pump_result["command_warning"] and not pump_result["command_blocking"] else "FAIL",
+            "checks": ["pump flow evidence", "run status present", "no command warning"],
+            "message": "Pump station flow/vibration context includes P101-RUN, so the pump template does not warn about missing run/command status.",
         },
         {
             "test_id": "pump_station_generates_distinct_tank_pump_flow_faceplates",

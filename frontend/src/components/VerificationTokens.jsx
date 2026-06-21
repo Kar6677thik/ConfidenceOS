@@ -11,10 +11,27 @@ function taskSensor(task) {
   return task.sensor_id || task.sensorId || 'UNKNOWN';
 }
 
+function evidenceRequirements(task) {
+  const raw = Array.isArray(task?.evidence_required) ? task.evidence_required : [];
+  return raw.map((item, index) => {
+    if (typeof item === 'string') {
+      return { id: item.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || `evidence_${index + 1}`, label: item, type: 'text', required: true };
+    }
+    return {
+      id: item?.id || `evidence_${index + 1}`,
+      label: item?.label || item?.id || `Evidence item ${index + 1}`,
+      type: item?.type || 'text',
+      required: item?.required !== false,
+    };
+  });
+}
+
 export default function VerificationTokens({ selectedSensorId, confidence = [] }) {
   const { plantId, verificationTokens, verificationTasks } = useStore();
   const [tokens, setTokens] = useState([]);
   const [note, setNote] = useState('');
+  const [evidenceValues, setEvidenceValues] = useState({});
+  const [message, setMessage] = useState('');
   const [creating, setCreating] = useState(false);
   const lowSensors = useMemo(
     () => confidence.filter((item) => ['LOW', 'CRITICAL'].includes(item.tier)),
@@ -68,6 +85,16 @@ export default function VerificationTokens({ selectedSensorId, confidence = [] }
   const advanceTask = async (task, state) => {
     const taskId = task.task_id || task.token_id;
     if (!taskId) return;
+    const values = evidenceValues[taskId] || {};
+    if (state === 'FIELD_CHECK_DONE') {
+      const missing = evidenceRequirements(task)
+        .filter((item) => item.required && !String(values[item.id] || '').trim())
+        .map((item) => item.label);
+      if (missing.length) {
+        setMessage(`Required field evidence missing: ${missing.join(', ')}.`);
+        return;
+      }
+    }
     await apiFetch(`/api/verification-tasks/state?plant_id=${plantId}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -76,8 +103,21 @@ export default function VerificationTokens({ selectedSensorId, confidence = [] }
         state,
         accepted_by: state === 'ACCEPTED' ? 'Maintenance' : null,
         note: note || task.note || '',
+        evidence: state === 'FIELD_CHECK_DONE'
+          ? {
+              method: task.verification_method || task.verification_type || 'field_check',
+              technician_note: note || task.note || 'Field evidence captured.',
+              evidence_items: evidenceRequirements(task).map((item) => ({
+                id: item.id,
+                label: item.label,
+                value: values[item.id] || '',
+              })),
+            }
+          : { technician_note: note || task.note || '' },
       }),
     });
+    setEvidenceValues((current) => ({ ...current, [taskId]: {} }));
+    setMessage('');
     refreshTokens();
   };
 
@@ -122,7 +162,29 @@ export default function VerificationTokens({ selectedSensorId, confidence = [] }
                 </span>
               </div>
               <p className="caption-mono text-[var(--data-mono)] mt-1">{token.verification_method || token.verification_type || 'field_check'}</p>
-              <p className="caption-mono text-[var(--text)] mt-1">{(token.evidence_required || []).join(' / ')}</p>
+              <p className="caption-mono text-[var(--text)] mt-1">
+                {evidenceRequirements(token).map((item) => `${item.label}${item.required ? ' *' : ''}`).join(' / ')}
+              </p>
+              {!['ACCEPTED', 'EXPIRED'].includes(token.state) && evidenceRequirements(token).length > 0 && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-3">
+                  {evidenceRequirements(token).map((item) => {
+                    const taskId = token.task_id || token.token_id;
+                    return (
+                      <input
+                        key={item.id}
+                        className="industrial-input"
+                        value={(evidenceValues[taskId] || {})[item.id] || ''}
+                        onChange={(event) => setEvidenceValues((current) => ({
+                          ...current,
+                          [taskId]: { ...(current[taskId] || {}), [item.id]: event.target.value },
+                        }))}
+                        placeholder={`${item.label}${item.required ? ' *' : ''}`}
+                        type={item.type === 'numeric' ? 'number' : 'text'}
+                      />
+                    );
+                  })}
+                </div>
+              )}
               {!!token.note && <p className="caption-mono text-[var(--text)] mt-1">{token.note}</p>}
               {!['ACCEPTED', 'EXPIRED'].includes(token.state) && (
                 <div className="grid grid-cols-2 gap-2 mt-3">
@@ -137,6 +199,7 @@ export default function VerificationTokens({ selectedSensorId, confidence = [] }
             <p className="bg-[var(--surface-panel)] p-3 caption-mono text-[var(--data-mono)]">No active or recent field verification tasks.</p>
           )}
         </div>
+        {message && <p className="caption-mono text-[var(--text-muted)]">{message}</p>}
       </div>
     </section>
   );

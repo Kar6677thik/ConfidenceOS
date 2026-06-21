@@ -85,6 +85,39 @@ function asList(value) {
   return [value];
 }
 
+function evidenceRequirements(task) {
+  return asList(task?.evidence_required).map((item, index) => {
+    if (typeof item === 'string') {
+      return { id: item.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || `evidence_${index + 1}`, label: item, type: 'text', required: true };
+    }
+    return {
+      id: item?.id || `evidence_${index + 1}`,
+      label: item?.label || item?.id || `Evidence item ${index + 1}`,
+      type: item?.type || 'text',
+      required: item?.required !== false,
+    };
+  });
+}
+
+function buildEvidencePayload(task, values, note) {
+  const requirements = evidenceRequirements(task);
+  return {
+    method: task?.verification_method || task?.verification_type || 'field_check',
+    technician_note: note,
+    evidence_items: requirements.map((item) => ({
+      id: item.id,
+      label: item.label,
+      value: values[item.id] ?? '',
+    })),
+  };
+}
+
+function missingEvidenceItems(task, values) {
+  return evidenceRequirements(task)
+    .filter((item) => item.required && !String(values[item.id] ?? '').trim())
+    .map((item) => item.label);
+}
+
 function statusClass(value) {
   const status = String(value || '').toUpperCase();
   if (['CRITICAL', 'BLOCKING', 'LOW', 'QUARANTINED', 'UNAVAILABLE', 'FAILED'].includes(status)) return 'status-critical';
@@ -760,15 +793,24 @@ function legalTransitionsForRole(state, role) {
 
 function VerificationTaskControls({ tasks, role, plantId }) {
   const [note, setNote] = useState('');
+  const [evidenceValues, setEvidenceValues] = useState({});
   const [busy, setBusy] = useState('');
   const [message, setMessage] = useState('');
 
   const updateTask = async (task, state) => {
     const taskId = task.task_id || task.token_id;
     if (!taskId) return;
+    const taskEvidence = evidenceValues[taskId] || {};
     if (EVIDENCE_REQUIRED_STATES.has(state) && !note.trim()) {
       setMessage(`Evidence note required to move task to ${state}.`);
       return;
+    }
+    if (state === 'FIELD_CHECK_DONE') {
+      const missing = missingEvidenceItems(task, taskEvidence);
+      if (missing.length) {
+        setMessage(`Required field evidence missing: ${missing.join(', ')}.`);
+        return;
+      }
     }
     setBusy(`${taskId}:${state}`);
     setMessage('');
@@ -784,12 +826,14 @@ function VerificationTaskControls({ tasks, role, plantId }) {
           accepted_by: state === 'ACCEPTED' ? role : null,
           evidence_note: note,
           note,
+          evidence: state === 'FIELD_CHECK_DONE' ? buildEvidencePayload(task, taskEvidence, note) : { technician_note: note },
         }),
       });
       const payload = await res.json().catch(() => null);
       if (!res.ok) throw new Error(payload?.detail || `Request failed: ${res.status}`);
       setMessage(`${task.sensor_id || taskId} moved to ${state}.`);
       setNote('');
+      setEvidenceValues((current) => ({ ...current, [taskId]: {} }));
     } catch (err) {
       setMessage(err.message || 'Task update failed.');
     } finally {
@@ -809,7 +853,27 @@ function VerificationTaskControls({ tasks, role, plantId }) {
               <span className="caption-mono status-warning">{task.state}</span>
             </div>
             <p className="caption-mono text-[var(--text-muted)] mt-1">{formatText(task.verification_method || task.verification_type)}</p>
-            <ValueList values={task.evidence_required} empty="Evidence requirement not listed." />
+            <ValueList values={evidenceRequirements(task).map((item) => `${item.label}${item.required ? ' (required)' : ''}`)} empty="Evidence requirement not listed." />
+            {legal.includes('FIELD_CHECK_DONE') && evidenceRequirements(task).length > 0 && (
+              <div className="grid grid-cols-1 gap-1 mt-2">
+                {evidenceRequirements(task).map((item) => (
+                  <input
+                    key={item.id}
+                    className="industrial-input"
+                    value={(evidenceValues[task.task_id || task.token_id] || {})[item.id] || ''}
+                    onChange={(event) => {
+                      const taskId = task.task_id || task.token_id;
+                      setEvidenceValues((current) => ({
+                        ...current,
+                        [taskId]: { ...(current[taskId] || {}), [item.id]: event.target.value },
+                      }));
+                    }}
+                    placeholder={`${item.label}${item.required ? ' *' : ''}`}
+                    type={item.type === 'numeric' ? 'number' : 'text'}
+                  />
+                ))}
+              </div>
+            )}
             {legal.length > 0 && (
               <div className="grid grid-cols-2 gap-1 mt-2">
                 {legal.map((state) => (

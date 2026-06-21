@@ -14,6 +14,7 @@ from asset_model import (
     mass_balance_validation,
     trusted_substitute_tags,
 )
+from pathlib import Path
 from tag_provider import CsvReplayProvider, OpcUaProvider, SimulatorProvider
 
 
@@ -69,12 +70,40 @@ def test_placeholder_providers_are_read_only():
     print("  PASS: CSV replay and OPC UA placeholders are read-only")
 
 
+def test_pump_station_csv_replay_is_native_stream():
+    provider = CsvReplayProvider(Path(__file__).with_name("pump_station_replay.csv"))
+    frame = provider.read_tags()
+    ids = {item["sensor_id"] for item in frame}
+    assert {"LIT-100", "FIT-101", "FIT-102", "VIB-101", "PIT-101", "P101-RUN"}.issubset(ids)
+    assert all(item.get("quality") == "good" for item in frame if item["sensor_id"] != "LIT-100")
+    assert provider.to_dict()["loaded_frames"] >= 8
+    try:
+        provider.write_tag("P101-RUN", 0)
+    except PermissionError:
+        pass
+    else:
+        raise AssertionError("CSV replay provider must reject writes")
+    print("  PASS: Pump station CSV replay emits native read-only pump tags")
+
+
+def test_opcua_boundary_is_honest_and_read_only():
+    provider = OpcUaProvider("opc.tcp://example.invalid:4840")
+    info = provider.to_dict()
+    assert info["control_writes_enabled"] is False
+    assert info["boundary_status"] == "planned_or_unconfigured"
+    assert info["quality_supported"] is True
+    assert "not connected" in info["note"]
+    print("  PASS: OPC UA catalog entry is an honest read-only boundary")
+
+
 if __name__ == "__main__":
     tests = [
         test_asset_model_loads_demo_vessel,
         test_trusted_substitutes_use_asset_model,
         test_simulator_provider_is_read_only,
         test_placeholder_providers_are_read_only,
+        test_pump_station_csv_replay_is_native_stream,
+        test_opcua_boundary_is_honest_and_read_only,
     ]
 
     print("\n" + "=" * 60)

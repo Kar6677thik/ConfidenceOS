@@ -284,7 +284,7 @@ def _has_role(signals: list[dict], role: str) -> bool:
 
 
 def _has_command_signal(signals: list[dict]) -> bool:
-    command_roles = {"command", "command_signal", "valve_command", "controller_output"}
+    command_roles = {"command", "command_signal", "valve_command", "controller_output", "run_status", "pump_run_status"}
     return any(signal.get("role") in command_roles or signal.get("sensor_type") in command_roles for signal in signals)
 
 
