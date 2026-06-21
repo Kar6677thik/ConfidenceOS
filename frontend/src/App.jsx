@@ -32,7 +32,8 @@ import EngineerDeepDive   from './views/EngineerDeepDive';
 
 // Bottom status bar
 function BottomStatus({ labOpen, setLabOpen }) {
-  const { connected, timestamp, systemHealth, healthError, lastHealthAt } = useStore();
+  const { connected, timestamp, systemHealth, healthError, lastHealthAt, role } = useStore();
+  const canUseLab = ['Engineer', 'Manager'].includes(role);
   const [clock, setClock] = useState(() => new Date());
   const readiness = systemHealth?.readiness_summary || (healthError ? 'api_unreachable' : 'unknown');
   const readinessLabel = readiness === 'ready'
@@ -79,19 +80,21 @@ function BottomStatus({ labOpen, setLabOpen }) {
             Health: {new Date(lastHealthAt).toLocaleTimeString()}
           </span>
         )}
-        <button
-          onClick={() => setLabOpen((v) => !v)}
-          title="Simulation Lab (training source controls)"
-          aria-label="Toggle Simulation Lab"
-          className="flex items-center"
-          style={{ background: 'none', border: 'none', cursor: 'pointer', color: labOpen ? 'var(--primary, #0a84ff)' : 'inherit', padding: 0 }}
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M9 3h6M9 3v6l-5 9a1 1 0 00.9 1.5h14.2A1 1 0 0020 18l-5-9V3" />
-          </svg>
-        </button>
+        {canUseLab && (
+          <button
+            onClick={() => setLabOpen((v) => !v)}
+            title="Simulation Lab (training source controls — Engineer / Manager only)"
+            aria-label="Toggle Simulation Lab"
+            className="flex items-center"
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: labOpen ? 'var(--primary, #0a84ff)' : 'inherit', padding: 0 }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M9 3h6M9 3v6l-5 9a1 1 0 00.9 1.5h14.2A1 1 0 0020 18l-5-9V3" />
+            </svg>
+          </button>
+        )}
       </div>
-      {labOpen && <AbnormalityLab onClose={() => setLabOpen(false)} />}
+      {labOpen && canUseLab && <AbnormalityLab onClose={() => setLabOpen(false)} />}
     </footer>
   );
 }

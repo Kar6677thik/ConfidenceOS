@@ -35,7 +35,27 @@ const FAILURES = [
 ];
 
 export default function AbnormalityLab({ onClose }) {
-  const { plantId } = useStore();
+  const { plantId, role } = useStore();
+
+  if (!['Engineer', 'Manager'].includes(role)) {
+    return (
+      <div style={{
+        position: 'fixed', right: 16, bottom: 44, width: 312, zIndex: 60,
+        background: '#14171c', border: '1px solid #2c333d', borderRadius: 6,
+        boxShadow: '0 10px 30px rgba(0,0,0,0.5)', color: '#e6e8ec',
+        fontFamily: 'Geist, ui-monospace, monospace', padding: 16,
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+          <span style={{ fontSize: 12, fontWeight: 700 }}>Simulation Lab</span>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#7f8794', cursor: 'pointer', fontSize: 14 }}>✕</button>
+        </div>
+        <p style={{ fontSize: 11, color: '#ff7a7a', lineHeight: 1.5, margin: 0 }}>
+          Simulation Lab requires <strong>Engineer</strong> or <strong>Manager</strong> role.
+          Log out and log in as Engineer to use training scenarios.
+        </p>
+      </div>
+    );
+  }
   const [sensors, setSensors] = useState(FALLBACK_SENSORS);
   const [sensor, setSensor] = useState('LT-5100');
   const [status, setStatus] = useState(null);   // { ok, text }
