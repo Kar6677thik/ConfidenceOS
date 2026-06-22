@@ -1,0 +1,24 @@
+{
+  "name": "ConfidenceOS Field",
+  "short_name": "ConfidenceOS",
+  "description": "Field mobile view for ConfidenceOS plant operations",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "theme_color": "#005aa0",
+  "background_color": "#bfbfbf",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
