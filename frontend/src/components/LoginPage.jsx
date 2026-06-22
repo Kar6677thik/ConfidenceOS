@@ -112,16 +112,20 @@ export default function LoginPage() {
                 width: 40,
                 height: 40,
                 borderRadius: 8,
-                background: 'var(--primary, #0a84ff)',
+                background: 'rgba(255,255,255,0.92)',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
                 flexShrink: 0,
+                overflow: 'hidden',
+                boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.08)',
               }}
             >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-              </svg>
+              <img
+                src="/logo.svg"
+                alt="ConfidenceOS logo"
+                style={{ width: 30, height: 30, objectFit: 'contain', display: 'block' }}
+              />
             </div>
             <div>
               <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--text)', letterSpacing: '0.03em' }}>

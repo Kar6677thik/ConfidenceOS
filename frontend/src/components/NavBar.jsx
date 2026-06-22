@@ -104,7 +104,10 @@ export default function NavBar() {
     <header className="top-nav">
       <div className="flex items-center gap-4 min-w-0">
         <NavLink to="/runtime" className="brand-mark shrink-0">
-          ConfidenceOS
+          <span className="brand-logo-shell" aria-hidden="true">
+            <img src="/logo.svg" alt="" />
+          </span>
+          <span>ConfidenceOS</span>
         </NavLink>
         <div className="hidden md:block h-8 w-px bg-[var(--border-strong)]" />
         <nav className="flex items-center gap-4 overflow-x-auto overflow-y-hidden min-w-0">
