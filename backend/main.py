@@ -2974,14 +2974,25 @@ def _build_simple_pdf(text: str) -> bytes:
     """Build a formatted multi-page PDF from marked-up report text.
 
     Line prefixes (internal markers from _format_compliance_report_text):
-      ### title  -> document title, Helvetica-Bold 16pt
-      ## heading -> section heading, Helvetica-Bold 11pt + horizontal rule
-      - bullet   -> indented bullet, Helvetica 9pt
+      ### title  -> document title with cover treatment
+      ## heading -> section heading with colored section band
+      - bullet   -> indented bullet with accent marker
       (blank)    -> vertical spacer
       (other)    -> body text, Helvetica 9pt
     """
-    ML, MR = 55, 557
-    Y_TOP, Y_BOT = 730, 55
+    ML, MR = 52, 560
+    Y_TOP, Y_BOT = 724, 58
+    PAGE_W, PAGE_H = 612, 792
+    BLUE = (0.0, 0.32, 0.58)
+    DARK = (0.06, 0.10, 0.14)
+    CYAN = (0.05, 0.55, 0.78)
+    GREEN = (0.05, 0.48, 0.31)
+    AMBER = (0.85, 0.58, 0.0)
+    RED = (0.72, 0.05, 0.08)
+    PANEL = (0.95, 0.97, 0.98)
+    LINE = (0.70, 0.75, 0.78)
+    TEXT = (0.10, 0.13, 0.16)
+    MUTED = (0.34, 0.39, 0.44)
 
     def _max_chars(size: int) -> int:
         return max(30, int((MR - ML) / (size * 0.57)))
@@ -3022,6 +3033,7 @@ def _build_simple_pdf(text: str) -> bytes:
     pages: list = []
     cur_ops: list = []
     y = Y_TOP
+    first_title_rendered = False
 
     def _flush():
         nonlocal y
@@ -3034,53 +3046,91 @@ def _build_simple_pdf(text: str) -> bytes:
         if y - need < Y_BOT:
             _flush()
 
-    def _txt(x: int, yt: float, font: str, size: int, s: str) -> None:
+    def _rgb(values: tuple[float, float, float], op: str) -> str:
+        return f"{values[0]:.3f} {values[1]:.3f} {values[2]:.3f} {op}"
+
+    def _rect(x: float, yt: float, w: float, h: float, fill: tuple[float, float, float] | None = None, stroke: tuple[float, float, float] | None = None, width: float = 0.5) -> None:
+        if fill and stroke:
+            cur_ops.extend(["q", _rgb(fill, "rg"), _rgb(stroke, "RG"), f"{width:.2f} w", f"{x:.1f} {yt:.1f} {w:.1f} {h:.1f} re", "B", "Q"])
+        elif fill:
+            cur_ops.extend(["q", _rgb(fill, "rg"), f"{x:.1f} {yt:.1f} {w:.1f} {h:.1f} re", "f", "Q"])
+        elif stroke:
+            cur_ops.extend(["q", _rgb(stroke, "RG"), f"{width:.2f} w", f"{x:.1f} {yt:.1f} {w:.1f} {h:.1f} re", "S", "Q"])
+
+    def _txt(x: int, yt: float, font: str, size: int, s: str, color: tuple[float, float, float] = TEXT) -> None:
         if not s:
             return
         cur_ops.extend([
             "BT",
+            _rgb(color, "rg"),
             f"/{font} {size} Tf",
             f"{x} {yt:.1f} Td",
             f"({_pdf_escape(s)}) Tj",
             "ET",
         ])
 
-    def _rule(yt: float, gray: str = "0.65 G") -> None:
+    def _rule(yt: float, color: tuple[float, float, float] = LINE, width: float = 0.35) -> None:
         cur_ops.extend([
-            "q", gray, "0.35 w",
+            "q", _rgb(color, "RG"), f"{width:.2f} w",
             f"{ML} {yt:.1f} m", f"{MR} {yt:.1f} l",
             "S", "Q",
         ])
 
+    def _status_color(s: str) -> tuple[float, float, float]:
+        upper = s.upper()
+        if any(word in upper for word in ("CRITICAL", "BLOCK", "UNAPPROVED", "STALE")):
+            return RED
+        if any(word in upper for word in ("WARNING", "WARN", "DUE", "DEGRADED", "LOW")):
+            return AMBER
+        if any(word in upper for word in ("OK", "TRUE", "TRUSTED", "APPROVED", "HIGH")):
+            return GREEN
+        return TEXT
+
     for kind, txt in tokens:
         if kind == "spacer":
-            y -= 7
-        elif kind == "title":
-            for wl in _wrap(txt, 16):
-                _ensure(24)
-                _txt(ML, y, "F2", 16, wl)
-                y -= 22
-            _ensure(4)
-            _rule(y + 2, "0.3 G")
-            y -= 10
-        elif kind == "h1":
             y -= 8
-            _ensure(32)
-            _txt(ML, y, "F2", 11, txt[:90])
-            y -= 15
-            _rule(y + 2)
-            y -= 6
+        elif kind == "title":
+            if not first_title_rendered:
+                first_title_rendered = True
+                _rect(0, 655, PAGE_W, 137, DARK)
+                _rect(0, 655, 13, 137, CYAN)
+                _rect(52, 676, 156, 22, BLUE, None)
+                _txt(62, 683, "F2", 9, "READ-ONLY TRUST LAYER", (1, 1, 1))
+                _txt(52, 735, "F2", 22, txt[:48], (1, 1, 1))
+                _txt(52, 710, "F1", 10, "Operational evidence appendix generated from ConfidenceOS logs", (0.82, 0.88, 0.92))
+                _txt(52, 634, "F1", 9, "This report supports review and handover. It does not certify regulatory compliance or replace DCS/HMI records.", MUTED)
+                y = 610
+            else:
+                for wl in _wrap(txt, 18):
+                    _ensure(28)
+                    _txt(ML, y, "F2", 18, wl, BLUE)
+                    y -= 24
+                _rule(y + 2, BLUE, 0.8)
+                y -= 12
+        elif kind == "h1":
+            y -= 10
+            _ensure(42)
+            _rect(ML, y - 8, MR - ML, 25, PANEL, LINE, 0.35)
+            _rect(ML, y - 8, 5, 25, BLUE)
+            _txt(ML + 14, y, "F2", 11, txt[:90], BLUE)
+            y -= 28
         elif kind == "body":
             for wl in _wrap(txt, 9):
-                _ensure(13)
-                _txt(ML, y, "F1", 9, wl)
-                y -= 13
+                _ensure(15)
+                if ":" in wl and len(wl.split(":", 1)[0]) <= 28:
+                    label, value = wl.split(":", 1)
+                    _txt(ML, y, "F2", 8, label.upper() + ":", MUTED)
+                    _txt(ML + min(150, max(82, len(label) * 5 + 20)), y, "F1", 9, value.strip(), _status_color(value))
+                else:
+                    _txt(ML, y, "F1", 9, wl, TEXT)
+                y -= 14
         elif kind == "bullet":
             for i, wl in enumerate(_wrap(txt, 9)):
-                _ensure(13)
-                prefix = "-  " if i == 0 else "   "
-                _txt(ML + 10, y, "F1", 9, prefix + wl)
-                y -= 13
+                _ensure(15)
+                if i == 0:
+                    _rect(ML + 8, y + 2.3, 4, 4, _status_color(wl))
+                _txt(ML + 20, y, "F1", 9, wl, TEXT)
+                y -= 14
 
     _flush()
     if not pages:
@@ -3095,15 +3145,15 @@ def _build_simple_pdf(text: str) -> bytes:
             f"ConfidenceOS  |  Advisory Evidence Only  |  Page {pn} of {n_total}"
         )
         pre = [
-            "q", "0.65 G", "0.3 w",
-            f"{ML} 752 m", f"{MR} 752 l", "S", "Q",
-            "BT", "/F1 7 Tf", f"{ML} 757 Td",
+            "q", _rgb((0.985, 0.990, 0.994), "rg"), f"0 0 {PAGE_W} {PAGE_H} re", "f", "Q",
+            "q", _rgb(BLUE, "rg"), f"0 760 {PAGE_W} 32 re", "f", "Q",
+            "BT", _rgb((1, 1, 1), "rg"), "/F2 8 Tf", f"{ML} 771 Td",
             f"({hdr_label}) Tj", "ET",
-            "BT", "/F1 7 Tf", f"{MR - 100} 757 Td",
+            "BT", _rgb((0.82, 0.90, 0.96), "rg"), "/F1 7 Tf", f"{MR - 125} 771 Td",
             f"({gen_label}) Tj", "ET",
-            "q", "0.65 G", "0.3 w",
+            "q", _rgb(LINE, "RG"), "0.35 w",
             f"{ML} 44 m", f"{MR} 44 l", "S", "Q",
-            "BT", "/F1 7 Tf", f"{ML} 33 Td",
+            "BT", _rgb(MUTED, "rg"), "/F1 7 Tf", f"{ML} 33 Td",
             f"({footer}) Tj", "ET",
         ]
         pages[pn - 1] = pre + page_ops
