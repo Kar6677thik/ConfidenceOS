@@ -62,6 +62,7 @@ Icon?
 # Markdown Files
 *.md
 **/*.md
+!README.md
 
 # State Files & Temporary Build Outputs
 backend/studio_state.json
