@@ -46,11 +46,23 @@ MODEL_ASSIGNMENTS = {
     ],
 }
 
-DEFAULT_APPROVED_BINDINGS: list[dict] = []
+DEFAULT_APPROVED_BINDINGS: list[dict] = [
+    {"raw_tag": "U15_LT_5100.PV", "source": "studio_engineer_approval"},
+    {"raw_tag": "15-FI-2010", "source": "studio_engineer_approval"},
+    {"raw_tag": "FO2020_RATE", "source": "studio_engineer_approval"},
+    {"raw_tag": "ZT6100.POS", "source": "studio_engineer_approval"},
+    {"raw_tag": "PT_3100_PROCESS", "source": "studio_engineer_approval"},
+    {"raw_tag": "TEMP4100", "source": "studio_engineer_approval"},
+]
 
 MODEL_APPROVED_BINDINGS = {
-    "texas_city_vessel": [],
-    "pump_station": [],
+    "texas_city_vessel": DEFAULT_APPROVED_BINDINGS,
+    "pump_station": [
+        {"raw_tag": "TK100_LIT.PV", "source": "studio_engineer_approval"},
+        {"raw_tag": "FIT101_FLOW", "source": "studio_engineer_approval"},
+        {"raw_tag": "FIT102_RATE", "source": "studio_engineer_approval"},
+        {"raw_tag": "P101_VIB", "source": "studio_engineer_approval"},
+    ],
 }
 
 
@@ -914,10 +926,23 @@ def _with_default_fields(state: dict) -> dict:
     for key in ("assignments", "suggestions", "notes", "approved_bindings"):
         if not isinstance(merged.get(key), list):
             merged[key] = default[key]
-    merged["approved_bindings"] = [
-        item for item in merged.get("approved_bindings", [])
-        if item.get("source") != "demo_default_engineer_approval"
-    ]
+    approved_bindings = []
+    for item in merged.get("approved_bindings", []):
+        if not isinstance(item, dict) or not item.get("raw_tag"):
+            continue
+        normalized = dict(item)
+        if normalized.get("source") == "demo_default_engineer_approval":
+            normalized["source"] = "studio_engineer_approval"
+            normalized.setdefault("approved_at", time.time())
+            normalized.setdefault("migration_note", "Migrated legacy demo approval into current Studio approval state.")
+        approved_bindings.append(normalized)
+    if not approved_bindings and not merged.get("manual_raw_tags"):
+        approved_bindings = _default_approved_bindings_for_model(merged.get("selected_asset_model"))
+        now = time.time()
+        for item in approved_bindings:
+            item.setdefault("approved_at", now)
+            item.setdefault("approval_note", "Bundled demo baseline approval for known imported tags.")
+    merged["approved_bindings"] = approved_bindings
     if not isinstance(merged.get("ignored_raw_tags"), dict):
         merged["ignored_raw_tags"] = dict(default["ignored_raw_tags"])
     else:

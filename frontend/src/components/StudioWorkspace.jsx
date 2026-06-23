@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import useStore from '../store';
 import PageIdentity from './hmi/PageIdentity';
@@ -55,7 +55,7 @@ function withModel(path, modelKey) {
 }
 
 export default function StudioWorkspace() {
-  const { role, plantId, setRole, assetModelKey, setAssetModelKey } = useStore();
+  const { role, plantId, assetModelKey, setAssetModelKey } = useStore();
   const navigate = useNavigate();
   const [overview, setOverview] = useState(null);
   const [imported, setImported] = useState(null);
@@ -76,7 +76,7 @@ export default function StudioWorkspace() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
 
-  const refresh = async (modelOverride) => {
+  const refresh = useCallback(async (modelOverride) => {
     const model = modelOverride || assetModelKey || 'texas_city_vessel';
     const [studio, importedSignals, buildPayload, testPayload, courtPayload] = await Promise.all([
       fetchJson(withModel('/api/studio', model)),
@@ -91,7 +91,7 @@ export default function StudioWorkspace() {
     setTests(testPayload);
     setCourt(courtPayload);
     setSelectedRawTag((current) => selectBestMappingItem(courtPayload?.items, current));
-  };
+  }, [assetModelKey]);
 
   const doLoad = () => {
     setLoading(true);
@@ -123,7 +123,7 @@ export default function StudioWorkspace() {
         setTests(null);
         setCourt(null);
       });
-  }, []);
+  }, [refresh]);
 
   useEffect(() => {
     if (!['Engineer', 'Manager'].includes(role)) {

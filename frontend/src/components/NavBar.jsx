@@ -62,7 +62,9 @@ export default function NavBar() {
     if (authToken) headers.Authorization = `Bearer ${authToken}`;
     try {
       await fetch(`/api/alarms/acknowledge?plant_id=${plantId}`, { method: 'POST', headers });
-    } catch {}
+    } catch (err) {
+      console.warn('Alarm acknowledge failed', err);
+    }
   };
   const location = useLocation();
   const navigate = useNavigate();

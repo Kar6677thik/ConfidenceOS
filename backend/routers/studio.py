@@ -105,6 +105,22 @@ def _runtime_live_state(plant_id: str, plant, model_key: str | None = None) -> d
 
 # ── Pydantic models ───────────────────────────────────────────────────────────
 
+def _ensure_publishable_runtime(model_key: str | None = None) -> dict | None:
+    """Publish a valid baseline Runtime through the normal Studio guardrails."""
+    overview = studio_overview(model_key)
+    state = overview.get("state", {})
+    if state.get("published_build_id"):
+        return None
+    build = studio_current_build(model_key=model_key)
+    if not build.get("can_publish") or build.get("validation", {}).get("blocking"):
+        return None
+    stored_build = state.get("last_build")
+    if not stored_build or stored_build.get("build_id") != build.get("build_id"):
+        studio_run_compiler_build(model_key=model_key)
+    result = studio_publish(model_key=model_key)
+    return result if result.get("status") == "published" else None
+
+
 class StudioTemplateAssignmentRequest(BaseModel):
     asset_id: str
     template_id: str
@@ -175,6 +191,7 @@ def get_generated_screens(
     effective_model_key = model_key or getattr(plant, "model_key", None)
     live_state = _runtime_live_state(plant_id, plant, model_key=effective_model_key)
     try:
+        _ensure_publishable_runtime(effective_model_key)
         manifest = studio_runtime_manifest(role=role, context=context, live_state=live_state, model_key=effective_model_key)
         if manifest.get("runtime_authority") != "published" and role not in {"Engineer", "Manager"}:
             raise HTTPException(status_code=409, detail={

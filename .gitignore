@@ -63,6 +63,9 @@ Icon?
 *.md
 **/*.md
 !README.md
+docs/
+docs/learning/
+docs/learning/*.md
 
 # State Files & Temporary Build Outputs
 backend/studio_state.json
