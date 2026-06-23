@@ -83,6 +83,7 @@ def get_demo_state(plant_id: str, plant=None, loop_status: dict | None = None) -
         observed_phase = _observed_phase(
             active=bool(state.get("active")),
             active_failure_count=active_failure_count,
+            active_failures=active_failures,
             confidence=confidence,
             mass_balance=mb,
             context=context,
@@ -243,6 +244,7 @@ def _observed_phase(
     *,
     active: bool,
     active_failure_count: int,
+    active_failures: list[dict],
     confidence: dict,
     mass_balance: dict,
     context: dict,
@@ -254,7 +256,16 @@ def _observed_phase(
         return "MASS_BALANCE_DIVERGENCE"
     if context.get("status") in ("WARNING", "CRITICAL"):
         return "LEVEL_DECEPTION"
-    if active and active_failure_count:
+    if active_failure_count:
+        failure_types = {item.get("failure_type") for item in active_failures or []}
+        affected = {item.get("sensor_id") for item in active_failures or []}
+        if {"FI-2010", "FO-2020"} & affected or "sg_mismatch" in failure_types:
+            return "MASS_BALANCE_DIVERGENCE"
+        if "stuck_reading" in failure_types or "command_state_decoupling" in failure_types:
+            return "LEVEL_DECEPTION"
+        if "calibration_drift" in failure_types:
+            return "VERIFICATION_REQUIRED"
+    if active:
         return "LEVEL_DECEPTION"
     if startup_active:
         return "STARTUP_RAMP"

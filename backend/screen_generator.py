@@ -302,6 +302,12 @@ def _generation_metadata(
 def _resolve_context(context: str, live_state: dict) -> str:
     if context and context != "auto":
         return context
+    demo_state = live_state.get("demo_state") or {}
+    if _active_simulation_failures(live_state):
+        phase = demo_state.get("phase")
+        if phase and phase != "NORMAL_BASELINE":
+            return phase
+        return "MANUAL_VERIFICATION_REQUIRED"
     plant_context = live_state.get("plant_context") or {}
     inferred = live_state.get("mode", {}).get("inferred_mode")
     return plant_context.get("state") or inferred or "STEADY_STATE"
@@ -316,6 +322,10 @@ def _situations(
 ) -> list[dict]:
     build_context = build_context or {}
     incidents = live_state.get("incidents") or []
+    if not incidents:
+        simulation_incident = _simulation_situation_from_demo_state(live_state)
+        if simulation_incident:
+            incidents = [simulation_incident]
     decorated = []
     for index, incident in enumerate(incidents):
         asset_id = incident.get("asset_id") or _primary_equipment_id(build_context.get("model_key"))
@@ -511,7 +521,73 @@ def _stress_mode_panel(
 
 def _is_stress(live_state: dict, context_state: str) -> bool:
     severity = (live_state.get("plant_context") or {}).get("severity")
-    return severity in ("WARNING", "CRITICAL") or context_state in ("WARNING", "CRITICAL", "MASS_BALANCE_DIVERGENCE", "MANUAL_VERIFICATION_REQUIRED")
+    return (
+        _active_simulation_failures(live_state)
+        or severity in ("WARNING", "CRITICAL")
+        or context_state in ("WARNING", "CRITICAL", "MASS_BALANCE_DIVERGENCE", "MANUAL_VERIFICATION_REQUIRED", "TRUST_QUARANTINE", "VERIFICATION_REQUIRED", "HANDOVER_BLOCKED")
+    )
+
+
+def _active_simulation_failures(live_state: dict) -> bool:
+    demo_state = live_state.get("demo_state") or {}
+    try:
+        return int(demo_state.get("active_failure_count") or 0) > 0
+    except (TypeError, ValueError):
+        return bool(demo_state.get("active_failures"))
+
+
+def _simulation_situation_from_demo_state(live_state: dict) -> dict | None:
+    demo_state = live_state.get("demo_state") or {}
+    failures = demo_state.get("active_failures") or []
+    if not failures:
+        return None
+    sensors = [item.get("sensor_id") for item in failures if item.get("sensor_id")]
+    labels = [
+        item.get("operator_label") or f"{item.get('sensor_id')} {item.get('failure_type')}"
+        for item in failures
+    ]
+    phase = demo_state.get("phase") or "SIMULATION_ACTIVE"
+    first_action = demo_state.get("next_operator_action") or "Verify affected instruments locally before using them as operating basis."
+    raw_signal_count = max(1, len(sensors))
+    return {
+        "incident_id": f"{live_state.get('plant_id', 'plant')}:simulation-lab:{phase.lower()}",
+        "title": f"Simulation Lab active: {phase.replace('_', ' ').title()}",
+        "severity": "WARNING",
+        "root_trigger": "simulation_lab_injection",
+        "abnormal_situation": "simulation_training_injection",
+        "simulation_source_only": True,
+        "affected_sensors": list(dict.fromkeys(sensors)),
+        "summary": "Simulation Lab has injected training-source failures; verify the Runtime response and operating basis workflow.",
+        "first_action": first_action,
+        "action_contract": {
+            "do_not_use": list(dict.fromkeys(sensors)) or ["simulation_affected_signal"],
+            "do_not_trust": list(dict.fromkeys(sensors)) or ["simulation_affected_signal"],
+            "trusted_substitutes": ["local/field verification", "independent trend comparison"],
+            "first_safe_action": first_action,
+            "operator_single_safe_move": first_action,
+            "blocked_decisions": ["do_not_accept_demo_handover_without_review"],
+            "exit_conditions": ["Simulation failures cleared or scenario reset."],
+        },
+        "blocked_decisions": ["do_not_accept_demo_handover_without_review"],
+        "handover_required": True,
+        "evidence_refs": [
+            {
+                "type": "simulation_lab_injection",
+                "summary": label,
+                "source": "software_simulator",
+                "simulation_source_only": True,
+            }
+            for label in labels
+        ],
+        "alarm_collapse": {
+            "collapsed": True,
+            "raw_signal_count": raw_signal_count,
+            "suppressed_alarm_count": max(0, raw_signal_count - 1),
+            "operator_question": "Is this a simulator training condition, and which operating basis should be trusted?",
+            "collapse_reason": "Active Simulation Lab failures are grouped into one training-source operating question.",
+            "raw_signals": list(dict.fromkeys(sensors)),
+        },
+    }
 
 
 def _validation_messages(validation: dict, asset_id: str | None = None, template_id: str | None = None) -> list[str]:

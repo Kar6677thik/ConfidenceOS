@@ -550,6 +550,10 @@ async def _plant_tick_loop(plant_id: str, plant, start_delay: float = 0.0):
                     stale_flags=stale_payload,
                     plant_context=plant.latest_context,
                 )
+                demo_state_for_incident = get_demo_state(plant_id, plant, _plant_loop_status.get(plant_id, {}))
+                sim_incident = _simulation_training_incident(plant_id, demo_state_for_incident, plant.latest_context, now)
+                if sim_incident and not plant.latest_incidents:
+                    plant.latest_incidents = [sim_incident]
                 plant.latest_incidents = annotate_incidents_for_handover(plant.latest_incidents)
 
                 # V2: increment tick before persistence so live telemetry keeps
@@ -787,6 +791,90 @@ def _handover_debt_events(plant_id: str, debt: dict, timestamp: float) -> list[d
             },
         })
     return events
+
+
+def _simulation_training_incident(plant_id: str, demo_state: dict, plant_context: dict, timestamp: float) -> dict | None:
+    """Expose active Simulation Lab injections as a visible training incident.
+
+    This does not claim a real plant fault. It keeps injected simulator failures
+    visible across Runtime, Shift Channel, and handover while confidence and
+    mass-balance evidence continue to develop normally.
+    """
+    failures = list((demo_state or {}).get("active_failures") or [])
+    if not failures:
+        return None
+    sensors = [item.get("sensor_id") for item in failures if item.get("sensor_id")]
+    labels = [
+        item.get("operator_label") or f"{item.get('sensor_id')} {item.get('failure_type')}"
+        for item in failures
+    ]
+    phase = demo_state.get("phase") or "SIMULATION_ACTIVE"
+    first_action = demo_state.get("next_operator_action") or "Verify affected instruments locally before using them as operating basis."
+    raw_signal_count = max(1, len(sensors))
+    return {
+        "incident_id": f"{plant_id}:simulation-lab:{phase.lower()}",
+        "title": f"Simulation Lab active: {phase.replace('_', ' ').title()}",
+        "severity": "WARNING",
+        "root_trigger": "simulation_lab_injection",
+        "abnormal_situation": "simulation_training_injection",
+        "simulation_source_only": True,
+        "affected_sensors": list(dict.fromkeys(sensors)),
+        "summary": (
+            "The Simulation Lab has injected training-source failures. "
+            "Use this to verify Runtime, role workspaces, Shift Channel, and evidence displays react to fabricated conditions."
+        ),
+        "first_action": first_action,
+        "suggested_actions": [
+            "Confirm this is a simulator/training source before interpreting the incident.",
+            "Inspect affected signal faceplates and confidence evidence.",
+            "Verify the operating basis workflow changes in Runtime and Shift Channel.",
+        ],
+        "action_contract": {
+            "do_not_use": list(dict.fromkeys(sensors)) or ["simulation_affected_signal"],
+            "do_not_trust": list(dict.fromkeys(sensors)) or ["simulation_affected_signal"],
+            "trusted_substitutes": ["local/field verification", "independent trend comparison"],
+            "first_safe_action": first_action,
+            "operator_single_safe_move": first_action,
+            "blocked_decisions": ["do_not_accept_demo_handover_without_review"],
+            "exit_conditions": ["Simulation failures cleared or scenario reset."],
+        },
+        "blocked_decisions": ["do_not_accept_demo_handover_without_review"],
+        "handover_required": True,
+        "evidence_refs": [
+            {
+                "type": "simulation_lab_injection",
+                "summary": label,
+                "source": "software_simulator",
+                "simulation_source_only": True,
+            }
+            for label in labels
+        ],
+        "alarm_collapse": {
+            "collapsed": True,
+            "raw_signal_count": raw_signal_count,
+            "suppressed_alarm_count": max(0, raw_signal_count - 1),
+            "operator_question": "Is this a simulator training condition, and which operating basis should be trusted?",
+            "collapse_reason": "Active Simulation Lab failures are grouped into one training-source operating question.",
+            "raw_signals": list(dict.fromkeys(sensors)),
+        },
+        "trust_quarantine": {
+            "quarantined_signals": list(dict.fromkeys(sensors)),
+            "substituted_by": ["local/field verification", "independent trend comparison"],
+            "decision_basis_allowed": False,
+        },
+        "context": plant_context.get("state", "SIMULATION_ACTIVE") if isinstance(plant_context, dict) else "SIMULATION_ACTIVE",
+        "source_flags": [
+            {
+                "source": "simulation_lab",
+                "sensor_id": item.get("sensor_id"),
+                "failure_type": item.get("failure_type"),
+                "message": item.get("operator_label") or f"{item.get('sensor_id')} {item.get('failure_type')}",
+                "severity": "WARNING",
+            }
+            for item in failures
+        ],
+        "created_at": timestamp,
+    }
 
 
 def _derive_trust_states(confidence: list[dict], readings: list[dict], mass_balance: dict | None, model_key: str | None = None) -> list[dict]:
