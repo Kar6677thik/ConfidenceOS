@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import useStore from '../store';
 
 function tierClass(tier) {
@@ -9,7 +9,7 @@ function tierClass(tier) {
 }
 
 export default function ConfidenceDebtPanel({ compact = false }) {
-  const { plantId, confidenceDebt } = useStore();
+  const { plantId, confidenceDebt, confidence } = useStore();
   const [items, setItems] = useState([]);
 
   useEffect(() => {
@@ -20,13 +20,37 @@ export default function ConfidenceDebtPanel({ compact = false }) {
   }, [plantId]);
 
   const sourceItems = confidenceDebt?.length ? confidenceDebt : items;
-  const rows = [...sourceItems].sort((a, b) => (b.confidence_debt || 0) - (a.confidence_debt || 0));
+
+  // Merge live confidence data so freshly-injected sensors appear immediately
+  // even before backend debt has accumulated (debt = seconds_below_high × criticality).
+  const rows = useMemo(() => {
+    const debtMap = new Map(sourceItems.map((item) => [item.sensor_id, item]));
+    for (const c of confidence || []) {
+      if (c.tier && c.tier !== 'HIGH' && !debtMap.has(c.sensor_id)) {
+        debtMap.set(c.sensor_id, {
+          sensor_id: c.sensor_id,
+          tier: c.tier,
+          confidence_debt: 0,
+          seconds_below_high: 0,
+          maintenance_priority: c.recommended_action || 'Newly degraded — debt accumulating.',
+          _new: true,
+        });
+      }
+    }
+    return [...debtMap.values()].sort((a, b) => (b.confidence_debt || 0) - (a.confidence_debt || 0));
+  }, [sourceItems, confidence]);
+
   const body = (
     <div className="space-y-[1px] bg-[var(--border-strong)] border border-[var(--border-strong)]">
       {rows.slice(0, compact ? 4 : 8).map((item) => (
         <div key={item.sensor_id} className="bg-[var(--surface-panel)] p-3">
           <div className="flex items-center justify-between gap-3">
-            <p className="font-data text-[var(--text)]">{item.sensor_id}</p>
+            <div className="flex items-center gap-2">
+              <p className="font-data text-[var(--text)]">{item.sensor_id}</p>
+              {item._new && (
+                <span className="industrial-badge status-warning" style={{ fontSize: 9 }}>NEW</span>
+              )}
+            </div>
             <span className={tierClass(item.tier)}>{item.confidence_debt ?? 0}</span>
           </div>
           <p className="caption-mono text-[var(--data-mono)] mt-1">

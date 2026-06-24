@@ -38,24 +38,6 @@ export default function QueryPanel() {
     'What verification is required?',
   ];
 
-  if (stressContext || activeDecisionFreeze) {
-    return (
-      <section className="industrial-panel h-full min-h-[220px] flex flex-col overflow-hidden">
-        <div className="industrial-panel-header">
-          <div>
-            <h2 className="industrial-panel-title">Grounded Operator Explanation</h2>
-            <p className="caption-mono status-warning">DISABLED DURING ACTIVE DECISION FREEZE</p>
-          </div>
-        </div>
-        <div className="industrial-body">
-          <p className="caption-mono text-[var(--text)]">
-            Grounded explanation disabled during active decision freeze. Use operating-basis workflow.
-          </p>
-        </div>
-      </section>
-    );
-  }
-
   return (
     <section className="industrial-panel h-full min-h-[360px] flex flex-col overflow-hidden">
       <div className="industrial-panel-header">
@@ -64,6 +46,13 @@ export default function QueryPanel() {
           <p className="caption-mono text-[var(--data-mono)]">SYSTEM LOG / EVIDENCE-LINKED ANSWERS</p>
         </div>
       </div>
+      {(stressContext || activeDecisionFreeze) && (
+        <div className="px-5 pt-3 pb-1">
+          <p className="caption-mono status-warning text-[11px]">
+            ⚠ Decision freeze active — verify all answers against field instruments before acting
+          </p>
+        </div>
+      )}
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-thin p-5 space-y-5">
         {queryHistory.length === 0 && (
