@@ -169,7 +169,7 @@ def mapping_court_for_tag(raw_tag: str, state: dict | None = None, model_key: st
                 }
 
     derived = _derive_mapping(raw_tag, fallback=tag, model_key=model_key)
-    if derived and not approved and tag.get("status") != "ignored":
+    if derived and tag.get("status") != "ignored":
         tag = {**tag, **derived}
     elif not derived and not approved and tag:
         tag = {

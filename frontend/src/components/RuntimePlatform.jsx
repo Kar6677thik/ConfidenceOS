@@ -358,15 +358,22 @@ function HmiAlarmBand({ manifest, role, connected, plantId, plantContext, situat
   const buildLabel = manifest?.published_build_id || manifest?.build_id || 'unpublished';
   const operatorView = isOperatorRole(role);
   const showBuildInternals = showEngineeringInternals(role);
+  const situationTitle = lead.title || basis.abnormal_situation || 'Normal operation';
+  const hasActiveSituation = Boolean(
+    lead.title
+    || (basis.abnormal_situation && String(basis.abnormal_situation).toLowerCase() !== 'normal operation')
+    || asList(basis.do_not_trust).length
+    || asList(basis.decision_freeze).length
+  );
 
   return (
     <div className="hmi-alarm-band">
       <div className={`hmi-band-cell ${isCritical ? 'hmi-band-critical' : 'hmi-band-warning'}`}>
         <TrustStatusSymbol state={trust.trust_state || lead.severity || manifest?.context} />
         <div className="min-w-0">
-          <p className="label-caps text-[var(--text-muted)]">Abnormal Situation</p>
-          <p className="caption-mono font-semibold truncate" title={lead.title || basis.abnormal_situation || 'Normal operation'}>
-            {lead.title || basis.abnormal_situation || 'Normal operation'}
+          <p className="label-caps text-[var(--text-muted)]">{hasActiveSituation ? 'Abnormal Situation' : 'Operating Status'}</p>
+          <p className="caption-mono font-semibold truncate" title={situationTitle}>
+            {situationTitle}
           </p>
         </div>
       </div>
@@ -400,6 +407,7 @@ function HmiAlarmBand({ manifest, role, connected, plantId, plantContext, situat
 function TrustMapEdgeNav({ navigation, faceplates, selectedId, onSelect, situations, handoverDebt }) {
   return (
     <aside className="hmi-edge-nav" aria-label="Trust map navigation">
+      <div className="hmi-edge-label">Trust Map</div>
       <button className="hmi-edge-button active" title={navigation?.name || 'Plant'}>Plant</button>
       {(faceplates || []).map((faceplate) => {
         const hotspot = (faceplate.signals || []).some((signal) => ['LOW', 'CRITICAL', 'QUARANTINED', 'DEGRADED'].includes(signalTrustState(signal).tier));
