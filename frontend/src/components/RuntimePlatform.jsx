@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import useStore from '../store';
 import PriorityBand from './hmi/PriorityBand';
@@ -1339,6 +1339,8 @@ export default function RuntimePlatform() {
   const [demoBusy, setDemoBusy] = useState(false);
   const [localDemoState, setLocalDemoState] = useState(null);
   const [ledgerEvents, setLedgerEvents] = useState([]);
+  const [operatorPressureLatched, setOperatorPressureLatched] = useState(false);
+  const pressureClearTimerRef = useRef(null);
 
   useEffect(() => {
     connect();
@@ -1425,11 +1427,46 @@ export default function RuntimePlatform() {
     () => (manifest?.situations?.length ? manifest.situations : incidents || []),
     [manifest, incidents],
   );
-  const pressureContext = manifest?.stress_mode
+  const immediatePressureContext = manifest?.stress_mode
     || ['WARNING', 'CRITICAL'].includes(String(plantContext?.severity || '').toUpperCase())
     || ['WARNING', 'CRITICAL', 'MASS_BALANCE_DIVERGENCE', 'MANUAL_VERIFICATION_REQUIRED'].includes(String(manifest?.context || '').toUpperCase());
   const operatorView = isOperatorRole(role);
-  const stressMode = operatorView && pressureContext;
+  useEffect(() => {
+    if (!operatorView) {
+      if (pressureClearTimerRef.current) {
+        clearTimeout(pressureClearTimerRef.current);
+        pressureClearTimerRef.current = null;
+      }
+      if (operatorPressureLatched) setOperatorPressureLatched(false);
+      return undefined;
+    }
+
+    if (immediatePressureContext) {
+      if (pressureClearTimerRef.current) {
+        clearTimeout(pressureClearTimerRef.current);
+        pressureClearTimerRef.current = null;
+      }
+      if (!operatorPressureLatched) setOperatorPressureLatched(true);
+      return undefined;
+    }
+
+    if (!operatorPressureLatched) return undefined;
+
+    // Live context can oscillate for a few ticks while simulator/advisory state
+    // settles. Hold the pressure layout briefly so the Operator screen does not
+    // flicker between normal Runtime and operating-basis workflow.
+    const timer = setTimeout(() => {
+      setOperatorPressureLatched(false);
+      if (pressureClearTimerRef.current === timer) pressureClearTimerRef.current = null;
+    }, 15000);
+    pressureClearTimerRef.current = timer;
+
+    return () => {
+      clearTimeout(timer);
+      if (pressureClearTimerRef.current === timer) pressureClearTimerRef.current = null;
+    };
+  }, [operatorView, immediatePressureContext, operatorPressureLatched]);
+  const stressMode = operatorView && (immediatePressureContext || operatorPressureLatched);
   const activeDemoState = localDemoState || demoState || manifest?.demo_state;
 
   const runDemoAction = async (path) => {
