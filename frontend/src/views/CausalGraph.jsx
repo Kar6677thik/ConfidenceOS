@@ -24,6 +24,63 @@ const NODE_HH = 38;
 const SVG_W = 760;
 const SVG_H = 460;
 
+function confidenceBySensor(confidence = []) {
+  return Object.fromEntries(
+    confidence
+      .filter((item) => item?.sensor_id || item?.tag)
+      .map((item) => [String(item.sensor_id || item.tag), item]),
+  );
+}
+
+function graphTier(conf = {}, fallbackTier = 'HIGH') {
+  const trustState = String(conf.trust_state || '').toUpperCase();
+  if (trustState === 'QUARANTINED' || trustState === 'UNAVAILABLE') return 'CRITICAL';
+  if (trustState === 'DEGRADED') return 'LOW';
+  if (trustState === 'SUBSTITUTED') return 'MEDIUM';
+  return conf.tier || fallbackTier || 'HIGH';
+}
+
+function isGraphAnomalous(conf = {}, tier = 'HIGH') {
+  const trustState = String(conf.trust_state || '').toUpperCase();
+  return ['LOW', 'CRITICAL'].includes(String(tier).toUpperCase())
+    || ['QUARANTINED', 'UNAVAILABLE'].includes(trustState);
+}
+
+function mergeLiveGraph(graph, confidence = []) {
+  if (!graph?.nodes) return graph;
+  const liveById = confidenceBySensor(confidence);
+  const nodes = graph.nodes.map((node) => {
+    const live = liveById[node.id] || {};
+    const tier = graphTier(live, node.tier);
+    const pct = live.confidence_pct ?? node.confidence_pct;
+    const trustState = live.trust_state || node.trust_state || tier;
+    return {
+      ...node,
+      confidence_pct: pct,
+      tier,
+      trust_state: trustState,
+      reasons: live.reasons?.length ? live.reasons.slice(0, 2) : node.reasons,
+      dominant_factor: live.dominant_factor || node.dominant_factor,
+      is_anomalous: isGraphAnomalous(live, tier),
+      is_degraded: ['MEDIUM', 'LOW', 'CRITICAL'].includes(String(tier).toUpperCase())
+        || ['DEGRADED', 'QUARANTINED', 'SUBSTITUTED', 'UNAVAILABLE'].includes(String(trustState).toUpperCase()),
+    };
+  });
+  const nodeById = Object.fromEntries(nodes.map((node) => [node.id, node]));
+  const edges = (graph.edges || []).map((edge) => {
+    const src = nodeById[edge.source];
+    const dst = nodeById[edge.target];
+    const srcAnom = Boolean(src?.is_anomalous);
+    const dstAnom = Boolean(dst?.is_anomalous);
+    return {
+      ...edge,
+      is_active: srcAnom && dstAnom,
+      is_propagating: srcAnom || dstAnom,
+    };
+  });
+  return { ...graph, nodes, edges, live_overlay: true };
+}
+
 // Force-directed layout (d3-force), settled synchronously so the result is
 // deterministic (d3's default seeding is reproducible) and we render a static,
 // settled graph rather than animating. The existing pan/zoom/focus layer renders
@@ -56,7 +113,7 @@ function computeForceLayout(nodes, edges, svgW, svgH) {
 }
 
 export default function CausalGraph() {
-  const { plantId, role } = useStore();
+  const { plantId, role, confidence } = useStore();
   const navigate = useNavigate();
   const [graph, setGraph] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -164,19 +221,20 @@ export default function CausalGraph() {
     setFocusedNodeId(null);
   }
 
-  const nodes = graph?.nodes || [];
+  const liveGraph = useMemo(() => mergeLiveGraph(graph, confidence), [graph, confidence]);
+  const nodes = liveGraph?.nodes || [];
   // Settle the force layout only when the topology actually changes (the sim
   // runs 320 ticks), not on every pan/zoom/focus re-render.
   const graphSig = `${nodes.map((n) => n.id).join(',')}|${(graph?.edges || []).map((e) => `${e.source}>${e.target}`).join(',')}`;
   const positions = useMemo(
-    () => computeForceLayout(nodes, graph?.edges || [], SVG_W, SVG_H),
+    () => computeForceLayout(nodes, liveGraph?.edges || [], SVG_W, SVG_H),
     [graphSig], // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   // Pre-compute neighbors of the focused node for opacity rules.
   const neighborIds = focusedNodeId ? new Set() : null;
-  if (focusedNodeId && graph?.edges) {
-    graph.edges.forEach((edge) => {
+  if (focusedNodeId && liveGraph?.edges) {
+    liveGraph.edges.forEach((edge) => {
       if (edge.source === focusedNodeId) neighborIds.add(edge.target);
       if (edge.target === focusedNodeId) neighborIds.add(edge.source);
     });
@@ -211,10 +269,10 @@ export default function CausalGraph() {
             boundary="Runtime shows the active operating basis; this view explains propagation paths."
           />
         </div>
-        {graph?.nodes && (
+          {liveGraph?.nodes && (
           <div className="px-5 py-1.5 border-b border-[var(--border)] flex-shrink-0 flex items-center gap-4 bg-[var(--bg-surface)]">
             <span className="caption-mono text-[var(--text-dim)]">
-              {graph.nodes.length} nodes / {graph.edges?.length || 0} edges
+              {liveGraph.nodes.length} nodes / {liveGraph.edges?.length || 0} edges / live confidence overlay
             </span>
             {focusedNodeId && (
               <span className="caption-mono text-[var(--primary)]">Focus: {focusedNodeId}</span>
@@ -236,7 +294,7 @@ export default function CausalGraph() {
             <div className="h-full flex items-center justify-center">
               <p className="label-caps text-[var(--text-muted)]">Loading graph...</p>
             </div>
-          ) : !graph?.nodes?.length ? (
+          ) : !liveGraph?.nodes?.length ? (
             <div className="h-full flex items-center justify-center">
               <p className="label-caps text-[var(--text-muted)]">No graph data available for {plantId}.</p>
             </div>
@@ -254,7 +312,7 @@ export default function CausalGraph() {
             >
               <g transform={`translate(${transform.tx},${transform.ty}) scale(${transform.k})`}>
                 {/* Edges */}
-                {(graph.edges || []).map((edge) => {
+                {(liveGraph.edges || []).map((edge) => {
                   const a = positions[edge.source];
                   const b = positions[edge.target];
                   if (!a || !b) return null;
@@ -314,12 +372,12 @@ export default function CausalGraph() {
                       </text>
                       <text x={pos.x} y={pos.y + 8} textAnchor="middle"
                         fill={color} fontSize="12" fontFamily="Geist, monospace">
-                        {node.confidence_pct != null ? `${node.confidence_pct}%` : '-'}
+                        {node.confidence_pct != null ? `${Math.round(Number(node.confidence_pct))}%` : '-'}
                       </text>
                       <text x={pos.x} y={pos.y + 25} textAnchor="middle"
                         fill={color} fontSize="11" fontFamily="Geist, monospace"
                         style={{ letterSpacing: '0.04em', textTransform: 'uppercase' }}>
-                        {node.tier || '-'}
+                        {node.trust_state || node.tier || '-'}
                       </text>
                     </g>
                   );
@@ -352,7 +410,7 @@ export default function CausalGraph() {
         </div>
         <div className="flex-1 overflow-y-auto scrollbar-thin p-5 space-y-5">
           <p className="leading-relaxed text-[14px] text-[var(--text)]">
-            {graph?.narrative || 'No narrative available. Graph data may still be loading.'}
+            {liveGraph?.narrative || 'No narrative available. Graph data may still be loading.'}
           </p>
           <div className="industrial-card p-3">
             <p className="label-caps text-[var(--text-muted)]">Operational Use</p>
@@ -361,11 +419,11 @@ export default function CausalGraph() {
             </p>
             <Link to="/runtime" className="industrial-control inline-flex mt-3">Open Runtime Operating Basis</Link>
           </div>
-          {(graph?.causal_chains || []).length > 0 && (
+          {(liveGraph?.causal_chains || []).length > 0 && (
             <div>
               <p className="label-caps text-[var(--text-muted)] mb-3">Propagation Chains</p>
               <div className="space-y-1">
-                {graph.causal_chains.map((chain, i) => (
+                {liveGraph.causal_chains.map((chain, i) => (
                   <div key={i} className="industrial-card px-3 py-2 caption-mono text-[var(--text-muted)]">
                     {chain.join(' -> ')}
                   </div>
@@ -373,10 +431,10 @@ export default function CausalGraph() {
               </div>
             </div>
           )}
-          {graph?.edges?.filter((e) => e.is_propagating).length > 0 && (
+          {liveGraph?.edges?.filter((e) => e.is_propagating).length > 0 && (
             <div>
               <p className="label-caps text-[var(--text-muted)] mb-3">Active Propagations</p>
-              {graph.edges.filter((e) => e.is_propagating).map((e) => (
+              {liveGraph.edges.filter((e) => e.is_propagating).map((e) => (
                 <div key={`${e.source}-${e.target}`}
                   className="flex items-center gap-2 py-2 border-b border-[var(--border-subtle)]">
                   <span className="font-data text-[var(--warning)] text-[13px]">{e.source}</span>
