@@ -81,9 +81,15 @@ export default function PasteImportPanel({ busy, onImportResult, modelKey }) {
           {result.unresolved?.length > 0 && (
             <div className="bg-[var(--surface-panel)] p-3">
               <p className="label-caps status-critical">Unresolved Tags - Manual Mapping Required</p>
+              <p className="caption-mono text-[var(--text)] mt-1">
+                These tags were added to the Dirty Tag Import Gauntlet. Select each row in Mapping Court, then either manual-map it to a known signal/asset/role or ignore it with an engineering reason.
+              </p>
               <ul className="mt-2 space-y-1">
                 {result.unresolved.map((tag) => <li key={tag} className="caption-mono text-[var(--data-mono)] machine-token">{tag}</li>)}
               </ul>
+              <p className="caption-mono text-[var(--text-muted)] mt-2">
+                Run Validate HMI Build again after resolving the tags. Publish remains blocked while unresolved critical mappings remain.
+              </p>
             </div>
           )}
         </div>

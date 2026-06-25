@@ -234,10 +234,28 @@ class ConfidenceEngine:
             # Compute sub-scores
             reasons = []
 
+            failure_mode = r.get("failure_mode")
             cal_score = self._calibration_score(sid, reasons)
             stab_score = self._stability_score(sid, value, ts, reasons)
             cross_score = self._cross_sensor_score(sid, stype, value, readings_by_type, reasons)
             phys_score = self._physical_plausibility_score(sid, stype, value, reasons)
+
+            # Live simulator injections are explicit training-source evidence.
+            # Fold them into the deterministic trust rubric so support views
+            # respond immediately while still remaining read-only.
+            if failure_mode == "calibration_drift":
+                cal_score = min(cal_score, 0.45)
+                reasons.append("Calibration: simulator drift injection active.")
+            elif failure_mode == "stuck_reading":
+                stab_score = min(stab_score, 0.25)
+                reasons.append("Stability: simulator stuck-reading injection active.")
+            elif failure_mode == "sg_mismatch":
+                cross_score = min(cross_score, 0.45)
+                phys_score = min(phys_score, 0.7)
+                reasons.append("Cross-check: simulator specific-gravity mismatch active.")
+            elif failure_mode == "command_state_decoupling":
+                cross_score = min(cross_score, 0.35)
+                reasons.append("Cross-check: simulator command-state decoupling active.")
 
             sub = SubScores(
                 calibration_score=cal_score,
@@ -257,13 +275,13 @@ class ConfidenceEngine:
             pct = round(max(0.0, min(100.0, composite * 100)), 1)
             tier = self._get_tier(pct)
             dominant_factor = self._dominant_factor(sub)
-            namur_state = self._namur_state(tier, sub, r.get("failure_mode"))
+            namur_state = self._namur_state(tier, sub, failure_mode)
             evidence = self._build_evidence(
                 sensor_id=sid,
                 sensor_type=stype,
                 value=value,
                 unit=r.get("unit", ""),
-                failure_mode=r.get("failure_mode"),
+                failure_mode=failure_mode,
                 sub_scores=sub,
                 reasons=reasons,
             )

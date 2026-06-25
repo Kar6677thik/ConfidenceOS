@@ -29,7 +29,7 @@ function ForecastStatusBadge({ pred }) {
     : status === 'insufficient_history'
     ? 'Collecting'
     : status === 'active_degradation'
-    ? 'Degrading'
+    ? (pred.time_to_low_hours == null && pred.time_to_critical_hours == null ? 'Live Active' : 'Degrading')
     : status === 'model_error'
     ? 'Model Issue'
     : status;
@@ -45,6 +45,8 @@ function forecastLabel(pred) {
   const status = pred.forecast_status || pred.model_fit;
   if (status === 'insufficient_history') return `Collecting history (${pred.sample_count || 0} samples)`;
   if (status === 'flat_or_no_degradation') return 'No active confidence degradation';
+  if (status === 'active_degradation' && pred.live_failure_mode) return `Active ${pred.live_failure_mode.replace(/_/g, ' ')} evidence`;
+  if (status === 'active_degradation') return 'Active confidence degradation evidence';
   if (status === 'model_error') return 'Forecast model unavailable';
   return pred.model_type || 'deterministic trend';
 }
@@ -53,17 +55,22 @@ function forecastLabel(pred) {
 // not broken - distinguishes "stable" from "not enough data to project".
 function forecastDetail(pred) {
   const status = pred.forecast_status || pred.model_fit;
+  if (pred.active_evidence?.length) return pred.active_evidence[0];
   if (status === 'insufficient_history') return 'Not enough confidence history yet to project a trend.';
   if (status === 'flat_or_no_degradation') return 'Confidence is stable over the evidence window - no threshold estimate is generated.';
   if (status === 'model_error') return 'Forecast model could not run; deterministic status only.';
+  if (status === 'active_degradation') return 'Live Runtime evidence is degraded; threshold time is shown only when the trend window supports it.';
   return null;
 }
 
 function evidenceLabel(pred) {
   const evidence = pred.evidence_window || {};
   const samples = evidence.history_sample_count ?? pred.sample_count ?? 0;
+  const forecastSamples = evidence.forecast_sample_count;
   const source = evidence.source || 'confidence_log';
-  return `${samples} history samples / ${source}`;
+  return forecastSamples == null
+    ? `${samples} history samples / ${source}`
+    : `${forecastSamples} recent samples (${samples} persisted) / ${source}`;
 }
 
 export default function PredictiveTimeline() {
@@ -79,7 +86,7 @@ export default function PredictiveTimeline() {
 
   const rows = Object.values(predictions || {});
   const actionQueue = rows
-    .filter((p) => p.time_to_low_hours != null || p.time_to_critical_hours != null)
+    .filter((p) => p.time_to_low_hours != null || p.time_to_critical_hours != null || p.forecast_status === 'active_degradation')
     .sort((a, b) =>
       (a.time_to_critical_hours ?? a.time_to_low_hours ?? 99) -
       (b.time_to_critical_hours ?? b.time_to_low_hours ?? 99)
@@ -159,7 +166,8 @@ export default function PredictiveTimeline() {
               const low  = Math.min(WINDOW_HOURS, pred.time_to_low_hours ?? WINDOW_HOURS);
               const crit = Math.min(WINDOW_HOURS, pred.time_to_critical_hours ?? WINDOW_HOURS);
               const isCrit = pred.time_to_critical_hours != null && pred.time_to_critical_hours < 4;
-              const color = isCrit ? 'var(--critical)' : pred.time_to_low_hours != null ? 'var(--primary-dim)' : 'var(--text-dim)';
+              const isActive = pred.forecast_status === 'active_degradation';
+              const color = isCrit ? 'var(--critical)' : pred.time_to_low_hours != null || isActive ? 'var(--primary-dim)' : 'var(--text-dim)';
 
               return (
                 <div key={pred.sensor_id}
@@ -245,7 +253,7 @@ export default function PredictiveTimeline() {
               </h2>
             </div>
             <div className="p-4 space-y-3">
-              {rows.filter((pred) => !pred.time_to_low_hours && !pred.time_to_critical_hours).slice(0, 3).map((pred) => (
+              {rows.filter((pred) => !pred.time_to_low_hours && !pred.time_to_critical_hours && pred.forecast_status !== 'active_degradation').slice(0, 3).map((pred) => (
                 <div key={`${pred.sensor_id}-flat`} className="industrial-card p-3">
                   <div className="flex items-center justify-between gap-3">
                     <p className="font-data text-[13px] text-[var(--text)]">{pred.sensor_id}</p>
@@ -262,6 +270,7 @@ export default function PredictiveTimeline() {
               {actionQueue.map((pred) => {
                 const hours = pred.time_to_critical_hours ?? pred.time_to_low_hours;
                 const isCrit = pred.time_to_critical_hours != null && pred.time_to_critical_hours < 4;
+                const isLiveActive = pred.forecast_status === 'active_degradation' && hours == null;
                 const borderColor = isCrit ? 'var(--critical)' : 'var(--primary-dim)';
                 const confColor   = isCrit ? 'var(--critical)' : 'var(--primary-dim)';
                 return (
@@ -273,7 +282,7 @@ export default function PredictiveTimeline() {
                       <div className="flex justify-between items-start mb-1">
                         <span className="label-caps px-1.5 py-0.5 rounded"
                           style={{ color: confColor, background: `${confColor}1a` }}>
-                          TTC: {hours != null ? `${isCrit ? '< 4h' : `~${hours}h`}` : '-'}
+                          {isLiveActive ? 'Live evidence' : `TTC: ${hours != null ? `${isCrit ? '< 4h' : `~${hours}h`}` : '-'}`}
                         </span>
                         <ConfidenceBadge conf={pred.current_confidence} />
                       </div>

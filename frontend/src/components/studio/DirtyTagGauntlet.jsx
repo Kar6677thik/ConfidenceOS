@@ -1,6 +1,16 @@
 import Panel from './Panel';
 import { formatText, statusClass } from './studioUtils';
 
+function nextAction(row) {
+  const bucket = String(row?.bucket || '').toLowerCase();
+  if (bucket === 'mapped') return 'Approved. Run build to validate.';
+  if (bucket === 'ignored') return 'Ignored with engineering reason.';
+  if (bucket === 'ambiguous') return 'Select row: approve, manual-map, or keep blocking.';
+  if (bucket === 'unmapped') return 'Select row: manual-map to a known signal or ignore with reason.';
+  if (row?.blocking || bucket === 'blocking') return 'Select row: resolve in Mapping Court before publish.';
+  return 'Select row for Mapping Court evidence.';
+}
+
 export default function DirtyTagGauntlet({ court, selectedRawTag, onSelect }) {
   const counts = court?.counts || {};
   const rows = court?.items || [];
@@ -46,6 +56,9 @@ export default function DirtyTagGauntlet({ court, selectedRawTag, onSelect }) {
               <p className="label-caps text-[var(--text-muted)] mt-1">
                 {row.bucket === 'mapped' ? 'approved mapping' : row.bucket === 'ignored' ? 'ignored' : 'suggested mapping'}
               </p>
+              {row.bucket !== 'mapped' && row.bucket !== 'ignored' && (
+                <p className="caption-mono text-[var(--text-muted)] mt-2">{nextAction(row)}</p>
+              )}
             </div>
             <div className="bg-[var(--surface-panel)] p-3">
               <p className={`caption-mono ${row.blocking ? 'status-critical' : statusClass(row.bucket)}`}>{formatText(row.bucket)}</p>

@@ -2193,44 +2193,135 @@ def get_fleet_history(hours: float = Query(default=24.0), db: Session = Depends(
 
 # ─── Confidence Degradation Forecast (Module 7) ──────────────────────────────
 
+FORECAST_HISTORY_HOURS = 24.0
+FORECAST_RECENT_SAMPLE_LIMIT = 240
+ACTIVE_FORECAST_TRUST_STATES = {"DEGRADED", "QUARANTINED", "UNAVAILABLE", "LOW", "CRITICAL"}
+ACTIVE_FORECAST_TIERS = {"LOW", "CRITICAL"}
+
+
+def _latest_readings_by_sensor(plant) -> dict[str, dict]:
+    return {
+        reading.get("sensor_id"): reading
+        for reading in (plant.latest_readings or [])
+        if reading.get("sensor_id")
+    }
+
+
+def _recent_forecast_window(history: list[dict]) -> list[dict]:
+    """Use recent evidence so a fresh injected degradation is not buried."""
+    if len(history) <= FORECAST_RECENT_SAMPLE_LIMIT:
+        return history
+    return history[-FORECAST_RECENT_SAMPLE_LIMIT:]
+
+
+def _decorate_prediction_with_live_evidence(
+    pred: dict,
+    live: dict | None,
+    latest_reading: dict | None,
+    full_history_count: int,
+    forecast_sample_count: int,
+) -> dict:
+    live = live or {}
+    latest_reading = latest_reading or {}
+    failure_mode = latest_reading.get("failure_mode")
+    trust_state = (live.get("trust_state") or live.get("tier") or "").upper()
+    tier = (live.get("tier") or "").upper()
+    dominant_factor = live.get("dominant_factor")
+    current_confidence = live.get("confidence_pct")
+    active_evidence = []
+
+    if failure_mode:
+        active_evidence.append(f"Live simulator failure mode active: {failure_mode.replace('_', ' ')}.")
+    if tier in ACTIVE_FORECAST_TIERS:
+        active_evidence.append(f"Current confidence tier is {tier}.")
+    if trust_state in ACTIVE_FORECAST_TRUST_STATES and trust_state != tier:
+        active_evidence.append(f"Runtime trust state is {trust_state}.")
+    if dominant_factor and dominant_factor != "none":
+        active_evidence.append(f"Dominant confidence factor is {dominant_factor.replace('_', ' ')}.")
+
+    if current_confidence is not None:
+        try:
+            current_value = float(current_confidence)
+            if current_value <= 20:
+                pred["time_to_critical_hours"] = 0
+                pred["time_to_low_hours"] = 0
+            elif current_value <= 50:
+                pred["time_to_low_hours"] = 0
+        except (TypeError, ValueError):
+            pass
+
+    if active_evidence:
+        if pred.get("forecast_status") in (None, "flat_or_no_degradation", "insufficient_history"):
+            pred["forecast_status"] = "active_degradation"
+        if pred.get("model_type") in (None, "insufficient_data", "linear"):
+            pred["model_type"] = "live_runtime_evidence"
+        if pred.get("model_fit") in (None, "insufficient", "poor"):
+            pred["model_fit"] = "live"
+        pred["active_evidence"] = active_evidence
+        pred["recommended_action"] = (
+            live.get("recommended_action")
+            or "Active trust degradation evidence is present. Verify the affected evidence path before using this signal as operating basis."
+        )
+
+    pred.update({
+        "current_confidence": live.get("confidence_pct", pred.get("current_confidence")),
+        "current_tier": live.get("tier", pred.get("current_tier")),
+        "trust_state": live.get("trust_state") or live.get("tier") or pred.get("trust_state"),
+        "dominant_factor": dominant_factor or pred.get("dominant_factor"),
+        "live_failure_mode": failure_mode,
+        "evidence_window": {
+            "history_sample_count": full_history_count,
+            "forecast_sample_count": forecast_sample_count,
+            "live_snapshot_available": bool(live),
+            "source": (
+                "recent confidence_log window + latest Runtime trust state"
+                if full_history_count
+                else "latest Runtime trust state only"
+            ),
+            "minimum_samples_for_forecast": 10,
+            "recent_sample_limit": FORECAST_RECENT_SAMPLE_LIMIT,
+        },
+        "forecast_boundary": "Deterministic confidence trend estimate only; not a failure forecast and not a control action.",
+    })
+    return pred
+
+
 @app.get("/api/predictions/{plant_id}")
 def get_predictions(plant_id: str, db: Session = Depends(get_db)):
     """Return confidence degradation forecasts for all sensors in a plant."""
     plant = plant_manager.get(plant_id)
     live_confidence = dict(plant.latest_confidence or {})
+    latest_readings = _latest_readings_by_sensor(plant)
+    full_histories: dict[str, list[dict]] = {}
     histories: dict[str, list[dict]] = {}
     for sid in live_confidence:
-        histories[sid] = get_confidence_history(db, plant_id, sid, hours=24.0)
+        full_history = get_confidence_history(db, plant_id, sid, hours=FORECAST_HISTORY_HOURS)
+        full_histories[sid] = full_history
+        histories[sid] = _recent_forecast_window(full_history)
     predictions = predict_all_sensors(histories)
     for sid, live in live_confidence.items():
         pred = predictions.setdefault(sid, predict_all_sensors({sid: []}).get(sid, {}))
-        history_count = len(histories.get(sid, []))
-        pred.update({
-            "sensor_id": sid,
-            "current_confidence": live.get("confidence_pct"),
-            "current_tier": live.get("tier"),
-            "trust_state": live.get("trust_state") or live.get("tier"),
-            "dominant_factor": live.get("dominant_factor"),
-            "recommended_action": pred.get("recommended_action") or live.get("recommended_action"),
-            "evidence_window": {
-                "history_sample_count": history_count,
-                "live_snapshot_available": True,
-                "source": "confidence_log + latest Runtime trust state" if history_count else "latest Runtime trust state only",
-                "minimum_samples_for_forecast": 10,
-            },
-            "forecast_boundary": "Deterministic confidence trend estimate only; not a failure forecast and not a control action.",
-        })
-    total_history_rows = sum(len(history) for history in histories.values())
+        _decorate_prediction_with_live_evidence(
+            pred,
+            live,
+            latest_readings.get(sid),
+            len(full_histories.get(sid, [])),
+            len(histories.get(sid, [])),
+        )
+        pred["sensor_id"] = sid
+    total_history_rows = sum(len(history) for history in full_histories.values())
+    total_forecast_rows = sum(len(history) for history in histories.values())
     return {
         "plant_id": plant_id,
         "predictions": predictions,
         "meta": {
-            "status": "active" if total_history_rows >= 10 else ("current_snapshot_only" if live_confidence else "insufficient_history"),
-            "history_window_hours": 24.0,
+            "status": "active" if total_forecast_rows >= 10 else ("current_snapshot_only" if live_confidence else "insufficient_history"),
+            "history_window_hours": FORECAST_HISTORY_HOURS,
             "history_sample_count": total_history_rows,
+            "forecast_sample_count": total_forecast_rows,
             "live_snapshot_count": len(live_confidence),
             "minimum_samples_per_sensor": 10,
-            "source": "confidence_log plus latest Runtime trust state",
+            "source": "recent confidence_log window plus latest Runtime trust state",
             "boundary": "Confidence Degradation Forecast is deterministic trend evidence, not a failure forecast.",
         },
         "timestamp": time.time(),
@@ -2241,26 +2332,23 @@ def get_predictions(plant_id: str, db: Session = Depends(get_db)):
 def get_sensor_prediction(plant_id: str, sensor_id: str, db: Session = Depends(get_db)):
     """Return confidence degradation forecast for a single sensor."""
     plant = plant_manager.get(plant_id)
-    history = get_confidence_history(db, plant_id, sensor_id, hours=24.0)
+    full_history = get_confidence_history(db, plant_id, sensor_id, hours=FORECAST_HISTORY_HOURS)
+    history = _recent_forecast_window(full_history)
     from prediction import predict_sensor
     prediction = predict_sensor(history)
     prediction["sensor_id"] = sensor_id
-    if history:
+    live = plant.latest_confidence.get(sensor_id)
+    latest_reading = _latest_readings_by_sensor(plant).get(sensor_id)
+    _decorate_prediction_with_live_evidence(
+        prediction,
+        live,
+        latest_reading,
+        len(full_history),
+        len(history),
+    )
+    if not live and history:
         prediction["current_confidence"] = history[-1].get("confidence_pct", 0)
         prediction["current_tier"] = history[-1].get("tier", "HIGH")
-    live = plant.latest_confidence.get(sensor_id)
-    if live:
-        prediction["current_confidence"] = live.get("confidence_pct")
-        prediction["current_tier"] = live.get("tier")
-        prediction["trust_state"] = live.get("trust_state") or live.get("tier")
-        prediction["dominant_factor"] = live.get("dominant_factor")
-    prediction["evidence_window"] = {
-        "history_sample_count": len(history),
-        "live_snapshot_available": bool(live),
-        "source": "confidence_log + latest Runtime trust state" if history and live else "confidence_log" if history else "latest Runtime trust state only" if live else "no evidence yet",
-        "minimum_samples_for_forecast": 10,
-    }
-    prediction["forecast_boundary"] = "Deterministic confidence trend estimate only; not a failure forecast and not a control action."
     return prediction
 
 

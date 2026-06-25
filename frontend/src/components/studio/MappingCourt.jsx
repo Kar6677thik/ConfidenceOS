@@ -29,7 +29,9 @@ export default function MappingCourt({
   const aiEvidence = asList(item?.ai_evidence);
   const aiCounterEvidence = asList(item?.ai_counter_evidence);
   const hasAiNarrative = !!item?.ai_narrative;
-  const needsManualResolution = item && ['unmapped', 'ambiguous', 'blocking'].includes(String(item.bucket || '').toLowerCase());
+  const bucket = String(item?.bucket || '').toLowerCase();
+  const needsManualResolution = item && ['unmapped', 'ambiguous', 'blocking'].includes(bucket);
+  const hasProposal = !!item?.proposed_canonical_tag;
 
   const displayLabel = aiLabel
     || (item?.ai_assisted
@@ -77,6 +79,27 @@ export default function MappingCourt({
         </div>
       )}
 
+      {needsManualResolution && (
+        <div className="mb-4 border border-[var(--border-strong)] bg-[var(--surface-base)] p-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className={`label-caps ${bucket === 'unmapped' ? 'status-critical' : 'status-warning'}`}>Resolution Required</p>
+              <p className="caption-mono text-[var(--text)] mt-1">
+                {hasProposal
+                  ? 'Review the proposed mapping. Approve it, keep it blocking, or use manual mapping if the proposal is wrong.'
+                  : 'No canonical mapping was found. Choose a known signal/asset/role in Manual Mapping, or ignore this tag with an engineering reason.'}
+              </p>
+              <p className="caption-mono text-[var(--text-muted)] mt-2">
+                After resolving the tag, run Validate HMI Build again. Publish stays blocked until Mapping Court blockers clear.
+              </p>
+            </div>
+            <span className={`industrial-badge ${hasProposal ? 'status-warning' : 'status-critical'}`}>
+              {hasProposal ? 'review mapping' : 'manual action'}
+            </span>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-[1px] bg-[var(--border-strong)]">
         {[
           ['Proposed Canonical Tag', item?.proposed_canonical_tag || 'none'],
@@ -119,7 +142,7 @@ export default function MappingCourt({
           />
         </div>
         <div className="bg-[var(--surface-panel)] p-3 flex items-center">
-          <button disabled={busy || !item?.proposed_canonical_tag} onClick={onApprove} className="industrial-control status-safe w-full disabled:opacity-40">Approve</button>
+          <button disabled={busy || !hasProposal} onClick={onApprove} className="industrial-control status-safe w-full disabled:opacity-40" title={hasProposal ? 'Approve proposed mapping.' : 'No proposed canonical tag exists. Use Manual Mapping or Ignore.'}>Approve</button>
         </div>
         <div className="bg-[var(--surface-panel)] p-3 flex items-center">
           <button disabled={busy || !item} onClick={onIgnore} className="industrial-control status-warning w-full disabled:opacity-40">Ignore</button>
